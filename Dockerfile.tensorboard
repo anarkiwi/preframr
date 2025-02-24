@@ -1,0 +1,6 @@
+FROM ubuntu:24.04
+ARG PIP_OPTS=""
+ENV PIP_OPTS=$PIP_OPTS
+RUN apt-get -yq update && apt-get install -yq python3-pip && pip install --break-system-package $PIP_OPTS tensorboard
+EXPOSE 6006
+CMD ["tensorboard", "--bind_all", "--logdir", "/tb_logs", "serve"]
