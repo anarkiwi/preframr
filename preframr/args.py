@@ -57,7 +57,7 @@ def add_args(parser):
     parser.add_argument("--kv-heads", type=int, default=8)
     parser.add_argument("--embed", type=int, default=512)
     parser.add_argument("--intermediate", type=int, default=None)
-    parser.add_argument("--norm-eps", type=float, default=1e-2)
+    parser.add_argument("--norm-eps", type=float, default=1e-1)
     parser.add_argument("--rope-base", type=float, default=5e5)
     parser.add_argument("--rope-scale", type=float, default=8)
     parser.add_argument("--temperature", type=float, default=1.0)
@@ -80,5 +80,5 @@ def add_args(parser):
         default="bfloat16",
         choices=list(MODEL_PRECISION.keys()),
     )
-    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--weight-decay", type=float, default=0.001)
     return parser
