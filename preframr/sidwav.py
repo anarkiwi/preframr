@@ -49,6 +49,8 @@ def write_samples(df, name, reg_widths):
                 voice = row.val
             elif row.reg == FRAME_REG:
                 voice = 0
+            elif row.reg == DELAY_REG:
+                row.delay = row.val * row.irq
         else:
             val = row.val
             reg = row.reg
