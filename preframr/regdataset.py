@@ -363,8 +363,10 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._quantize_diff(df)
         # TODO: handle short delays
         df = self._drop_subdiff(df, irq)
-        m = (df["reg"] == DELAY_REG) & (df["val"] > irq)
-        df.loc[m, "val"] = (df["val"].floordiv(irq) * irq).astype(VAL_PDTYPE)
+        df.loc[df["reg"] == DELAY_REG, "val"] = (
+            (df["diff"] / float(irq)).round(0).astype(VAL_PDTYPE)
+        )
+        df.loc[df["reg"] == DELAY_REG, "diff"] = 0
         dfs = []
         # df_hashes = set()
         for df in self._rotate_voice_augment(df, augment=augment):

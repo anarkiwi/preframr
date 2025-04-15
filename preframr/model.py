@@ -196,12 +196,13 @@ class Model(LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        preds = self.model(x)
-        acc = (preds.argmax(dim=-1) == y).float().mean()
+        preds = self.model(x).swapaxes(1, 2)
+        acc = torchmetrics.functional.classification.accuracy(
+            preds, y, task="multiclass", num_classes=preds.shape[1]
+        )
         loss = torch.nn.functional.cross_entropy(
-            input=preds.view(-1, preds.size(-1)),
-            target=y.view(-1),
-            ignore_index=-1,
+            input=preds,
+            target=y,
         )
         self.log("train_loss", loss, on_epoch=True, on_step=True)
         self.log("train_acc", acc, on_epoch=True, on_step=True)
