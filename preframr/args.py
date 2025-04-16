@@ -54,7 +54,7 @@ def add_args(parser):
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--layers", type=int, default=12)
     parser.add_argument("--heads", type=int, default=8)
-    parser.add_argument("--kv-heads", type=int, default=4)
+    parser.add_argument("--kv-heads", type=int, default=8)
     parser.add_argument("--embed", type=int, default=512)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-5)
