@@ -308,6 +308,8 @@ class RegDataset(torch.utils.data.Dataset):
         return df[(df["reg"] != DELAY_REG) | ((irqdiff >= irq) & (df["diff"] > irq))]
 
     def _norm_reg_order(self, orig_df, max_perm=99):
+        if max_perm == 0:
+            yield orig_df
         permutations = sorted(itertools.permutations(range(VOICES)))
         for order in permutations[:max_perm]:
             df = orig_df.copy()
@@ -349,7 +351,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].astype(orig_df.dtypes)
         return df
 
-    def _downsample_df(self, df, diffmin=8, diffmax=256, augment=True):
+    def _downsample_df(self, df, diffmin=8, diffmax=256, augment=True, max_perm=1):
         for v in range(VOICES):
             # self._maskregbits(df, v * VOICE_REG_SIZE, 1)
             self._maskregbits(df, v * VOICE_REG_SIZE + 2, 4)
@@ -370,27 +372,22 @@ class RegDataset(torch.utils.data.Dataset):
         dfs = []
         # df_hashes = set()
         for df in self._rotate_voice_augment(df, augment=augment):
-            # for df in self._norm_reg_order(df, max_perm=1):
-            # df_hash = hash(pd.util.hash_pandas_object(df).to_numpy().tobytes())
-            # if df_hash in df_hashes:
-            #    continue
-            # df_hashes.add(df_hash)
-            # df = self._add_ctrl_reg(df)
-            df = self._add_voice_reg(df)
-            df["irq"] = irq
-            df = df[TOKEN_KEYS + ["irq"]].astype(
-                {
-                    "reg": REG_PDTYPE,
-                    "val": VAL_PDTYPE,
-                    "diff": MODEL_PDTYPE,
-                    "irq": MODEL_PDTYPE,
-                }
-            )
-            if df.iloc[-1]["reg"] == FRAME_REG:
-                df = df.head(len(df) - 1)
-            if df.iloc[0]["reg"] == FRAME_REG:
-                df = df.tail(len(df) - 1)
-            yield df
+            for df in self._norm_reg_order(df, max_perm=max_perm):
+                df = self._add_voice_reg(df)
+                df["irq"] = irq
+                df = df[TOKEN_KEYS + ["irq"]].astype(
+                    {
+                        "reg": REG_PDTYPE,
+                        "val": VAL_PDTYPE,
+                        "diff": MODEL_PDTYPE,
+                        "irq": MODEL_PDTYPE,
+                    }
+                )
+                if df.iloc[-1]["reg"] == FRAME_REG:
+                    df = df.head(len(df) - 1)
+                if df.iloc[0]["reg"] == FRAME_REG:
+                    df = df.tail(len(df) - 1)
+                yield df
 
     def get_reg_widths(self, dfs):
         reg_widths = {}
@@ -462,10 +459,10 @@ class RegDataset(torch.utils.data.Dataset):
         tk.save(self.args.tkmodel)
         del tk
 
-    def load_df(self, name, augment):
+    def load_df(self, name, augment, max_perm):
         dfs = []
         for i, df in enumerate(
-            self._downsample_df(self._read_df(name), augment=augment)
+            self._downsample_df(self._read_df(name), augment=augment, max_perm=max_perm)
         ):
             irq = df["irq"][0]
             if irq < self.args.min_irq or irq > self.args.max_irq:
@@ -475,10 +472,13 @@ class RegDataset(torch.utils.data.Dataset):
             dfs.append(df)
         return dfs
 
-    def load_dfs(self, dump_files, augment):
+    def load_dfs(self, dump_files, augment, max_perm):
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             results = executor.map(
-                self.load_df, sorted(dump_files), [augment for _ in sorted(dump_files)]
+                self.load_df,
+                sorted(dump_files),
+                [augment for _ in sorted(dump_files)],
+                [max_perm for _ in sorted(dump_files)],
             )
         dfs = []
         df_files = []
@@ -545,18 +545,23 @@ class RegDataset(torch.utils.data.Dataset):
                 self.args.token_csv, dtype=MODEL_PDTYPE, index_col=0
             )
             df_files, self.dfs = self.load_dfs(
-                [self.args.reglog], augment=augment_rotate
+                [self.args.reglog],
+                augment=augment_rotate,
+                max_perm=self.args.norm_order,
             )
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
         else:
             dump_files = self.glob_dumps(self.args.reglogs, self.args.max_files)
-            df_files, self.dfs = self.load_dfs(dump_files, augment=augment_rotate)
+            df_files, self.dfs = self.load_dfs(
+                dump_files, augment=augment_rotate, max_perm=self.args.norm_order
+            )
             _token_df_files, token_dfs = self.load_dfs(
                 self.glob_dumps(
                     self.args.token_reglogs,
                     self.args.max_files,
                 ),
                 augment=augment_rotate,
+                max_perm=self.args.norm_order,
             )
             self.tokens = self._make_tokens(self.dfs + token_dfs)
             self.dfs = self.merge_tokens(self.tokens, self.dfs)

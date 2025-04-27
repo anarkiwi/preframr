@@ -47,6 +47,7 @@ def add_args(parser):
     parser.add_argument("--tkmodel", type=str, default="/scratch/preframr/tk.model")
     parser.add_argument("--shuffle", action=BooleanOptionalAction, default=True)
     parser.add_argument("--augment-rotate", action=BooleanOptionalAction, default=False)
+    parser.add_argument("--norm-order", type=int, default=1)
     parser.add_argument("--max-files", type=int, default=1024)
     parser.add_argument("--min-irq", type=int, default=int(1e4))
     parser.add_argument("--max-irq", type=int, default=int(4e4))
