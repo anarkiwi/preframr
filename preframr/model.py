@@ -275,4 +275,4 @@ def get_device(args, logger):
             ipex_compile,
         )
     logger.info("using cpu")
-    return (torch.device("cpu"), lambda model: torch.compile(model))
+    return (torch.device("cpu"), lambda args, model: torch.compile(model))
