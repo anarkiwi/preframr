@@ -639,9 +639,17 @@ class RegDataset(torch.utils.data.Dataset):
 
 def get_loader(args, dataset):
     dataset.load()
+    if args.shuffle:
+        length = args.shuffle / 1.0
+        sampler = torch.utils.data.RandomSampler(
+            dataset, num_samples=int(length * len(dataset))
+        )
+    else:
+        sampler = torch.utils.data.SequentialSampler(dataset)
+
     return torch.utils.data.DataLoader(
         dataset,
-        shuffle=args.shuffle,
+        sampler=sampler,
         pin_memory=True,
         batch_size=args.batch_size,
         num_workers=4,  # os.cpu_count(),
