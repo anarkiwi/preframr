@@ -1,6 +1,6 @@
 pandas==2.2.3
 pyarrow==20.0.0
-pyresidfp==0.15.2
+pyresidfp==0.16.0
 pytorch-lightning==2.5.1.post0
 scipy==1.15.2
 schedulefree==1.4.1
