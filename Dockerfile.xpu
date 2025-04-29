@@ -1,4 +1,4 @@
-FROM intel/intel-extension-for-pytorch:2.6.10-xpu-pip-base
+FROM intel/intel-extension-for-pytorch:2.7.10-xpu-pip-base
 COPY requirements.txt test-requirements.txt /root
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
