@@ -85,8 +85,8 @@ def generate_sequence(args, logger, dataset, model, predictor):
     df = state_df(dataset.decode(states), dataset, irq)
     predicted_compare = prompt_compare[args.prompt_seq_len :]
     acc = torchmetrics.functional.classification.multiclass_accuracy(
-        predict_states[: len(predicted_compare)],
-        predicted_compare,
+        predict_states[: len(predicted_compare)].to("cpu"),
+        predicted_compare.to("cpu"),
         dataset.n_vocab,
     )
     acc = "%3.3f" % acc
