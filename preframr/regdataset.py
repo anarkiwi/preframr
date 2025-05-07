@@ -163,7 +163,7 @@ class RegDataset(torch.utils.data.Dataset):
             reg_df["val"] = reg_df["val"].astype(dtype) + reg_df[str(i)]
         return reg_df[origcols]
 
-    def _combine_reg(self, orig_df, reg, diffmax=128):
+    def _combine_reg(self, orig_df, reg, diffmax=512):
         df = orig_df.copy()
         df["oclock"] = df["diff"].cumsum()
         df["dclock"] = df["oclock"].floordiv(diffmax)
@@ -188,7 +188,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = pd.concat([df, reg_df]).sort_values(["clock"]).reset_index(drop=True)
         return df
 
-    def _combine_regs(self, df, diffmax=128, regs=(0,)):
+    def _combine_regs(self, df, diffmax=512, regs=(0,)):
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
             for reg in regs:
@@ -342,7 +342,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _norm_voice_reg_order(self, orig_df, diffmax=128):
+    def _norm_voice_reg_order(self, orig_df, diffmax=512):
         df = orig_df.copy()
         assert df[df["reg"] == VOICE_REG].empty
         m = df["reg"] == FRAME_REG
@@ -383,7 +383,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].astype(orig_df.dtypes)
         return df
 
-    def _downsample_df(self, df, diffmin=8, diffmax=256):
+    def _downsample_df(self, df, diffmin=8, diffmax=512):
         df = self._squeeze_changes(df)
         if df.empty:
             return
