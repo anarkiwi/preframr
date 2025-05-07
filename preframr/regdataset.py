@@ -383,6 +383,29 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].astype(orig_df.dtypes)
         return df
 
+    def _consolidate_delays(self, orig_df, irq):
+        df = orig_df.copy()
+        val = (df["diff"] / float(irq)).round(0).astype(VAL_PDTYPE)
+        df.loc[df["reg"] == DELAY_REG, "val"] = val
+        df = df[~((df["reg"] == DELAY_REG) & (df["val"] == 0))]
+        df["i"] = df.index * 2
+        df["reg_next"] = df["reg"].shift(-1)
+        m = (df["reg"] == DELAY_REG) & (df["val"] > 1) & (df["reg_next"] != FRAME_REG)
+        df_delay = df[m].copy()
+        df_frames = df_delay.copy()
+        df_nodelay = df[~m].copy()
+        df_delay["val"] -= 1
+        df_delay["diff"] = df_delay["val"] * irq
+        df_frames.loc[:, "reg"] = FRAME_REG
+        df_frames.loc[:, "val"] = 0
+        df_frames.loc[:, "diff"] = irq
+        df_frames["i"] += 1
+        df = pd.concat([df_delay, df_nodelay, df_frames]).sort_values(
+            ["i"], ascending=True
+        )
+        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        return df
+
     def _downsample_df(self, df, diffmin=8, diffmax=512):
         df = self._squeeze_changes(df)
         if df.empty:
@@ -392,12 +415,10 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._quantize_diff(df)
         # TODO: handle short delays
         df = self._drop_subdiff(df, irq)
-        df.loc[df["reg"] == DELAY_REG, "val"] = (
-            (df["diff"] / float(irq)).round(0).astype(VAL_PDTYPE)
-        )
-        df.loc[df["reg"] == DELAY_REG, "diff"] = 0
+        df = self._consolidate_delays(df, irq)
         df = self._norm_voice_reg_order(df, diffmax=diffmax)
         df = self._add_voice_reg(df)
+        df.loc[df["reg"] < 0, "diff"] = 8
         df["irq"] = irq
         df = df[TOKEN_KEYS + ["irq"]].astype(
             {
