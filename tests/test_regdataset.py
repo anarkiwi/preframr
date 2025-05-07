@@ -141,26 +141,24 @@ class TestRegDatasetLoader(unittest.TestCase):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(
             [
-                {"clock": 0, "reg": 1, "val": 1},
-                {"clock": 32, "reg": 1, "val": 1},
-                {"clock": 64, "reg": 2, "val": 1},
-                {"clock": 80, "reg": 2, "val": 2},
-                {"clock": 128, "reg": 1, "val": 2},
+                {"diff": 8, "reg": 1, "val": 1},
+                {"diff": 8, "reg": 1, "val": 1},
+                {"diff": 8, "reg": 2, "val": 1},
+                {"diff": 8, "reg": 2, "val": 2},
+                {"diff": 8, "reg": 1, "val": 2},
             ],
             dtype=MODEL_PDTYPE,
         )
         combine_df = pd.DataFrame(
             [
-                {"clock": 0, "reg": 1, "val": 1},
-                {"clock": 32, "reg": 1, "val": 1},
-                {"clock": 80, "reg": 1, "val": 513},
-                {"clock": 128, "reg": 1, "val": 514},
+                {"diff": 8, "reg": 1, "val": 1},
+                {"diff": 8, "reg": 1, "val": 257},
+                {"diff": 8, "reg": 1, "val": 514},
             ],
             dtype=MODEL_PDTYPE,
         )
-        self.assertTrue(
-            combine_df.equals(loader._combine_reg(test_df, 1, 16).astype(MODEL_PDTYPE))
-        )
+        result_df = loader._combine_reg(test_df, 1, 16).astype(MODEL_PDTYPE)
+        self.assertTrue(combine_df.equals(result_df), result_df)
 
     def test_combine_vreg(self):
         loader = RegDataset(FakeArgs())
@@ -224,6 +222,45 @@ class TestRegDatasetLoader(unittest.TestCase):
             drop=True
         )
         self.assertTrue(rotate_df.equals(result_df), result_df)
+
+    def test_norm_voice_reg_order(self):
+        loader = RegDataset(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": 21, "val": 9},
+                {"reg": 1, "val": 1},
+                {"reg": 0, "val": 1},
+                {"reg": 8, "val": 1},
+                {"reg": 11, "val": 1},
+                {"reg": 4, "val": 2},
+                {"reg": 16, "val": 2},
+                {"reg": 7, "val": 1},
+                {"reg": 4, "val": 1},
+                {"reg": -99, "val": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        test_df["diff"] = 8
+        test_df = test_df.astype(MODEL_PDTYPE)
+        norm_df = pd.DataFrame(
+            [
+                {"reg": 21, "val": 9, "diff": 8},
+                {"reg": 22, "val": 0, "diff": 8},
+                {"reg": 0, "val": 1, "diff": 8},
+                {"reg": 1, "val": 1, "diff": 8},
+                {"reg": 11, "val": 1, "diff": 8},
+                {"reg": 4, "val": 2, "diff": 8},
+                {"reg": 16, "val": 2, "diff": 8},
+                {"reg": 17, "val": 0, "diff": 8},
+                {"reg": 7, "val": 1, "diff": 8},
+                {"reg": 8, "val": 1, "diff": 8},
+                {"reg": 4, "val": 1, "diff": 8},
+                {"reg": -99, "val": 0, "diff": 8},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._norm_voice_reg_order(test_df).reset_index(drop=True)
+        self.assertTrue(result_df.equals(norm_df), result_df)
 
     def test_norm_reg_order(self):
         loader = RegDataset(FakeArgs())
