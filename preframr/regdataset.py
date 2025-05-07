@@ -602,10 +602,6 @@ class RegDataset(torch.utils.data.Dataset):
             seq = self.encode(df["n"])
             decoded_seq = self.decode(seq)
             encoded_seq = df["n"].to_numpy()
-            with open("/scratch/preframr/encoded.txt", "w") as f:
-                f.write("\n".join(["%u" % i for i in encoded_seq.tolist()]))
-            with open("/scratch/preframr/decoded.txt", "w") as f:
-                f.write("\n".join(["%u" % i for i in decoded_seq.tolist()]))
             assert np.array_equal(encoded_seq, decoded_seq), (
                 df_file,
                 encoded_seq,
