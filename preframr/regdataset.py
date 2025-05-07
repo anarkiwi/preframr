@@ -488,7 +488,10 @@ class RegDataset(torch.utils.data.Dataset):
         for i, df in enumerate(self._downsample_df(self._read_df(name))):
             irq = df["irq"][0]
             if irq < self.args.min_irq or irq > self.args.max_irq:
-                self.logger.info("skipped %s, irq %u", name, irq)
+                self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
+                break
+            if len(df) < self.args.seq_len:
+                self.logger.info("skipped %s, length %u (too short)", name, len(df))
                 break
             self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
             dfs.append(df)
