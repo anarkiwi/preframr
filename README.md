@@ -41,7 +41,7 @@ $ find /path/to/sid/files -name \*sid -print |parallel --progress docker run --r
 In this example, predict from a tune in the training set.
   
 ```
-$ ./predict.sh --temperature 1.1 --prompt-seq-len 128 --max-seq-len 8192 --start-n 0 --reglog /scratch/preframr/training-dumps/SOME_TUNE.dump.zst --wav /scratch/preframr/out.wav
+$ ./predict-nv.sh --temperature 1.1 --prompt-seq-len 128 --max-seq-len 8192 --start-n 0 --reglog /scratch/preframr/training-dumps/SOME_TUNE.dump.zst --wav /scratch/preframr/out.wav
 ```
 
 ## future work
