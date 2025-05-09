@@ -514,6 +514,14 @@ class RegDataset(torch.utils.data.Dataset):
             if len(df) < self.args.seq_len:
                 self.logger.info("skipped %s, length %u (too short)", name, len(df))
                 break
+            vol = sorted(
+                np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist()
+            )
+            if len(vol) >= 8:
+                self.logger.info(
+                    "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
+                )
+                break
             self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
             dfs.append(df)
         return dfs
