@@ -244,7 +244,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         test_df = test_df.astype(MODEL_PDTYPE)
         norm_df = pd.DataFrame(
             [
-                {"reg": 21, "val": 9, "diff": 8},
+                {"reg": 21, "val": 8, "diff": 8},
                 {"reg": 22, "val": 0, "diff": 8},
                 {"reg": 0, "val": 1, "diff": 8},
                 {"reg": 1, "val": 1, "diff": 8},
