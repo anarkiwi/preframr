@@ -151,13 +151,13 @@ class TestRegDatasetLoader(unittest.TestCase):
         )
         combine_df = pd.DataFrame(
             [
-                {"diff": 8, "reg": 1, "val": 1},
-                {"diff": 8, "reg": 1, "val": 257},
+                {"diff": 8, "reg": 1, "val": 0},
+                {"diff": 8, "reg": 1, "val": 256},
                 {"diff": 8, "reg": 1, "val": 514},
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._combine_reg(test_df, 1, 16).astype(MODEL_PDTYPE)
+        result_df = loader._combine_reg(test_df, 1, 16, bits=1).astype(MODEL_PDTYPE)
         self.assertTrue(combine_df.equals(result_df), result_df)
 
     def test_combine_vreg(self):

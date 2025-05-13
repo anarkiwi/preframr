@@ -163,7 +163,7 @@ class RegDataset(torch.utils.data.Dataset):
             reg_df["val"] = reg_df["val"].astype(dtype) + reg_df[str(i)]
         return reg_df[origcols]
 
-    def _combine_reg(self, orig_df, reg, diffmax=512):
+    def _combine_reg(self, orig_df, reg, diffmax=512, bits=0):
         df = orig_df.copy()
         df["oclock"] = df["diff"].cumsum()
         df["dclock"] = df["oclock"].floordiv(diffmax)
@@ -173,6 +173,8 @@ class RegDataset(torch.utils.data.Dataset):
         reg_df = self._combine_val(reg_df, reg, 2).drop_duplicates(
             ["dclock"], keep="last"
         )
+        if bits:
+            reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
         df = pd.concat([non_reg_df, reg_df]).sort_values(["oclock"], ascending=True)
         df = df[orig_df.columns].reset_index(drop=True).astype(orig_df.dtypes)
         return df
