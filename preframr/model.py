@@ -244,7 +244,20 @@ def get_model(dataset, args, logger, args_override=None, options=None):
 
 
 def cuda_compile(args, model):
-    return torch.compile(model, mode="max-autotune")
+    return torch.compile(
+        model,
+        # mode="max-autotune",
+        # fullgraph=True,
+        options={
+            k: True
+            for k in (
+                "epilogue_fusion",
+                "max_autotune",
+                # "shape_padding",
+                "triton.cudagraphs",
+            )
+        },
+    )
 
 
 def ipex_compile(args, model):
