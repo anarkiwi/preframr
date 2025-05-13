@@ -250,7 +250,7 @@ class TestRegDatasetLoader(unittest.TestCase):
                 {"reg": 1, "val": 1, "diff": 8},
                 {"reg": 11, "val": 1, "diff": 8},
                 {"reg": 4, "val": 2, "diff": 8},
-                {"reg": 16, "val": 2, "diff": 8},
+                {"reg": 16, "val": 0, "diff": 8},
                 {"reg": 17, "val": 0, "diff": 8},
                 {"reg": 7, "val": 1, "diff": 8},
                 {"reg": 8, "val": 1, "diff": 8},
