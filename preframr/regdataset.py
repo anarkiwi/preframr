@@ -352,7 +352,7 @@ class RegDataset(torch.utils.data.Dataset):
         df.loc[m, "diff"] = diffmax * 2
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            df = self._combine_reg(df, reg=v_offset, bits=0)
+            df = self._combine_reg(df, reg=v_offset, bits=1)
             df = self._combine_reg(df, reg=(v_offset + 2), bits=4)
         df = self._combine_reg(df, 21, bits=1)
         df.loc[df["reg"] == FRAME_REG, "diff"] = dmax
