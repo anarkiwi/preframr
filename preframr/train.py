@@ -16,6 +16,8 @@ def train(model, dataloader, args):
         max_epochs=args.max_epochs,
         default_root_dir=os.path.dirname(args.model_state),
         precision=args.trainer_precision,
+        accumulate_grad_batches=args.accumulate_grad_batches,
+        log_every_n_steps=args.log_every_n_steps,
         enable_checkpointing=True,
         logger=tb_logger,
         callbacks=[checkpoint_callback],

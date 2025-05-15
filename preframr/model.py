@@ -196,17 +196,21 @@ class Model(LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        preds = self.model(x).swapaxes(1, 2)
-        acc = torchmetrics.functional.classification.accuracy(
-            preds, y, task="multiclass", num_classes=preds.shape[1]
-        )
+        preds = self.model(x)
+        swapped_preds = preds.swapaxes(1, 2)
+        # acc = torchmetrics.functional.classification.accuracy(
+        #    swapped_preds, y, task="multiclass", num_classes=swapped_preds.shape[1]
+        # )
         loss = torch.nn.functional.cross_entropy(
-            input=preds,
+            input=swapped_preds,
             target=y,
         )
-        self.log("train_loss", loss, on_epoch=True, on_step=True)
-        self.log("train_acc", acc, on_epoch=True, on_step=True)
+        # self.log("train_loss", loss, on_epoch=True, on_step=True)
+        # self.log("train_acc", acc, on_epoch=True, on_step=True)
         return loss
+
+    def on_before_backward(self, loss):
+        self.log("train_loss", loss, on_epoch=True, on_step=True)
 
     def configure_optimizers(self):
         return self.optimizer
@@ -244,19 +248,13 @@ def get_model(dataset, args, logger, args_override=None, options=None):
 
 
 def cuda_compile(args, model):
+    option_keys = ["epilogue_fusion", "max_autotune"]
+    if args.accumulate_grad_batches == 1:
+        option_keys.append("triton.cudagraphs")
+
     return torch.compile(
         model,
-        # mode="max-autotune",
-        # fullgraph=True,
-        options={
-            k: True
-            for k in (
-                "epilogue_fusion",
-                "max_autotune",
-                # "shape_padding",
-                "triton.cudagraphs",
-            )
-        },
+        options={k: True for k in option_keys},
     )
 
 
