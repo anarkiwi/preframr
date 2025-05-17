@@ -393,9 +393,8 @@ class RegDataset(torch.utils.data.Dataset):
         val = (df["diff"] / float(irq)).round(0).astype(VAL_PDTYPE)
         df.loc[df["reg"] == DELAY_REG, "val"] = val
         df = df[~((df["reg"] == DELAY_REG) & (df["val"] == 0))]
-        df["i"] = df.index * 2
-        df["reg_next"] = df["reg"].shift(-1)
-        m = (df["reg"] == DELAY_REG) & (df["val"] > 1) & (df["reg_next"] != FRAME_REG)
+        df["i"] = df.index * 10
+        m = df["reg"] == DELAY_REG
         df_delay = df[m].copy()
         df_frames = df_delay.copy()
         df_nodelay = df[~m].copy()
@@ -404,8 +403,11 @@ class RegDataset(torch.utils.data.Dataset):
         df_frames.loc[:, "reg"] = FRAME_REG
         df_frames.loc[:, "val"] = 0
         df_frames.loc[:, "diff"] = irq
-        df_frames["i"] += 1
-        df = pd.concat([df_delay, df_nodelay, df_frames]).sort_values(
+        pre_df_frames = df_frames.copy()
+        pre_df_frames["i"] -= 5
+        # post_df_frames = df_frames.copy()
+        # post_df_frames["i"] += 5
+        df = pd.concat([df_delay, df_nodelay, pre_df_frames]).sort_values(
             ["i"], ascending=True
         )
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)

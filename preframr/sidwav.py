@@ -55,6 +55,8 @@ def write_samples(df, name, reg_widths):
                 voice = 0
             elif row.reg == DELAY_REG:
                 delay = row.val * row.irq * sidq()
+                if delay == 0:
+                    continue
         else:
             val = row.val
             reg = row.reg
