@@ -11,7 +11,7 @@ from model import get_model, SchedulerFreeModelCheckpoint
 
 def train(model, dataloader, args):
     tb_logger = pl.loggers.TensorBoardLogger(args.tb_logs, "preframr")
-    checkpoint_callback = SchedulerFreeModelCheckpoint()
+    checkpoint_callback = SchedulerFreeModelCheckpoint(save_top_k=-1)
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         default_root_dir=os.path.dirname(args.model_state),

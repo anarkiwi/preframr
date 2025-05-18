@@ -306,12 +306,42 @@ class RegDataset(torch.utils.data.Dataset):
         irqdiff = (df["diff"] - irq).abs()
         return df[(df["reg"] != DELAY_REG) | ((irqdiff >= irq) & (df["diff"] > irq))]
 
+    def _rand_voice_order(self, orig_df):
+        df = orig_df.copy()
+        permutations = sorted(itertools.permutations(range(VOICES)))
+        m = df["reg"] == FRAME_REG
+        rng = np.random.default_rng()
+        df.loc[m, "rand_slice"] = rng.integers(
+            low=0, high=len(permutations), size=len(df[m])
+        )
+        df["rand_slice"] = df["rand_slice"].ffill().bfill().astype(MODEL_PDTYPE)
+        df["f"] = m.astype(MODEL_PDTYPE)
+        df["f"] = df["f"].cumsum()
+        df["v"] = df["reg"].floordiv(VOICE_REG_SIZE)
+        df.loc[df["v"] < 0, "v"] = int(-1)
+        df["r"] = df["reg"]
+        df.loc[df["v"] < 0, "r"] = int(-1)
+        perm_dfs = []
+        for i, permutation in enumerate(permutations):
+            perm_df = df[df["rand_slice"] == i].copy()
+            perm_df["new_v"] = perm_df["v"]
+            for j, v in enumerate(permutation):
+                perm_df.loc[perm_df["v"] == v, "new_v"] = j
+            perm_df = perm_df.sort_values(["f", "new_v", "r"], ascending=True)
+            perm_df = perm_df.reset_index(drop=True)
+            perm_df["i"] = perm_df.index
+            perm_dfs.append(perm_df)
+        df = pd.concat(perm_dfs).sort_values(["f", "i"], ascending=True)
+        df = df[orig_df.columns].reset_index(drop=True)
+        return df
+
     def _norm_reg_order(self, orig_df, max_perm=99):
         if max_perm == 0:
             yield orig_df
         permutations = sorted(itertools.permutations(range(VOICES)))
         for order in permutations[:max_perm]:
             df = orig_df.copy()
+            df["i"] = df.index
             df["f"] = df["reg"] == FRAME_REG
             df["f"] = df["f"].astype(MODEL_PDTYPE).cumsum()
             df["v"] = df["reg"].floordiv(VOICE_REG_SIZE)
@@ -322,7 +352,7 @@ class RegDataset(torch.utils.data.Dataset):
             df.loc[df["reg"] == FRAME_REG, "r"] = int(9999)
             for i, j in zip(order, range(VOICES)):
                 df.loc[df["v"] == i, "r"] = j
-            df = df.sort_values(["f", "r", "reg_order"], ascending=True)
+            df = df.sort_values(["f", "r", "reg_order", "i"], ascending=True)
             df = df[orig_df.columns].reset_index(drop=True)
             yield df
 
@@ -413,7 +443,19 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _downsample_df(self, df, diffmin=8, diffmax=512):
+    def _reduce_val_res(self, df, reg, bits):
+        m = df["reg"] == reg
+        df.loc[m, "val"] = np.left_shift(np.right_shift(df[m]["val"], bits), bits)
+        return df
+
+    def _downsample_df(self, df, diffmin=8, diffmax=512, max_perm=99):
+        regs = [(21, 1)]
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            regs.append(((0 + v_offset), 1))
+            regs.append(((2 + v_offset), 4))
+        for reg, bits in regs:
+            df = self._reduce_val_res(df, reg, bits)
         df = self._squeeze_changes(df)
         if df.empty:
             return
@@ -423,23 +465,23 @@ class RegDataset(torch.utils.data.Dataset):
         # TODO: handle short delays
         df = self._drop_subdiff(df, irq)
         df = self._consolidate_delays(df, irq)
-        df = self._norm_voice_reg_order(df, diffmax=diffmax)
-        df = self._add_voice_reg(df)
-        df.loc[df["reg"] < 0, "diff"] = 8
-        df["irq"] = irq
-        df = df[TOKEN_KEYS + ["irq"]].astype(
-            {
-                "reg": REG_PDTYPE,
-                "val": VAL_PDTYPE,
-                "diff": MODEL_PDTYPE,
-                "irq": MODEL_PDTYPE,
-            }
-        )
-        if df.iloc[-1]["reg"] == FRAME_REG:
-            df = df.head(len(df) - 1)
-        if df.iloc[0]["reg"] == FRAME_REG:
-            df = df.tail(len(df) - 1)
-        yield df
+        for xdf in self._norm_reg_order(df, max_perm=max_perm):
+            xdf = self._add_voice_reg(xdf)
+            xdf.loc[xdf["reg"] < 0, "diff"] = 8
+            xdf["irq"] = irq
+            xdf = xdf[TOKEN_KEYS + ["irq"]].astype(
+                {
+                    "reg": REG_PDTYPE,
+                    "val": VAL_PDTYPE,
+                    "diff": MODEL_PDTYPE,
+                    "irq": MODEL_PDTYPE,
+                }
+            )
+            if xdf.iloc[-1]["reg"] == FRAME_REG:
+                xdf = xdf.head(len(xdf) - 1)
+            if xdf.iloc[0]["reg"] == FRAME_REG:
+                xdf = xdf.tail(len(xdf) - 1)
+            yield xdf
 
     def get_reg_widths(self, dfs):
         reg_widths = {}
@@ -511,9 +553,11 @@ class RegDataset(torch.utils.data.Dataset):
         tk.save(self.args.tkmodel)
         del tk
 
-    def load_df(self, name):
+    def load_df(self, name, max_perm=99):
         dfs = []
-        for i, df in enumerate(self._downsample_df(self._read_df(name))):
+        for i, df in enumerate(
+            self._downsample_df(self._read_df(name), max_perm=max_perm)
+        ):
             irq = df["irq"][0]
             if irq < self.args.min_irq or irq > self.args.max_irq:
                 self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
@@ -533,11 +577,12 @@ class RegDataset(torch.utils.data.Dataset):
             dfs.append(df)
         return dfs
 
-    def load_dfs(self, dump_files):
+    def load_dfs(self, dump_files, max_perm=99):
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             results = executor.map(
                 self.load_df,
                 sorted(dump_files),
+                [max_perm for _ in range(len(dump_files))],
             )
         dfs = []
         df_files = []
@@ -604,16 +649,18 @@ class RegDataset(torch.utils.data.Dataset):
             )
             df_files, self.dfs = self.load_dfs(
                 [self.args.reglog],
+                max_perm=self.args.max_perm,
             )
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
         else:
             dump_files = self.glob_dumps(self.args.reglogs, self.args.max_files)
-            df_files, self.dfs = self.load_dfs(dump_files)
+            df_files, self.dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
             _token_df_files, token_dfs = self.load_dfs(
                 self.glob_dumps(
                     self.args.token_reglogs,
                     self.args.max_files,
-                )
+                ),
+                max_perm=self.args.max_perm,
             )
             self.tokens = self._make_tokens(self.dfs + token_dfs)
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
