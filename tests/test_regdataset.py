@@ -331,3 +331,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         x = np.array([65, 0, 66, 67, 68, 69])
         y = loader.decode_unicode(loader.encode_unicode(x))
         self.assertTrue(np.array_equal(x, y))
+
+    def test_derange_voiceorder(self):
+        loader = RegDataset(FakeArgs())
+        self.assertEqual([[0, 1, 2], (1, 2, 0), (2, 0, 1)], loader.derange_voiceorder())

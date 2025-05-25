@@ -335,11 +335,18 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
+    def derange_voiceorder(self, max_perm=99):
+        voices = list(range(VOICES))
+        permutations = [voices]
+        for p in sorted(itertools.permutations(voices)):
+            if all(i != p[j] for j, i in enumerate(voices)):
+                permutations.append(p)
+        return permutations[:max_perm]
+
     def _norm_reg_order(self, orig_df, max_perm=99):
         if max_perm == 0:
             yield orig_df
-        permutations = sorted(itertools.permutations(range(VOICES)))
-        for order in permutations[:max_perm]:
+        for order in self.derange_voiceorder(max_perm):
             df = orig_df.copy()
             df["i"] = df.index
             df["f"] = df["reg"] == FRAME_REG
