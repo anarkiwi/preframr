@@ -82,5 +82,5 @@ def add_args(parser):
     parser.add_argument("--weight-decay", type=float, default=1e-3)
     parser.add_argument("--accumulate-grad-batches", type=int, default=16)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
-    parser.add_argument("--max_perm", type=int, default=2)
+    parser.add_argument("--max_perm", type=int, default=1)
     return parser
