@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 COPY requirements.txt test-requirements.txt /root
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
