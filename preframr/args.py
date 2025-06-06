@@ -45,7 +45,7 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--tkmodel", type=str, default="/scratch/preframr/tk.model")
-    parser.add_argument("--shuffle", type=float, default=1)
+    parser.add_argument("--shuffle", type=float, default=0.1)
     parser.add_argument("--max-files", type=int, default=4096)
     parser.add_argument("--min-irq", type=int, default=int(1e4))
     parser.add_argument("--max-irq", type=int, default=int(4e4))
