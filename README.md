@@ -27,7 +27,7 @@ When inference is performed, predicted tokens are decoded back to register calls
 
 ```
 $ mkdir /scratch/preframr/training-dumps
-$ find /path/to/sid/files -name \*sid -print |parallel --progress docker run --rm -v /scratch:/scratch -t anarkiwi/headlessvice /usr/local/bin/vsiddump.py --dumpdir=/scratch/preframr/training-dumps/$ddir --sid ; done
+$ find /path/to/sid/files -name \*sid -print |parallel --progress docker run --rm -v /scratch:/scratch -t anarkiwi/headlessvice /usr/local/bin/vsiddump.py --dumpdir=/scratch/preframr/training-dumps --sid
 ```
 
 * Train the model on the register logs
