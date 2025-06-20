@@ -456,10 +456,10 @@ class RegDataset(torch.utils.data.Dataset):
         return df
 
     def _downsample_df(self, df, diffmin=8, diffmax=512, max_perm=99):
-        regs = [(21, 1)]
+        regs = [(21, 2)]
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            regs.append(((0 + v_offset), 1))
+            regs.append(((0 + v_offset), 2))
             regs.append(((2 + v_offset), 4))
         for reg, bits in regs:
             df = self._reduce_val_res(df, reg, bits)
