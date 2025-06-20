@@ -25,7 +25,7 @@ def add_args(parser):
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=16384)
+    parser.add_argument("--seq-len", type=int, default=8192)
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=50)
@@ -45,16 +45,16 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--tkmodel", type=str, default="/scratch/preframr/tk.model")
-    parser.add_argument("--shuffle", type=float, default=0.05)
+    parser.add_argument("--shuffle", type=float, default=0.1)
     parser.add_argument("--max-files", type=int, default=4096)
     parser.add_argument("--min-irq", type=int, default=int(1e4))
     parser.add_argument("--max-irq", type=int, default=int(4e4))
     parser.add_argument("--diffq", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=2.5e-3)
     parser.add_argument("--layers", type=int, default=12)
-    parser.add_argument("--heads", type=int, default=8)
-    parser.add_argument("--kv-heads", type=int, default=8)
-    parser.add_argument("--embed", type=int, default=512)
+    parser.add_argument("--heads", type=int, default=12)
+    parser.add_argument("--kv-heads", type=int, default=12)
+    parser.add_argument("--embed", type=int, default=768)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-3)
     parser.add_argument("--rope-base", type=float, default=5e5)
@@ -80,7 +80,7 @@ def add_args(parser):
         choices=list(MODEL_PRECISION.keys()),
     )
     parser.add_argument("--weight-decay", type=float, default=1e-3)
-    parser.add_argument("--accumulate-grad-batches", type=int, default=32)
+    parser.add_argument("--accumulate-grad-batches", type=int, default=8)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max_perm", type=int, default=99)
     return parser
