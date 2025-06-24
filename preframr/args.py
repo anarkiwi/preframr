@@ -29,8 +29,8 @@ def add_args(parser):
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--tkvocab", type=int, default=4096)
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--tkvocab", type=int, default=32768)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default="/scratch/preframr/preframr.csv.zst")
     parser.add_argument(
