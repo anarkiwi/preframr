@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 
 from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VAL_PDTYPE
+from preframr.stfconstants import UNICODE_BASE
 
 
 class FakeArgs:
@@ -141,19 +142,21 @@ class TestRegDatasetLoader(unittest.TestCase):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(
             [
-                {"diff": 8, "reg": 1, "val": 1},
-                {"diff": 8, "reg": 1, "val": 1},
-                {"diff": 8, "reg": 2, "val": 1},
-                {"diff": 8, "reg": 2, "val": 2},
-                {"diff": 8, "reg": 1, "val": 2},
+                {"reg": 1, "val": 1},
+                {"reg": 1, "val": 1},
+                {"reg": 2, "val": 1},
+                {"reg": 2, "val": 2},
+                {"reg": 1, "val": 2},
             ],
             dtype=MODEL_PDTYPE,
         )
+        test_df["diff"] = 8
+        test_df["clock"] = test_df["diff"].cumsum()
         combine_df = pd.DataFrame(
             [
-                {"diff": 8, "reg": 1, "val": 0},
-                {"diff": 8, "reg": 1, "val": 256},
-                {"diff": 8, "reg": 1, "val": 514},
+                {"reg": 1, "val": 0, "diff": 8, "clock": 8},
+                {"reg": 1, "val": 256, "diff": 8, "clock": 24},
+                {"reg": 1, "val": 514, "diff": 8, "clock": 40},
             ],
             dtype=MODEL_PDTYPE,
         )
@@ -241,21 +244,22 @@ class TestRegDatasetLoader(unittest.TestCase):
             dtype=MODEL_PDTYPE,
         )
         test_df["diff"] = 8
+        test_df["clock"] = test_df["diff"].cumsum()
         test_df = test_df.astype(MODEL_PDTYPE)
         norm_df = pd.DataFrame(
             [
-                {"reg": 21, "val": 8, "diff": 8},
-                {"reg": 22, "val": 0, "diff": 8},
-                {"reg": 0, "val": 0, "diff": 8},
-                {"reg": 1, "val": 1, "diff": 8},
-                {"reg": 11, "val": 1, "diff": 8},
-                {"reg": 4, "val": 2, "diff": 8},
-                {"reg": 16, "val": 0, "diff": 8},
-                {"reg": 17, "val": 0, "diff": 8},
-                {"reg": 7, "val": 0, "diff": 8},
-                {"reg": 8, "val": 1, "diff": 8},
-                {"reg": 4, "val": 1, "diff": 8},
-                {"reg": -99, "val": 0, "diff": 8},
+                {"reg": 21, "val": 8, "diff": 8, "clock": 8},
+                {"reg": 22, "val": 0, "diff": 8, "clock": 8},
+                {"reg": 0, "val": 0, "diff": 8, "clock": 24},
+                {"reg": 1, "val": 1, "diff": 8, "clock": 24},
+                {"reg": 11, "val": 1, "diff": 8, "clock": 40},
+                {"reg": 4, "val": 2, "diff": 8, "clock": 48},
+                {"reg": 16, "val": 0, "diff": 8, "clock": 56},
+                {"reg": 17, "val": 0, "diff": 8, "clock": 56},
+                {"reg": 7, "val": 0, "diff": 8, "clock": 64},
+                {"reg": 8, "val": 1, "diff": 8, "clock": 64},
+                {"reg": 4, "val": 1, "diff": 8, "clock": 72},
+                {"reg": -99, "val": 0, "diff": 8, "clock": 80},
             ],
             dtype=MODEL_PDTYPE,
         )
@@ -307,9 +311,15 @@ class TestRegDatasetLoader(unittest.TestCase):
 
     def test_unicode(self):
         loader = RegDataset(FakeArgs())
-        x = np.array([65, 0, 66, 67, 68, 69])
+        x = np.array([65, 0, 66, 67, 68, 69], dtype=np.uint16)
         y = loader.decode_unicode(loader.encode_unicode(x))
-        self.assertTrue(np.array_equal(x, y))
+        self.assertTrue(np.array_equal(x, y), (x, y))
+        for i in range(10):
+            x = [i for i in range(65536 - UNICODE_BASE)]
+            random.shuffle(x)
+            x = np.array(x, dtype=np.uint16)
+            y = loader.decode_unicode(loader.encode_unicode(x))
+            self.assertTrue(np.array_equal(x, y), (x, y))
 
     def test_derange_voiceorder(self):
         loader = RegDataset(FakeArgs())

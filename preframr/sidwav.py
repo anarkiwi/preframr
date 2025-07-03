@@ -2,6 +2,7 @@ from datetime import timedelta
 from scipy.io import wavfile
 from pyresidfp import SoundInterfaceDevice
 from pyresidfp.sound_interface_device import ChipModel
+import pandas as pd
 import numpy as np
 from preframr.stfconstants import (
     CTRL_REG,

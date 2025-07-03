@@ -1,4 +1,5 @@
 import concurrent.futures
+import difflib
 import itertools
 import json
 import logging
@@ -165,8 +166,7 @@ class RegDataset(torch.utils.data.Dataset):
 
     def _combine_reg(self, orig_df, reg, diffmax=512, bits=0):
         df = orig_df.copy()
-        df["oclock"] = df["diff"].cumsum()
-        df["dclock"] = df["oclock"].floordiv(diffmax)
+        df["dclock"] = df["clock"].floordiv(diffmax)
         cond = (df["reg"] == reg) | (df["reg"] == (reg + 1))
         reg_df = df[cond].copy()
         non_reg_df = df[~cond].copy()
@@ -175,7 +175,7 @@ class RegDataset(torch.utils.data.Dataset):
         )
         if bits:
             reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
-        df = pd.concat([non_reg_df, reg_df]).sort_values(["oclock"], ascending=True)
+        df = pd.concat([non_reg_df, reg_df]).sort_values(["clock"], ascending=True)
         df = df[orig_df.columns].reset_index(drop=True).astype(orig_df.dtypes)
         return df
 
@@ -456,14 +456,14 @@ class RegDataset(torch.utils.data.Dataset):
         return df
 
     def _downsample_df(self, df, diffmin=8, diffmax=512, max_perm=99):
-        regs = [(21, 2)]
+        df = self._squeeze_changes(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            regs.append(((0 + v_offset), 2))
-            regs.append(((2 + v_offset), 4))
-        for reg, bits in regs:
-            df = self._reduce_val_res(df, reg, bits)
-        df = self._squeeze_changes(df)
+            for reg, bits in ((v_offset, 2), ((v_offset + 2), 4)):
+                df = self._combine_reg(df, reg=reg, bits=bits)
+                # df = self._split_reg(df, reg)
+        df = self._combine_reg(df, 21, bits=2)
+        # df = self._split_reg(df, 21)
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
@@ -515,13 +515,13 @@ class RegDataset(torch.utils.data.Dataset):
         t += UNICODE_BASE
         t = np.nan_to_num(t).astype(np.uint16)
         t = np.where(t == 0, 32, t)
-        return t.tobytes().decode("utf16")
+        return "".join([chr(i) for i in t])
 
     def decode_unicode(self, encoded_tokens):
-        t = np.frombuffer(encoded_tokens.encode("utf16"), dtype=np.uint16).copy()
+        t = np.array([ord(i) for i in encoded_tokens])
         t = np.where(t == 32, np.nan, t)
         t -= UNICODE_BASE
-        t = np.nan_to_num(t).astype(np.uint16)[1:]
+        t = np.nan_to_num(t).astype(np.uint16)
         return t
 
     def encode(self, tokens, tk=None):
@@ -530,7 +530,8 @@ class RegDataset(torch.utils.data.Dataset):
                 if self.tk is None:
                     self.tk = self.get_tk(self.args.tkmodel)
                 tk = self.tk
-            return np.array(tk.encode(self.encode_unicode(tokens)).ids)
+            encoded = tk.encode(self.encode_unicode(tokens))
+            return np.array(encoded.ids, dtype=np.int16)
         return tokens
 
     def decode(self, encoded_tokens, tk=None):
@@ -545,13 +546,15 @@ class RegDataset(torch.utils.data.Dataset):
     def train_tokenizer(self, dfs, min_frequency=2):
         encoded_dfs = []
         for df in dfs:
-            encoded_dfs.append(self.encode_unicode(df["n"].tolist()))
+            orig_seq = df["n"].to_numpy()
+            encoded = self.encode_unicode(orig_seq)
+            encoded_dfs.append(encoded)
         tk = self.get_tk()
         tk.train_from_iterator(
             encoded_dfs,
             vocab_size=self.args.tkvocab,
-            limit_alphabet=self.args.tkvocab,
             min_frequency=min_frequency,
+            limit_alphabet=self.args.tkvocab,
         )
         assert tk.get_vocab_size() == self.args.tkvocab, (
             tk.get_vocab_size(),
@@ -694,12 +697,22 @@ class RegDataset(torch.utils.data.Dataset):
         for df_file, df in zip(df_files, dfs):
             seq = self.encode(df["n"])
             decoded_seq = self.decode(seq)
-            encoded_seq = df["n"].to_numpy()
-            assert np.array_equal(encoded_seq, decoded_seq), (
-                df_file,
-                encoded_seq,
-                decoded_seq,
-            )
+            orig_seq = df["n"].to_numpy()
+            if not np.array_equal(orig_seq, decoded_seq):
+                for i, (orig, decoded) in enumerate(zip(orig_seq, decoded_seq)):
+                    if orig == decoded:
+                        continue
+                    a = [str(i) for i in orig_seq]
+                    b = [str(i) for i in decoded_seq]
+                    d = "\n".join(difflib.context_diff(a, b))
+                    print(d)
+                    assert False, (
+                        df_file,
+                        i,
+                        orig,
+                        decoded,
+                        self.tokens.iloc[int(orig)],
+                    )
             try:
                 self.seq_mapper.add(seq)
                 self.n_words += len(seq)

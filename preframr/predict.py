@@ -104,7 +104,7 @@ def generate_sequence(args, logger, dataset, model, predictor):
     write_samples(df, args.wav, dataset.reg_widths)
     if args.csv:
         out_df = df.join(
-            state_df(dataset.decode(prompt_compare.tolist()), dataset, irq),
+            state_df(dataset.decode(prompt_compare.numpy()), dataset, irq),
             how="left",
             rsuffix="_p",
         )
