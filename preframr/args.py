@@ -25,7 +25,7 @@ def add_args(parser):
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=8192)
+    parser.add_argument("--seq-len", type=int, default=16384)
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=50)
