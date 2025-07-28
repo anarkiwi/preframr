@@ -5,7 +5,7 @@ pytorch-lightning==2.5.2
 scipy==1.16.0
 schedulefree==1.4.1
 tensorboard==2.20.0
-tokenizers==0.21.2
+tokenizers==0.21.4
 torchtune==0.6.1
 torchao==0.12.0
 zstandard==0.23.0
