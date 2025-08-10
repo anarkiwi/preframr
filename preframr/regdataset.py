@@ -25,6 +25,8 @@ from preframr.stfconstants import (
     FILTER_REG,
     MAX_REG,
     FC_LO_REG,
+    MIDI_N_TO_F,
+    PAL_CLOCK,
 )
 
 TOKEN_KEYS = ["reg", "val", "diff"]
@@ -455,14 +457,40 @@ class RegDataset(torch.utils.data.Dataset):
         df.loc[m, "val"] = np.left_shift(np.right_shift(df[m]["val"], bits), bits)
         return df
 
+    def _quantize_freq_to_cents(self, df, cents=50, clock=PAL_CLOCK):
+        f = MIDI_N_TO_F[0]
+        sid_clock = (18 * 2**24) / clock
+        max_sid_f = 65535 / sid_clock
+        rq_map = {i: 0 for i in range(65536)}
+
+        while True:
+            l = f * (2 ** ((-cents / 2) / 1200))
+            h = f * (2 ** ((cents / 2) / 1200))
+            lr = round(sid_clock * l)
+            lh = round(sid_clock * h)
+            r = round(sid_clock * f)
+            for i in range(lh - lr):
+                rq_map[i + lr] = r
+            f *= 2 ** (cents / 1200)
+            if f > max_sid_f:
+                break
+
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            df.loc[df["reg"] == v_offset, "val"].replace(rq_map, inplace=True)
+
+        return df
+
     def _downsample_df(self, df, diffmin=8, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            for reg, bits in ((v_offset, 2), ((v_offset + 2), 4)):
+            for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):
                 df = self._combine_reg(df, reg=reg, bits=bits)
                 # df = self._split_reg(df, reg)
+        df = self._quantize_freq_to_cents(df)
         df = self._combine_reg(df, 21, bits=2)
+        df = self._squeeze_changes(df)
         # df = self._split_reg(df, 21)
         if df.empty:
             return
@@ -473,7 +501,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._drop_subdiff(df, irq)
         df = self._consolidate_delays(df, irq)
         for xdf in self._norm_reg_order(df, max_perm=max_perm):
-            xdf = self._add_voice_reg(xdf)
+            # xdf = self._add_voice_reg(xdf)
             xdf.loc[xdf["reg"] < 0, "diff"] = 8
             xdf["irq"] = irq
             xdf = xdf[TOKEN_KEYS + ["irq"]].astype(
