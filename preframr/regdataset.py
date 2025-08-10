@@ -1,7 +1,6 @@
 import concurrent.futures
 import difflib
 import itertools
-import json
 import logging
 import glob
 import os
@@ -9,7 +8,7 @@ import random
 import shutil
 import tempfile
 import torch
-from tokenizers import CharBPETokenizer
+from tokenizers import CharBPETokenizer, Tokenizer
 import numpy as np
 import pandas as pd
 from preframr.stfconstants import (
@@ -768,10 +767,7 @@ class RegDataset(torch.utils.data.Dataset):
         merges = None
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
-            with open(tkmodel) as f:
-                model = json.load(f)["model"]
-            vocab = model["vocab"]
-            merges = [tuple(x) for x in model["merges"]]
+            return Tokenizer.from_file(tkmodel)
         return CharBPETokenizer(
             split_on_whitespace_only=True,
             bert_normalizer=False,
