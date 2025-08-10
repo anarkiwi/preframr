@@ -476,7 +476,8 @@ class RegDataset(torch.utils.data.Dataset):
 
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            df.loc[df["reg"] == v_offset, "val"].replace(rq_map, inplace=True)
+            cond = df["reg"] == v_offset
+            df.loc[cond, "val"] = df[cond]["val"].map(rq_map)
 
         return df
 
@@ -763,16 +764,14 @@ class RegDataset(torch.utils.data.Dataset):
                 pd.DataFrame(pd.concat(self.dfs)).to_csv(self.args.dataset_csv)
 
     def get_tk(self, tkmodel=None):
-        vocab = None
-        merges = None
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
             return Tokenizer.from_file(tkmodel)
         return CharBPETokenizer(
             split_on_whitespace_only=True,
             bert_normalizer=False,
-            vocab=vocab,
-            merges=merges,
+            vocab=None,
+            merges=None,
         )
 
     def __len__(self):
