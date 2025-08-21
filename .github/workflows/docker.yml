@@ -4,12 +4,12 @@ jobs:
   docker-cuda-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: docker build cuda
       run: docker build -f Dockerfile . -t anarkiwi/preframr
   docker-xpu-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: docker build xpu
       run: docker build -f Dockerfile.xpu . -t anarkiwi/preframr-xpu
