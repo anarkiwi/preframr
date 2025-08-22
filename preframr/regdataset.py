@@ -298,16 +298,24 @@ class RegDataset(torch.utils.data.Dataset):
         except IndexError:
             irq = 0
         irq_df = df[m].copy()
-        irq_df["i"] -= 1
+        irq_df["i"] -= 2
         irq_df["reg"] = FRAME_REG
-        irq_df["val"] = 0
         irq_df["diff"] = irq_df["irqdiff"]
+        irq_df["val"] = (irq_df["diff"] / irq).astype(MODEL_PDTYPE)
+        delay_df = irq_df[irq_df["val"] > 1].copy()
+        irq_df["val"] = 0
+        irq_df["diff"] = irq
+        delay_df["i"] += 1
+        delay_df["reg"] = DELAY_REG
+        delay_df["val"] -= 1
+        delay_df["diff"] = 0
         df = (
-            pd.concat([df, irq_df])
-            .sort_values(["i"])[["reg", "val", "diff"]]
+            pd.concat([df, irq_df, delay_df])
+            .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .reset_index(drop=True)
         )
-        return irq, df
+        df.to_csv("/scratch/tmp/b.txt")
+        return irq, df[["reg", "val", "diff"]]
 
     def _drop_subdiff(self, df, irq):
         irqdiff = (df["diff"] - irq).abs()
