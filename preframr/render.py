@@ -12,7 +12,6 @@ from sidwav import write_samples
 
 def state_df(states, dataset, irq):
     df = pd.DataFrame(states, columns=["n"]).merge(dataset.tokens, on="n", how="left")
-    df.loc[df["reg"] == FRAME_REG, "diff"] = irq
     return df
 
 

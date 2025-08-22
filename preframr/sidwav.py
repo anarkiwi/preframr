@@ -71,6 +71,8 @@ def write_samples(df, name, reg_widths):
                 sid.write_register(reg + i, val & 255)
                 val >>= 8
             frame_duration += delay
+        if delay <= 0:
+            continue
         raw_samples.extend(sid.clock(timedelta(seconds=delay)))
     wavfile.write(
         name,
