@@ -607,7 +607,11 @@ class RegDataset(torch.utils.data.Dataset):
         for i, df in enumerate(
             self._downsample_df(self._read_df(name), max_perm=max_perm)
         ):
-            irq = df["irq"][0]
+            try:
+                irq = df["irq"][0]
+            except KeyError:
+                self.logger.info("skipped %s, no irq", name)
+                break
             if irq < self.args.min_irq or irq > self.args.max_irq:
                 self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
                 break
