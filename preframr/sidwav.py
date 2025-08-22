@@ -38,6 +38,7 @@ def write_samples(df, name, reg_widths):
     irq = df[df["reg"] == FRAME_REG]
     if not irq.empty:
         df["irq"] = irq["diff"].iloc[0]
+    frame_duration = 0
 
     for row in df.itertuples():
         delay = row.delay
@@ -54,6 +55,8 @@ def write_samples(df, name, reg_widths):
                 voice = row.val
             elif row.reg == FRAME_REG:
                 voice = 0
+                delay -= frame_duration
+                frame_duration = 0
             elif row.reg == DELAY_REG:
                 delay = row.val * row.irq * sidq()
                 if delay == 0:
@@ -67,6 +70,7 @@ def write_samples(df, name, reg_widths):
             for i in range(width):
                 sid.write_register(reg + i, val & 255)
                 val >>= 8
+            frame_duration += delay
         raw_samples.extend(sid.clock(timedelta(seconds=delay)))
     wavfile.write(
         name,
