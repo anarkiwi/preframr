@@ -43,7 +43,6 @@ class Predictor:
 
 def state_df(states, dataset, irq):
     df = pd.DataFrame(states, columns=["n"]).merge(dataset.tokens, on="n", how="left")
-    df.loc[df["reg"] == FRAME_REG, "diff"] = irq
     return df
 
 
@@ -109,7 +108,7 @@ def generate_sequence(args, logger, dataset, model, predictor):
             rsuffix="_p",
         )
         out_df["p_n"] = out_df["n"] == out_df["n_p"]
-        out_df.astype(MODEL_PDTYPE).to_csv(args.csv)
+        out_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
 
 
 def get_ckpt(ckpt, tb_logs):

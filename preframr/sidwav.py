@@ -23,7 +23,7 @@ def sidq():
 
 
 def write_samples(df, name, reg_widths):
-    sid = SoundInterfaceDevice(model=ChipModel.MOS8580)
+    sid = SoundInterfaceDevice(model=ChipModel.MOS6581)
     # max vol
     sid.write_register(MODE_VOL_REG, 15)
     for v in range(3):

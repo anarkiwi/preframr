@@ -8,7 +8,9 @@ def add_args(parser):
         "--reglogs",
         type=str,
         # default="/scratch/preframr/training-dumps/**/*dump.zst",
-        default="/scratch/preframr/training-dumps/Hubbard_Rob/Monty_on_the_Run.1.dump.zst",
+        # default="/scratch/preframr/training-dumps/Hubbard_Rob/Monty_on_the_Run.1.dump.zst",
+        # default="/scratch/preframr/training-dumps/Jammer/Grid_Runner.1.dump.zst",
+        default="/scratch/preframr/training-dumps/Wiklund/Facemorph.1.dump.zst",
     )
     parser.add_argument(
         "--token-reglogs",

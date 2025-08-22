@@ -33,6 +33,7 @@ MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 VAL_PDTYPE = pd.UInt32Dtype()
 TOKEN_PDTYPE = pd.UInt16Dtype()
+MIN_DIFF = 32
 
 
 def wrapbits(x, reglen):
@@ -290,7 +291,7 @@ class RegDataset(torch.utils.data.Dataset):
     def _add_frame_reg(self, orig_df, diffmax):
         df = orig_df.copy()
         df["irqdiff"] = df["irq"].diff().fillna(0).astype(MODEL_PDTYPE)
-        df["diff"] = 8
+        df["diff"] = MIN_DIFF
         df["i"] = df.index * 10
         m = df["irqdiff"] > diffmax
         try:
@@ -314,7 +315,6 @@ class RegDataset(torch.utils.data.Dataset):
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .reset_index(drop=True)
         )
-        df.to_csv("/scratch/tmp/b.txt")
         return irq, df[["reg", "val", "diff"]]
 
     def _drop_subdiff(self, df, irq):
@@ -496,10 +496,11 @@ class RegDataset(torch.utils.data.Dataset):
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
         df["f"] = (df["reg"] == FRAME_REG).cumsum()
-        df = df.drop_duplicates(["f", "reg"], keep="last")
+        df["c"] = self._ctrl_match(df).cumsum()
+        df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns]
 
-    def _downsample_df(self, df, diffmin=8, diffmax=512, max_perm=99):
+    def _downsample_df(self, df, diffmin=MIN_DIFF, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
@@ -512,7 +513,7 @@ class RegDataset(torch.utils.data.Dataset):
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._squeeze_frames(df)
-        for xdf in self._rotate_voice_augment(df):
+        for xdf in self._rotate_voice_augment(df, augment=True):
             xdf["irq"] = irq
             xdf = xdf[TOKEN_KEYS + ["irq"]].astype(
                 {
