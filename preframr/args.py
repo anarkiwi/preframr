@@ -7,10 +7,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        # default="/scratch/preframr/training-dumps/**/*dump.zst",
-        # default="/scratch/preframr/training-dumps/Hubbard_Rob/Monty_on_the_Run.1.dump.zst",
-        # default="/scratch/preframr/training-dumps/Jammer/Grid_Runner.1.dump.zst",
-        default="/scratch/preframr/training-dumps/Wiklund/Facemorph.1.dump.zst",
+        default="/scratch/preframr/training-dumps/**/*dump.zst",
     )
     parser.add_argument(
         "--token-reglogs",
@@ -28,7 +25,7 @@ def add_args(parser):
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=16384)
+    parser.add_argument("--seq-len", type=int, default=4096)
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=50)
@@ -54,10 +51,10 @@ def add_args(parser):
     parser.add_argument("--max-irq", type=int, default=int(4e4))
     parser.add_argument("--diffq", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--layers", type=int, default=4)
-    parser.add_argument("--heads", type=int, default=4)
-    parser.add_argument("--kv-heads", type=int, default=4)
-    parser.add_argument("--embed", type=int, default=256)
+    parser.add_argument("--layers", type=int, default=12)
+    parser.add_argument("--heads", type=int, default=12)
+    parser.add_argument("--kv-heads", type=int, default=12)
+    parser.add_argument("--embed", type=int, default=384)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-5)
     parser.add_argument("--rope-base", type=float, default=5e5)
