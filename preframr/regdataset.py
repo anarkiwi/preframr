@@ -527,6 +527,7 @@ class RegDataset(torch.utils.data.Dataset):
                 xdf = xdf.head(len(xdf) - 1)
             if xdf.iloc[0]["reg"] == FRAME_REG:
                 xdf = xdf.tail(len(xdf) - 1)
+            xdf = xdf.reset_index(drop=True)
             yield xdf
 
     def get_reg_widths(self, dfs):
@@ -608,7 +609,7 @@ class RegDataset(torch.utils.data.Dataset):
             self._downsample_df(self._read_df(name), max_perm=max_perm)
         ):
             try:
-                irq = df["irq"][0]
+                irq = df["irq"].iloc[0]
             except KeyError:
                 self.logger.info("skipped %s, no irq", name)
                 break
