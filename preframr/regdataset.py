@@ -225,6 +225,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = (
             pd.concat([df, irq_df, delay_df])
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
+            .astype(MODEL_PDTYPE)
             .reset_index(drop=True)
         )
         return irq, df[["reg", "val", "diff"]]

@@ -244,3 +244,32 @@ class TestRegDatasetLoader(unittest.TestCase):
     def test_derange_voiceorder(self):
         loader = RegDataset(FakeArgs())
         self.assertEqual([[0, 1, 2], (1, 2, 0), (2, 0, 1)], loader.derange_voiceorder())
+
+    def test_add_frame_reg(self):
+        loader = RegDataset(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"clock": 0, "reg": 0, "val": 1, "irq": 0},
+                {"clock": 256, "reg": 4, "val": 1, "irq": 0},
+                {"clock": 32768, "reg": 11, "val": 2, "irq": 19000},
+                {"clock": 32768 + 8, "reg": 23, "val": 1 + 4, "irq": 19000},
+                {"clock": 32768 + 16, "reg": 7, "val": 2, "irq": 19000},
+                {"clock": 32768 + 32, "reg": 14, "val": 3, "irq": 19000},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        frame_df = pd.DataFrame(
+            [
+                {"reg": 0, "val": 1, "diff": 32},
+                {"reg": 4, "val": 1, "diff": 32},
+                {"reg": -99, "val": 0, "diff": 19000},
+                {"reg": 11, "val": 2, "diff": 32},
+                {"reg": 23, "val": 5, "diff": 32},
+                {"reg": 7, "val": 2, "diff": 32},
+                {"reg": 14, "val": 3, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        irq, result_df = loader._add_frame_reg(test_df, 512)
+        self.assertEqual(irq, 19000)
+        self.assertTrue(frame_df.equals(result_df))
