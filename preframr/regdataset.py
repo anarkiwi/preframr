@@ -290,7 +290,7 @@ class RegDataset(torch.utils.data.Dataset):
         df["f"] = (df["reg"] == FRAME_REG).cumsum()
         df["c"] = self._ctrl_match(df).cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
-        return df[orig_df.columns]
+        return df[orig_df.columns].reset_index(drop=True)
 
     def _downsample_df(self, df, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)

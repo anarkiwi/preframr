@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VOICES
+from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VOICES, FRAME_REG
 from preframr.stfconstants import UNICODE_BASE
 
 
@@ -137,6 +137,32 @@ class TestRegDatasetLoader(unittest.TestCase):
         result = loader._squeeze_changes(test_df).astype(MODEL_PDTYPE)
         self.assertTrue(squeeze_df.equals(result), result)
 
+    def test_squeeze_frames(self):
+        loader = RegDataset(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"clock": 1, "reg": 1, "val": 99},
+                {"clock": 2, "reg": 1, "val": 2},
+                {"clock": 3, "reg": 3, "val": 4},
+                {"clock": 4, "reg": 1, "val": 1},
+                {"clock": 5, "reg": 4, "val": 1},
+                {"clock": 6, "reg": 4, "val": 2},
+                {"clock": 7, "reg": FRAME_REG, "val": 0},
+            ]
+        )
+        squeeze_df = pd.DataFrame(
+            [
+                {"clock": 3, "reg": 3, "val": 4},
+                {"clock": 4, "reg": 1, "val": 1},
+                {"clock": 5, "reg": 4, "val": 1},
+                {"clock": 6, "reg": 4, "val": 2},
+                {"clock": 7, "reg": FRAME_REG, "val": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result = loader._squeeze_frames(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(squeeze_df.equals(result), result)
+
     def test_combine_reg(self):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(
@@ -198,9 +224,9 @@ class TestRegDatasetLoader(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = pd.concat(loader._rotate_voice_augment(test_df, VOICES)).reset_index(
-            drop=True
-        )
+        result_df = pd.concat(
+            loader._rotate_voice_augment(test_df, VOICES)
+        ).reset_index(drop=True)
         self.assertTrue(rotate_df.equals(result_df), result_df)
 
     def test_unicode(self):
