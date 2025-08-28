@@ -4,9 +4,8 @@ import tempfile
 import unittest
 import numpy as np
 import pandas as pd
-import torch
 
-from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VAL_PDTYPE
+from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VOICES
 from preframr.stfconstants import UNICODE_BASE
 
 
@@ -163,28 +162,6 @@ class TestRegDatasetLoader(unittest.TestCase):
         result_df = loader._combine_reg(test_df, 1, 16, bits=1).astype(MODEL_PDTYPE)
         self.assertTrue(combine_df.equals(result_df), result_df)
 
-    def test_combine_vreg(self):
-        loader = RegDataset(FakeArgs())
-        test_df = pd.DataFrame(
-            [
-                {"clock": 0, "reg": 0, "val": 1},
-                {"clock": 64, "reg": 2, "val": 2},
-                {"clock": 80, "reg": 4, "val": 4},
-            ],
-            dtype=pd.Int64Dtype(),
-        )
-        combine_df = pd.DataFrame(
-            [
-                {"clock": 0, "reg": 0, "val": 1},
-                {"clock": 64, "reg": 0, "val": (2 << (2 * 8)) + 1},
-                {"clock": 80, "reg": 0, "val": (2 << (2 * 8)) + 1 + (4 << (4 * 8))},
-            ],
-            dtype=pd.Int64Dtype(),
-        )
-        self.assertTrue(
-            combine_df.equals(loader._combine_vreg(test_df, 0, dtype=pd.Int64Dtype()))
-        )
-
     def test_rotate_voice_augment(self):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(
@@ -221,7 +198,7 @@ class TestRegDatasetLoader(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = pd.concat(loader._rotate_voice_augment(test_df)).reset_index(
+        result_df = pd.concat(loader._rotate_voice_augment(test_df, VOICES)).reset_index(
             drop=True
         )
         self.assertTrue(rotate_df.equals(result_df), result_df)

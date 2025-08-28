@@ -3,27 +3,19 @@ import difflib
 import itertools
 import logging
 import glob
-import os
 import random
-import shutil
-import tempfile
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
 import numpy as np
 import pandas as pd
 from preframr.stfconstants import (
-    CTRL_REG,
     DELAY_REG,
     FRAME_REG,
-    RESET_REG,
-    NOOP_REG,
-    VOICE_REG,
     VOICES,
     VOICE_REG_SIZE,
     UNICODE_BASE,
     FILTER_REG,
     MAX_REG,
-    FC_LO_REG,
     MIDI_N_TO_F,
     PAL_CLOCK,
 )
@@ -57,13 +49,13 @@ class SeqMapper:
 
     def add(self, seq):
         if len(seq) <= self.seq_len:
-            raise ValueError("sequence too short %u" % len(seq))
+            raise ValueError(f"sequence too short ({len(seq)}")
         self.seqs.append(torch.LongTensor(seq))
         self.len = 0
         seq_map = []
-        for seq in self.seqs:
+        for s in self.seqs:
             seq_map.append(self.len)
-            self.len += len(seq) - self.seq_len
+            self.len += len(s) - self.seq_len
         self.seq_map = np.array(seq_map, dtype=np.uint64)
 
     def __len__(self):
@@ -181,86 +173,6 @@ class RegDataset(torch.utils.data.Dataset):
         df = df[orig_df.columns].reset_index(drop=True).astype(orig_df.dtypes)
         return df
 
-    def _combine_vreg(self, df, reg, reg_range=VOICE_REG_SIZE, dtype=MODEL_PDTYPE):
-        origcols = df.columns
-        df["val"] = df["val"].astype(dtype)
-        cond = (df["reg"] >= reg) & (df["reg"] < (reg + reg_range))
-        reg_df = df[cond].copy()
-        df = df[~cond]
-        reg_df = self._combine_val(reg_df, reg, reg_range, dtype=dtype)
-        reg_df = reg_df[origcols]
-        df = pd.concat([df, reg_df]).sort_values(["clock"]).reset_index(drop=True)
-        return df
-
-    def _combine_regs(self, df, diffmax=512, regs=(0,)):
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            for reg in regs:
-                df = self._combine_reg(df, reg + v_offset, diffmax)
-        return df
-
-    def _combine_vregs(self, df):
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            df = self._combine_vreg(df, v_offset)
-        return df
-
-    def _downsample_diff(self, df_diff, diffq):
-        return (df_diff["diff"].floordiv(diffq).clip(lower=1) * diffq).astype(
-            MODEL_PDTYPE
-        )
-
-    def _quantize_diff(self, df):
-        for diffq_pow in (2, 3, 4, 5):
-            diffq = self.args.diffq**diffq_pow
-            mask = df["diff"] > diffq
-            df.loc[mask, ["diff"]] = self._downsample_diff(df, diffq)
-        df["diff"] = self._downsample_diff(df, self.args.diffq)
-        return df
-
-    def _quantize_longdiff(self, df, diffmin, diffmax):
-        df["diff"] = df["clock"].diff().shift(-1).fillna(0).astype(MODEL_PDTYPE)
-        # add delay rows
-        m = df["diff"] >= diffmax
-        long_df = df[m].copy()
-        df.loc[m, "diff"] = diffmin
-        long_df["reg"] = DELAY_REG
-        long_df["val"] = 0
-        long_df["clock"] += diffmin
-        df = pd.concat([df, long_df]).sort_values(["clock"]).reset_index(drop=True)
-        # move delay to DELAY_REG
-        df["delaymarker"] = (
-            (df["reg"] == DELAY_REG)
-            .astype(MODEL_PDTYPE)
-            .diff(periods=1)
-            .astype(MODEL_PDTYPE)
-            .cumsum()
-            .cumsum()
-            .shift(1)
-            .fillna(0)
-        )
-        df["markerdelay"] = df.groupby("delaymarker")["diff"].transform("sum")
-        df["markercount"] = df.groupby("delaymarker")["diff"].transform("count")
-        df.loc[df["reg"] != DELAY_REG, ["diff"]] = 0
-        df["diff"] = df["markerdelay"] - (df["markercount"] * diffmin)
-        df.loc[df["reg"] != DELAY_REG, ["diff"]] = diffmin
-        df = df.drop(["clock", "delaymarker", "markerdelay", "markercount"], axis=1)
-        return df
-
-    def _add_ctrl_reg(self, orig_df):
-        df = orig_df.copy()
-        for v in range(VOICES):
-            ctrl = (VOICE_REG_SIZE * v) + 4
-            m = df["reg"] == ctrl
-            col = f"v{v}"
-            df.loc[m, col] = df["val"]
-            df[col] = np.left_shift(df[col].values, v * 8)
-            df[col] = df[col].ffill().fillna(0)
-        m = self._ctrl_match(df)
-        df.loc[m, "val"] = df[m]["v0"] + df[m]["v1"] + df[m]["v2"]
-        df.loc[m, "reg"] = CTRL_REG
-        return df[orig_df.columns]
-
     def _rotate_filter(self, df, r):
         m = df["reg"] == FILTER_REG
         df.loc[m, "fres"] = df[m]["val"].values & 0xF0
@@ -274,11 +186,11 @@ class RegDataset(torch.utils.data.Dataset):
         df.loc[m, "val"] += df[m]["fres"]
         return df
 
-    def _rotate_voice_augment(self, orig_df, augment=True):
-        if not augment:
+    def _rotate_voice_augment(self, orig_df, max_perm):
+        if not max_perm:
             yield orig_df
             return
-        for r in range(VOICES):
+        for r in range(min(VOICES, max_perm)):
             df = orig_df.copy()
             m = (df["reg"] < VOICE_REG_SIZE * VOICES) & (df["reg"] >= 0)
             df.loc[m, "reg"] = (df[m]["reg"] + (VOICE_REG_SIZE * r)).mod(
@@ -317,39 +229,6 @@ class RegDataset(torch.utils.data.Dataset):
         )
         return irq, df[["reg", "val", "diff"]]
 
-    def _drop_subdiff(self, df, irq):
-        irqdiff = (df["diff"] - irq).abs()
-        return df[(df["reg"] != DELAY_REG) | ((irqdiff >= irq) & (df["diff"] > irq))]
-
-    def _rand_voice_order(self, orig_df):
-        df = orig_df.copy()
-        permutations = sorted(itertools.permutations(range(VOICES)))
-        m = df["reg"] == FRAME_REG
-        rng = np.random.default_rng()
-        df.loc[m, "rand_slice"] = rng.integers(
-            low=0, high=len(permutations), size=len(df[m])
-        )
-        df["rand_slice"] = df["rand_slice"].ffill().bfill().astype(MODEL_PDTYPE)
-        df["f"] = m.astype(MODEL_PDTYPE)
-        df["f"] = df["f"].cumsum()
-        df["v"] = df["reg"].floordiv(VOICE_REG_SIZE)
-        df.loc[df["v"] < 0, "v"] = int(-1)
-        df["r"] = df["reg"]
-        df.loc[df["v"] < 0, "r"] = int(-1)
-        perm_dfs = []
-        for i, permutation in enumerate(permutations):
-            perm_df = df[df["rand_slice"] == i].copy()
-            perm_df["new_v"] = perm_df["v"]
-            for j, v in enumerate(permutation):
-                perm_df.loc[perm_df["v"] == v, "new_v"] = j
-            perm_df = perm_df.sort_values(["f", "new_v", "r"], ascending=True)
-            perm_df = perm_df.reset_index(drop=True)
-            perm_df["i"] = perm_df.index
-            perm_dfs.append(perm_df)
-        df = pd.concat(perm_dfs).sort_values(["f", "i"], ascending=True)
-        df = df[orig_df.columns].reset_index(drop=True)
-        return df
-
     def derange_voiceorder(self, max_perm=99):
         voices = list(range(VOICES))
         permutations = [voices]
@@ -357,24 +236,6 @@ class RegDataset(torch.utils.data.Dataset):
             if all(i != p[j] for j, i in enumerate(voices)):
                 permutations.append(p)
         return permutations[:max_perm]
-
-    def _norm_reg_order(self, orig_df, max_perm=99):
-        if max_perm == 0:
-            yield orig_df
-        for order in self.derange_voiceorder(max_perm):
-            df = orig_df.copy()
-            df["i"] = df.index
-            df["f"] = (df["reg"] == FRAME_REG).astype(MODEL_PDTYPE).cumsum()
-            df["v"] = df["reg"].floordiv(VOICE_REG_SIZE)
-            df["r"] = df["v"]
-            df["reg_order"] = df["reg"]
-            df.loc[self._ctrl_match(df), "reg_order"] = int(99)
-            df.loc[df["r"] < 0, "r"] = int(999)
-            df.loc[df["reg"] == FRAME_REG, "r"] = int(9999)
-            for i, j in zip(order, range(VOICES)):
-                df.loc[df["v"] == i, "r"] = j
-            df = df.sort_values(["f", "r", "reg_order", "i"], ascending=True)
-            df = df[orig_df.columns].reset_index(drop=True)
 
     def _split_reg(self, orig_df, reg):
         df = orig_df.copy().reset_index(drop=True)
@@ -391,75 +252,6 @@ class RegDataset(torch.utils.data.Dataset):
         reg_df.loc[:, "reg"] += 1
         df.loc[m, "val"] -= reg_df["val"] * 256
         df = pd.concat([df, reg_df]).sort_values(["f", "reg_order"], ascending=True)
-        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
-        return df
-
-    def _norm_voice_reg_order(self, orig_df, diffmax=512):
-        df = orig_df.copy()
-        assert df[df["reg"] == VOICE_REG].empty
-        m = df["reg"] == FRAME_REG
-        dmax = df[m]["diff"].max()
-        df.loc[m, "diff"] = diffmax * 2
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            df = self._combine_reg(df, reg=v_offset, bits=1)
-            df = self._combine_reg(df, reg=(v_offset + 2), bits=4)
-        df = self._combine_reg(df, 21, bits=1)
-        df.loc[df["reg"] == FRAME_REG, "diff"] = dmax
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            for reg in (0, 2):
-                reg = reg + v_offset
-                df = self._split_reg(df, reg)
-        df = self._split_reg(df, 21)
-        return df
-
-    def _add_voice_reg(self, orig_df):
-        df = orig_df.copy()
-        df["v"] = pd.NA
-        df.loc[(df["reg"] >= 0) & (df["reg"] < (VOICES * VOICE_REG_SIZE)), "v"] = df[
-            "reg"
-        ].floordiv(VOICE_REG_SIZE)
-        df.loc[df["v"] >= 0, "reg"] = df["reg"].mod(VOICE_REG_SIZE)
-        df.loc[df["reg"] == FRAME_REG, "v"] = 0
-        df["v"] = df["v"].astype(MODEL_PDTYPE).ffill()
-        df["i"] = df.index * 2
-
-        last_v = df.copy()
-        last_v["last_v"] = df["v"].shift().fillna(0).astype(MODEL_PDTYPE)
-        last_v = last_v[
-            (last_v["reg"] != FRAME_REG) & (last_v["v"] != last_v["last_v"])
-        ]
-        last_v["i"] -= 1
-        last_v["reg"] = VOICE_REG
-        last_v["val"] = last_v["v"]
-
-        df = pd.concat([last_v, df]).sort_values(["i"]).reset_index(drop=True)
-        df = df[orig_df.columns].astype(orig_df.dtypes)
-        return df
-
-    def _consolidate_delays(self, orig_df, irq):
-        df = orig_df.copy()
-        val = (df["diff"] / float(irq)).round(0).astype(VAL_PDTYPE)
-        df.loc[df["reg"] == DELAY_REG, "val"] = val
-        df = df[~((df["reg"] == DELAY_REG) & (df["val"] == 0))]
-        df["i"] = df.index * 10
-        m = df["reg"] == DELAY_REG
-        df_delay = df[m].copy()
-        df_frames = df_delay.copy()
-        df_nodelay = df[~m].copy()
-        df_delay["val"] -= 1
-        df_delay["diff"] = df_delay["val"] * irq
-        df_frames.loc[:, "reg"] = FRAME_REG
-        df_frames.loc[:, "val"] = 0
-        df_frames.loc[:, "diff"] = irq
-        pre_df_frames = df_frames.copy()
-        pre_df_frames["i"] -= 5
-        # post_df_frames = df_frames.copy()
-        # post_df_frames["i"] += 5
-        df = pd.concat([df_delay, df_nodelay, pre_df_frames]).sort_values(
-            ["i"], ascending=True
-        )
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
@@ -500,7 +292,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns]
 
-    def _downsample_df(self, df, diffmin=MIN_DIFF, diffmax=512, max_perm=99):
+    def _downsample_df(self, df, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
@@ -513,7 +305,7 @@ class RegDataset(torch.utils.data.Dataset):
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._squeeze_frames(df)
-        for xdf in self._rotate_voice_augment(df, augment=True):
+        for xdf in self._rotate_voice_augment(df, max_perm):
             xdf["irq"] = irq
             xdf = xdf[TOKEN_KEYS + ["irq"]].astype(
                 {
@@ -687,8 +479,8 @@ class RegDataset(torch.utils.data.Dataset):
     def glob_dumps(self, reglogs, max_files):
         random.seed(0)
         dump_files = []
-        for reglogs in reglogs.split(","):
-            globbed = list(glob.glob(reglogs))
+        for r in reglogs.split(","):
+            globbed = list(glob.glob(r))
             while len(dump_files) < max_files and globbed:
                 file = random.choice(globbed)
                 globbed.remove(file)
@@ -727,7 +519,7 @@ class RegDataset(torch.utils.data.Dataset):
                     self.train_tokenizer(self.dfs + token_dfs)
         self.reg_widths = self.get_reg_widths(self.dfs)
         self.n_vocab = len(self.tokens["n"])
-        self.n_words = sum([len(df) for df in self.dfs])
+        self.n_words = sum((len(df) for df in self.dfs))
         assert self.tokens[self.tokens["val"].isna()].empty
         assert self.tokens[self.tokens["val"] < 0].empty
         self.logger.info(
