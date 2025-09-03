@@ -441,7 +441,7 @@ class RegDataset(torch.utils.data.Dataset):
         return dfs
 
     def load_dfs(self, dump_files, max_perm=99):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
             results = executor.map(
                 self.load_df,
                 sorted(dump_files),
