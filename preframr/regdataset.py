@@ -128,8 +128,7 @@ class RegDataset(torch.utils.data.Dataset):
     def _make_tokens(self, dfs):
         self.logger.info("making tokens")
         tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
-        tokens = pd.concat(tokens, copy=False).drop_duplicates().sort_values(TOKEN_KEYS)
-        tokens.reset_index(drop=True, inplace=True)
+        tokens = pd.concat(tokens, copy=False).drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype(
@@ -485,7 +484,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger.info("merging tokens")
         merged_dfs = []
         for df in tqdm(dfs):
-            orig_df = df.copy()
+            orig_cols, orig_dtypes = orig_df.columns, orig_df.dtypes
             df, missing_tokens = self._merged_and_missing(tokens, df)
             if not missing_tokens.empty:
                 for missing_token in missing_tokens.itertuples():
@@ -507,7 +506,7 @@ class RegDataset(torch.utils.data.Dataset):
                         "substitute reg %u val %u with val %u", reg, val, best_val
                     )
                     df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
-                df = df[orig_df.columns].astype(orig_df.dtypes)
+                df = df[orig_cols].astype(orig_dtypes)
                 df, missing_tokens = self._merged_and_missing(tokens, df)
                 assert missing_tokens.empty
             merged_dfs.append(df)
