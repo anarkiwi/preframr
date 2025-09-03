@@ -489,15 +489,16 @@ class RegDataset(torch.utils.data.Dataset):
             merged_dfs.append(df)
         return merged_dfs
 
-    def glob_dumps(self, reglogs, max_files):
+    def glob_dumps(self, reglogs, max_files, min_dump_size):
         random.seed(0)
         dump_files = []
         for r in reglogs.split(","):
-            globbed = list(glob.glob(r))
-            while len(dump_files) < max_files and globbed:
-                file = random.choice(globbed)
-                globbed.remove(file)
-                dump_files.append(file)
+            max_globbed = max_files - len(dump_files)
+            if max_globbed <= 0:
+                break
+            globbed = [f for f in glob.glob(r) if os.path.get_size(f) >= min_dump_size]
+            random.shuffle(globbed)
+            dump_files.extend(globbed[:max_globbed])
         random.seed()
         return dump_files
 
@@ -512,12 +513,15 @@ class RegDataset(torch.utils.data.Dataset):
             )
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
         else:
-            dump_files = self.glob_dumps(self.args.reglogs, self.args.max_files)
+            dump_files = self.glob_dumps(
+                self.args.reglogs, self.args.max_files, self.args.min_dump_size
+            )
             df_files, self.dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
             _token_df_files, token_dfs = self.load_dfs(
                 self.glob_dumps(
                     self.args.token_reglogs,
                     self.args.max_files,
+                    self.args.min_dump_size,
                 ),
                 max_perm=self.args.max_perm,
             )
