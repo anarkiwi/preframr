@@ -124,7 +124,7 @@ class RegDataset(torch.utils.data.Dataset):
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype(
-            {"val": VAL_PDTYPE, "diff": MODEL_PDTYPE, "n": TOKEN_PDTYPE}
+            {"val": VAL_PDTYPE, "diff": DIFF_PDTYPE, "n": TOKEN_PDTYPE}
         )
         return tokens
 
