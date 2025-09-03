@@ -119,7 +119,7 @@ class RegDataset(torch.utils.data.Dataset):
 
     def _make_tokens(self, dfs):
         tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
-        tokens = pd.concat(tokens).drop_duplicates().sort_values(TOKEN_KEYS)
+        tokens = pd.concat(tokens, copy=False).drop_duplicates().sort_values(TOKEN_KEYS)
         tokens.reset_index(drop=True, inplace=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
@@ -172,7 +172,9 @@ class RegDataset(torch.utils.data.Dataset):
         )
         if bits:
             reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
-        df = pd.concat([non_reg_df, reg_df]).sort_values(["clock"], ascending=True)
+        df = pd.concat([non_reg_df, reg_df], copy=False).sort_values(
+            ["clock"], ascending=True
+        )
         df = df[orig_df.columns].reset_index(drop=True).astype(orig_df.dtypes)
         return df
 
@@ -226,7 +228,7 @@ class RegDataset(torch.utils.data.Dataset):
         delay_df["val"] -= 1
         delay_df["diff"] = 0
         df = (
-            pd.concat([df, irq_df, delay_df])
+            pd.concat([df, irq_df, delay_df], copy=False)
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .astype(MODEL_PDTYPE)
             .reset_index(drop=True)
@@ -255,7 +257,9 @@ class RegDataset(torch.utils.data.Dataset):
         reg_df["val"] = reg_df["val"].floordiv(256)
         reg_df.loc[:, "reg"] += 1
         df.loc[m, "val"] -= reg_df["val"] * 256
-        df = pd.concat([df, reg_df]).sort_values(["f", "reg_order"], ascending=True)
+        df = pd.concat([df, reg_df], copy=False).sort_values(
+            ["f", "reg_order"], ascending=True
+        )
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
@@ -594,7 +598,9 @@ class RegDataset(torch.utils.data.Dataset):
             if self.args.dataset_csv:
                 for i in range(len(self.dfs)):
                     self.dfs[i]["i"] = int(i)
-                pd.DataFrame(pd.concat(self.dfs)).to_csv(self.args.dataset_csv)
+                pd.DataFrame(pd.concat(self.dfs), copy=False).to_csv(
+                    self.args.dataset_csv
+                )
 
     def get_tk(self, tkmodel=None):
         if tkmodel:
