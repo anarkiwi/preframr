@@ -82,5 +82,6 @@ def add_args(parser):
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--accumulate-grad-batches", type=int, default=1)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
-    parser.add_argument("--max_perm", type=int, default=99)
+    parser.add_argument("--max-perm", type=int, default=99)
+    parser.add_argument("--ckpt-hours", type=int, default=12)
     return parser

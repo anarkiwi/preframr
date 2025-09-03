@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from datetime import timedelta
 import os
 import pytorch_lightning as pl
 from torchtune.utils import get_logger
@@ -11,7 +12,11 @@ from model import get_model, SchedulerFreeModelCheckpoint
 
 def train(model, dataloader, args):
     tb_logger = pl.loggers.TensorBoardLogger(args.tb_logs, "preframr")
-    checkpoint_callback = SchedulerFreeModelCheckpoint(save_top_k=-1)
+    epoch_checkpoint_callback = SchedulerFreeModelCheckpoint(save_top_k=-1)
+    time_checkpoint_callback = SchedulerFreeModelCheckpoint(
+        save_top_k=-1,
+        train_time_interval=timedelta(hours=args.ckpt_hours),
+    )
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         default_root_dir=os.path.dirname(args.model_state),
@@ -20,7 +25,7 @@ def train(model, dataloader, args):
         log_every_n_steps=args.log_every_n_steps,
         enable_checkpointing=True,
         logger=tb_logger,
-        callbacks=[checkpoint_callback],
+        callbacks=[epoch_checkpoint_callback, time_checkpoint_callback],
     )
     ckpt_path = None
     if os.path.exists(args.model_state):
