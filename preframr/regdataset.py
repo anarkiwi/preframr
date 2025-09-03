@@ -24,8 +24,10 @@ from preframr.stfconstants import (
 TOKEN_KEYS = ["reg", "val", "diff"]
 MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
-VAL_PDTYPE = pd.UInt32Dtype()
+VAL_PDTYPE = pd.UInt16Dtype()
 TOKEN_PDTYPE = pd.UInt16Dtype()
+DIFF_PDTYPE = pd.UInt16Dtype()
+IRQ_PDTYPE = pd.UInt16Dtype()
 MIN_DIFF = 32
 
 
@@ -317,6 +319,7 @@ class RegDataset(torch.utils.data.Dataset):
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
+        irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
         for xdf in self._rotate_voice_augment(df, max_perm):
             xdf = self._norm_pr_order(xdf)
@@ -325,8 +328,8 @@ class RegDataset(torch.utils.data.Dataset):
                 {
                     "reg": REG_PDTYPE,
                     "val": VAL_PDTYPE,
-                    "diff": MODEL_PDTYPE,
-                    "irq": MODEL_PDTYPE,
+                    "diff": DIFF_PDTYPE,
+                    "irq": IRQ_PDTYPE,
                 }
             )
             if xdf.iloc[-1]["reg"] == FRAME_REG:
