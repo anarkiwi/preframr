@@ -5,6 +5,8 @@ import logging
 import glob
 import os
 import random
+import tempfile
+from tqdm import tqdm
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
 import numpy as np
@@ -29,6 +31,12 @@ TOKEN_PDTYPE = pd.UInt16Dtype()
 DIFF_PDTYPE = pd.UInt16Dtype()
 IRQ_PDTYPE = pd.UInt16Dtype()
 MIN_DIFF = 32
+FRAME_DTYPES = {
+    "reg": REG_PDTYPE,
+    "val": VAL_PDTYPE,
+    "diff": DIFF_PDTYPE,
+    "irq": IRQ_PDTYPE,
+}
 
 
 def wrapbits(x, reglen):
@@ -328,14 +336,7 @@ class RegDataset(torch.utils.data.Dataset):
         for xdf in self._rotate_voice_augment(df, max_perm):
             xdf = self._norm_pr_order(xdf)
             xdf["irq"] = irq
-            xdf = xdf[TOKEN_KEYS + ["irq"]].astype(
-                {
-                    "reg": REG_PDTYPE,
-                    "val": VAL_PDTYPE,
-                    "diff": DIFF_PDTYPE,
-                    "irq": IRQ_PDTYPE,
-                }
-            )
+            xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             if xdf.iloc[-1]["reg"] == FRAME_REG:
                 xdf = xdf.head(len(xdf) - 1)
             if xdf.iloc[0]["reg"] == FRAME_REG:
@@ -416,7 +417,7 @@ class RegDataset(torch.utils.data.Dataset):
         tk.save(self.args.tkmodel)
         del tk
 
-    def load_df(self, name, max_perm=99):
+    def load_df(self, name, df_dir, max_perm=99):
         dfs = []
         for i, df in enumerate(
             self._downsample_df(self._read_df(name), max_perm=max_perm)
@@ -440,23 +441,36 @@ class RegDataset(torch.utils.data.Dataset):
                     "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
                 )
                 break
-            self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
-            dfs.append(df)
-        return dfs
+            df_base = os.path.splitext(os.path.basename(name))[0]
+            df_name = os.path.join(df_dir, f"{hash(name)}-{df_base}.{i}.csv.zst")
+            df.to_csv(df_name)
+            dfs.append(df_name)
+        return name, dfs
 
     def load_dfs(self, dump_files, max_perm=99):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
-            results = executor.map(
-                self.load_df,
-                sorted(dump_files),
-                [max_perm for _ in range(len(dump_files))],
-            )
-        dfs = []
-        df_files = []
-        for name, file_dfs in zip(sorted(dump_files), results):
-            for file_df in file_dfs:
-                df_files.append(name)
-                dfs.append(file_df)
+        results = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            unsorted_dump_files = dump_files
+            random.shuffle(unsorted_dump_files)
+            with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+                futures = [
+                    executor.submit(self.load_df, dump_file, tmpdir, max_perm)
+                    for dump_file in unsorted_dump_files
+                ]
+                for future in tqdm(
+                    concurrent.futures.as_completed(futures), total=len(futures)
+                ):
+                    result = future.result()
+                    name, file_dfs = result
+                    for i, file_df in enumerate(file_dfs):
+                        df = pd.read_csv(file_df, dtype=FRAME_DTYPES)
+                        irq = df["irq"].iloc[0]
+                        results.append((name, df))
+                        os.unlink(file_df)
+                        self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
+        results = sorted(results, key=lambda x: x[0])
+        df_files = [result[0] for result in results]
+        dfs = [result[1] for result in results]
         return df_files, dfs
 
     def _merged_and_missing(self, tokens, df):
