@@ -453,7 +453,7 @@ class RegDataset(torch.utils.data.Dataset):
         with tempfile.TemporaryDirectory() as tmpdir:
             unsorted_dump_files = dump_files
             random.shuffle(unsorted_dump_files)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=24) as executor:
                 futures = [
                     executor.submit(self.load_df, dump_file, tmpdir, max_perm)
                     for dump_file in unsorted_dump_files
