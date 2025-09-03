@@ -128,7 +128,12 @@ class RegDataset(torch.utils.data.Dataset):
     def _make_tokens(self, dfs):
         self.logger.info("making tokens")
         tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
-        tokens = pd.concat(tokens, copy=False).drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
+        tokens = (
+            pd.concat(tokens, copy=False)
+            .drop_duplicates()
+            .sort_values(TOKEN_KEYS)
+            .reset_index(drop=True)
+        )
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype(
@@ -484,7 +489,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger.info("merging tokens")
         merged_dfs = []
         for df in tqdm(dfs):
-            orig_cols, orig_dtypes = orig_df.columns, orig_df.dtypes
+            orig_cols, orig_dtypes = df.columns, df.dtypes
             df, missing_tokens = self._merged_and_missing(tokens, df)
             if not missing_tokens.empty:
                 for missing_token in missing_tokens.itertuples():
