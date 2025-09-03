@@ -497,7 +497,11 @@ class RegDataset(torch.utils.data.Dataset):
             max_globbed = max_files - len(dump_files)
             if max_globbed <= 0:
                 break
-            globbed = [f for f in glob.glob(r) if os.path.getsize(f) >= min_dump_size]
+            globbed = [
+                f
+                for f in glob.glob(r, recursive=True)
+                if os.path.getsize(f) >= min_dump_size
+            ]
             random.shuffle(globbed)
             dump_files.extend(globbed[:max_globbed])
         random.seed()
