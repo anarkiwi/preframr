@@ -358,7 +358,7 @@ class RegDataset(torch.utils.data.Dataset):
     def get_reg_widths(self, dfs):
         reg_widths = {}
         unique_regs = set()
-        for df in dfs:
+        for df in tqdm(dfs):
             unique_regs.update(list(df["reg"].unique()))
         for reg in unique_regs:
             reg_max = 0
@@ -619,6 +619,7 @@ class RegDataset(torch.utils.data.Dataset):
                     self.tokens.to_csv(self.args.token_csv)
                 if self.args.tkvocab:
                     self.train_tokenizer(self.dfs + token_dfs)
+        self.logger.info("getting reg widths")
         self.reg_widths = self.get_reg_widths(self.dfs)
         self.n_vocab = len(self.tokens["n"])
         self.n_words = sum((len(df) for df in self.dfs))
@@ -655,10 +656,10 @@ class RegDataset(torch.utils.data.Dataset):
                 )
             if self.args.dataset_csv:
                 self.logger.info(f"writing {self.args.dataset_csv}")
-                with zstd.open(self.args.dataset_csv, "wb") as f:
+                with zstd.open(self.args.dataset_csv, "w") as f:
                     for i in tqdm(range(len(self.dfs))):
                         self.dfs[i]["i"] = int(i)
-                        self.dfs[i]["i"].to_csv(f, index=False, header=(i == 0))
+                        self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def get_tk(self, tkmodel=None):
         if tkmodel:
