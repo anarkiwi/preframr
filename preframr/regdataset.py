@@ -13,6 +13,7 @@ import torch
 from tokenizers import CharBPETokenizer, Tokenizer
 import numpy as np
 import pandas as pd
+import zstandard as zstd
 from preframr.stfconstants import (
     DELAY_REG,
     FRAME_REG,
@@ -193,7 +194,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = pd.concat([non_reg_df, reg_df], copy=False).sort_values(
             ["clock"], ascending=True
         )
-        df = df[orig_df.columns].reset_index(drop=True).astype(orig_df.dtypes)
+        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
     def _rotate_filter(self, df, r):
@@ -654,11 +655,10 @@ class RegDataset(torch.utils.data.Dataset):
                 )
             if self.args.dataset_csv:
                 self.logger.info(f"writing {self.args.dataset_csv}")
-                for i in range(len(self.dfs)):
-                    self.dfs[i]["i"] = int(i)
-                pd.DataFrame(pd.concat(self.dfs), copy=False).to_csv(
-                    self.args.dataset_csv
-                )
+                with zstd.open(self.args.dataset_csv, "wb") as f:
+                    for i in tqdm(range(len(self.dfs))):
+                        self.dfs[i]["i"] = int(i)
+                        self.dfs[i]["i"].to_csv(f, index=False, header=(i == 0))
 
     def get_tk(self, tkmodel=None):
         if tkmodel:
