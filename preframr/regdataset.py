@@ -27,7 +27,7 @@ TOKEN_KEYS = ["reg", "val", "diff"]
 MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 VAL_PDTYPE = pd.UInt16Dtype()
-TOKEN_PDTYPE = pd.UInt16Dtype()
+TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 DIFF_PDTYPE = pd.UInt16Dtype()
 IRQ_PDTYPE = pd.UInt16Dtype()
 MIN_DIFF = 32
@@ -61,7 +61,10 @@ class SeqMapper:
     def add(self, seq):
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
-        self.seqs.append(torch.LongTensor(seq))
+        if isinstance(seq, np.ndarray):
+            self.seqs.append(torch.from_numpy(seq))
+        else:
+            self.seqs.append(torch.LongTensor(seq))
         self.len = 0
         seq_map = []
         for s in self.seqs:
@@ -368,38 +371,38 @@ class RegDataset(torch.utils.data.Dataset):
             assert reg_widths[int(reg)]
         return reg_widths
 
-    def encode_unicode(self, tokens):
-        t = np.array(tokens, dtype=np.uint16)
+    def encode_unicode(self, tokens, dtype=np.uint16):
+        t = np.array(tokens, dtype=dtype)
         t = np.where(t == 0, np.nan, t)
         t += UNICODE_BASE
-        t = np.nan_to_num(t).astype(np.uint16)
+        t = np.nan_to_num(t).astype(dtype)
         t = np.where(t == 0, 32, t)
         return "".join([chr(i) for i in t])
 
-    def decode_unicode(self, encoded_tokens):
+    def decode_unicode(self, encoded_tokens, dtype=np.uint16):
         t = np.array([ord(i) for i in encoded_tokens])
         t = np.where(t == 32, np.nan, t)
         t -= UNICODE_BASE
-        t = np.nan_to_num(t).astype(np.uint16)
+        t = np.nan_to_num(t).astype(dtype)
         return t
 
-    def encode(self, tokens, tk=None):
+    def encode(self, tokens, tk=None, dtype=np.uint16):
         if self.args.tkvocab:
             if tk is None:
                 if self.tk is None:
                     self.tk = self.get_tk(self.args.tkmodel)
                 tk = self.tk
-            encoded = tk.encode(self.encode_unicode(tokens))
-            return np.array(encoded.ids, dtype=np.int16)
+            encoded = tk.encode(self.encode_unicode(tokens, dtype=dtype))
+            return np.array(encoded.ids, dtype=dtype)
         return tokens
 
-    def decode(self, encoded_tokens, tk=None):
+    def decode(self, encoded_tokens, tk=None, dtype=np.uint16):
         if self.args.tkvocab:
             if tk is None:
                 if self.tk is None:
                     self.tk = self.get_tk(self.args.tkmodel)
                 tk = self.tk
-            return self.decode_unicode(tk.decode(encoded_tokens))
+            return self.decode_unicode(tk.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
 
     def train_tokenizer(self, dfs, min_frequency=2):
@@ -511,8 +514,8 @@ class RegDataset(torch.utils.data.Dataset):
                         "substitute reg %u val %u with val %u", reg, val, best_val
                     )
                     df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
-                df = df[orig_cols].astype(orig_dtypes)
                 df, missing_tokens = self._merged_and_missing(tokens, df)
+                df = df[orig_cols].astype(orig_dtypes)
                 assert missing_tokens.empty
             merged_dfs.append(df)
         return merged_dfs
@@ -533,6 +536,29 @@ class RegDataset(torch.utils.data.Dataset):
             dump_files.extend(globbed[:max_globbed])
         random.seed()
         return dump_files
+
+    def validate_encoding(self, df_file, seq):
+        if not self.args.tkvocab:
+            return seq
+        orig_seq = seq.copy()
+        seq = self.encode(orig_seq, dtype=np.int64)
+        decoded_seq = self.decode(seq, dtype=np.int64)
+        if not np.array_equal(orig_seq, decoded_seq):
+            for i, (orig, decoded) in enumerate(zip(orig_seq, decoded_seq)):
+                if orig == decoded:
+                    continue
+                a = [str(i) for i in orig_seq]
+                b = [str(i) for i in decoded_seq]
+                d = "\n".join(difflib.context_diff(a, b))
+                print(d)
+                assert False, (
+                    df_file,
+                    i,
+                    orig,
+                    decoded,
+                    self.tokens.iloc[int(orig)],
+                )
+        return seq
 
     def load(self, train=True):
         if self.args.reglog:
@@ -579,25 +605,9 @@ class RegDataset(torch.utils.data.Dataset):
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
-        for df_file, df in zip(df_files, dfs):
-            seq = self.encode(df["n"])
-            decoded_seq = self.decode(seq)
-            orig_seq = df["n"].to_numpy()
-            if not np.array_equal(orig_seq, decoded_seq):
-                for i, (orig, decoded) in enumerate(zip(orig_seq, decoded_seq)):
-                    if orig == decoded:
-                        continue
-                    a = [str(i) for i in orig_seq]
-                    b = [str(i) for i in decoded_seq]
-                    d = "\n".join(difflib.context_diff(a, b))
-                    print(d)
-                    assert False, (
-                        df_file,
-                        i,
-                        orig,
-                        decoded,
-                        self.tokens.iloc[int(orig)],
-                    )
+        self.logger.info("mapping sequences")
+        for df_file, df in tqdm(zip(df_files, dfs)):
+            seq = self.validate_encoding(df_file, df["n"].to_numpy())
             try:
                 self.seq_mapper.add(seq)
                 self.n_words += len(seq)
@@ -612,10 +622,12 @@ class RegDataset(torch.utils.data.Dataset):
         )
         if train:
             if self.args.df_map_csv:
+                self.logger.info(f"writing {self.args.df_map_csv}")
                 pd.DataFrame(self.df_files, columns=["dump_file"]).to_csv(
                     self.args.df_map_csv
                 )
             if self.args.dataset_csv:
+                self.logger.info(f"writing {self.args.dataset_csv}")
                 for i in range(len(self.dfs)):
                     self.dfs[i]["i"] = int(i)
                 pd.DataFrame(pd.concat(self.dfs), copy=False).to_csv(
