@@ -5,7 +5,9 @@ import logging
 import glob
 import os
 import random
+import shutil
 import tempfile
+import time
 from tqdm import tqdm
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
@@ -425,7 +427,7 @@ class RegDataset(torch.utils.data.Dataset):
         tk.save(self.args.tkmodel)
         del tk
 
-    def load_df(self, name, df_dir, max_perm=99):
+    def load_df(self, name, df_dir, max_perm=99, min_space=0):
         dfs = []
         for i, df in enumerate(
             self._downsample_df(self._read_df(name), max_perm=max_perm)
@@ -449,33 +451,57 @@ class RegDataset(torch.utils.data.Dataset):
                     "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
                 )
                 break
+            if min_space:
+                while True:
+                    usage = shutil.disk_usage(df_dir)
+                    prop = usage.free / usage.total
+                    if prop > min_space:
+                        break
+                    time.sleep(1)
             df_base = os.path.splitext(os.path.basename(name))[0]
-            df_name = os.path.join(df_dir, f"{hash(name)}-{df_base}.{i}.csv.zst")
-            df.to_csv(df_name)
+            df_name = os.path.join(df_dir, f"{hash(name)}-{df_base}.{i}.zst")
+            df.to_parquet(df_name, engine="pyarrow", compression="zstd")
             dfs.append(df_name)
         return name, dfs
 
-    def load_dfs(self, dump_files, max_perm=99):
+    def load_dfs(self, dump_files, max_perm=99, max_workers=16, min_space=0.2):
         results = []
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(dir="/dev/shm") as tmpdir:
             unsorted_dump_files = dump_files
             random.shuffle(unsorted_dump_files)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=24) as executor:
-                futures = [
-                    executor.submit(self.load_df, dump_file, tmpdir, max_perm)
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=max_workers
+            ) as preload_executor:
+                preload_futures = [
+                    preload_executor.submit(
+                        self.load_df,
+                        dump_file,
+                        tmpdir,
+                        max_perm=max_perm,
+                        min_space=min_space,
+                    )
                     for dump_file in unsorted_dump_files
                 ]
-                for future in tqdm(
-                    concurrent.futures.as_completed(futures), total=len(futures)
-                ):
-                    result = future.result()
-                    name, file_dfs = result
+
+                def load_df(name, file_dfs):
+                    if not file_dfs:
+                        return []
+                    dfs = [pd.read_parquet(file_df) for file_df in file_dfs]
+                    irq = dfs[0]["irq"].iloc[0]
                     for i, file_df in enumerate(file_dfs):
-                        df = pd.read_csv(file_df, dtype=FRAME_DTYPES)
-                        irq = df["irq"].iloc[0]
-                        results.append((name, df))
                         os.unlink(file_df)
                         self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
+                    return dfs
+
+                for preload_future in tqdm(
+                    concurrent.futures.as_completed(preload_futures),
+                    total=len(preload_futures),
+                ):
+                    assert not preload_future.exception(), preload_future.exception()
+                    name, file_dfs = preload_future.result()
+                    dfs = load_df(name, file_dfs)
+                    for df in dfs:
+                        results.append((name, df))
         results = sorted(results, key=lambda x: x[0])
         df_files = [result[0] for result in results]
         dfs = [result[1] for result in results]
