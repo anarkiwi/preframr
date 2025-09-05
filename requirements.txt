@@ -1,7 +1,7 @@
 pandas==2.3.2
 pyarrow==20.0.0
 pyresidfp==0.16.0
-pytorch-lightning==2.5.4
+pytorch-lightning==2.5.5
 scipy==1.16.1
 schedulefree==1.4.1
 tensorboard==2.20.0
