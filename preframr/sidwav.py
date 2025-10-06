@@ -63,7 +63,7 @@ def write_samples(orig_df, name, reg_widths, reg_start=None, irq=None):
     voice = None
     sp = 0
 
-    for row in tqdm(df.itertuples(), total=len(df)):
+    for row in tqdm(df.itertuples(), total=len(df), ascii=True):
         if row.reg < 0:
             if row.reg == CTRL_REG:
                 val = row.val

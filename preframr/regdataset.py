@@ -358,7 +358,7 @@ class RegDataset(torch.utils.data.Dataset):
     def get_reg_widths(self, dfs):
         reg_widths = {}
         unique_regs = set()
-        for df in tqdm(dfs):
+        for df in tqdm(dfs, ascii=True):
             unique_regs.update(list(df["reg"].unique()))
         for reg in unique_regs:
             reg_max = 0
@@ -497,6 +497,7 @@ class RegDataset(torch.utils.data.Dataset):
                 for preload_future in tqdm(
                     concurrent.futures.as_completed(preload_futures),
                     total=len(preload_futures),
+                    ascii=True,
                 ):
                     assert not preload_future.exception(), preload_future.exception()
                     name, file_dfs = preload_future.result()
@@ -518,7 +519,7 @@ class RegDataset(torch.utils.data.Dataset):
     def merge_tokens(self, tokens, dfs):
         self.logger.info("merging tokens")
         merged_dfs = []
-        for df in tqdm(dfs):
+        for df in tqdm(dfs, ascii=True):
             orig_cols, orig_dtypes = df.columns, df.dtypes
             df, missing_tokens = self._merged_and_missing(tokens, df)
             if not missing_tokens.empty:
@@ -634,7 +635,7 @@ class RegDataset(torch.utils.data.Dataset):
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
         self.logger.info("mapping sequences")
-        for df_file, df in tqdm(zip(df_files, dfs)):
+        for df_file, df in tqdm(zip(df_files, dfs), ascii=True):
             seq = self.validate_encoding(df_file, df["n"].to_numpy())
             try:
                 self.seq_mapper.add(seq)
@@ -657,7 +658,7 @@ class RegDataset(torch.utils.data.Dataset):
             if self.args.dataset_csv:
                 self.logger.info(f"writing {self.args.dataset_csv}")
                 with zstd.open(self.args.dataset_csv, "w") as f:
-                    for i in tqdm(range(len(self.dfs))):
+                    for i in tqdm(range(len(self.dfs)), ascii=True):
                         self.dfs[i]["i"] = int(i)
                         self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
