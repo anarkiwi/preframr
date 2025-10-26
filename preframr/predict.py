@@ -108,7 +108,7 @@ def generate_sequence(args, logger, dataset, model, predictor):
     logger.info(
         "finalized %9.u total cycles %6.2f total seconds", cycles, cycles * sidq()
     )
-    write_samples(df, args.wav, dataset.reg_widths, reg_start=reg_start)
+    write_samples(df, args.wav, dataset.reg_widths, reg_start=reg_start, asid=args.asid)
     if args.csv:
         out_df = df.join(
             state_df(dataset.decode(prompt_compare.numpy()), dataset, irq),

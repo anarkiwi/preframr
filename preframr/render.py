@@ -42,7 +42,7 @@ def main():
     prompt_df = state_df(decoded_prompt, dataset, irq)
     if args.csv:
         prompt_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
-    write_samples(prompt_df, args.wav, dataset.reg_widths)
+    write_samples(prompt_df, args.wav, dataset.reg_widths, asid=args.asid)
 
 
 if __name__ == "__main__":
