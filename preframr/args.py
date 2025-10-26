@@ -85,4 +85,5 @@ def add_args(parser):
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max-perm", type=int, default=99)
     parser.add_argument("--ckpt-hours", type=int, default=12)
+    parser.add_argument("--asid", type=str, default=None)
     return parser

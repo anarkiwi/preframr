@@ -53,15 +53,15 @@ ASID_STOP = 0x4D
 ASID_UPDATE = 0x4E
 
 
+def default_sid():
+    return SoundInterfaceDevice(model=ChipModel.MOS8580)
+
+
 class AsidProxy:
-    def __init__(self, sid, port, in_port=None, update_cmd=ASID_UPDATE):
+    def __init__(self, sid, port, update_cmd=ASID_UPDATE):
         self.sid = sid
         self.port = port
-        self.in_port = in_port
         self.update_cmd = update_cmd
-        if self.in_port:
-            while self.in_port.poll():
-                self.in_port.receive()
         self._resetreg()
 
     def _resetreg(self):
@@ -85,10 +85,9 @@ class AsidProxy:
         return self.sid.clock(seconds)
 
     def _sysex(self, data):
-        msg = mido.Message("sysex", data=[ELEKTRON_MANID] + data)
-        self.port.send(msg)
-        if self.in_port:
-            self.in_port.receive()
+        if self.port:
+            msg = mido.Message("sysex", data=[ELEKTRON_MANID] + data)
+            self.port.send(msg)
 
     def start(self):
         self._sysex([ASID_START])
@@ -121,10 +120,6 @@ class AsidProxy:
         time.sleep(seconds)
 
 
-def default_sid():
-    return SoundInterfaceDevice(model=ChipModel.MOS8580)
-
-
 def sidq(sid=None):
     if sid is None:
         sid = default_sid()
@@ -138,10 +133,12 @@ def write_reg(sid, reg, val, reg_widths):
         val >>= 8
 
 
-def write_samples(orig_df, name, reg_widths, reg_start=None, irq=None, sid=None):
+def write_samples(orig_df, name, reg_widths, reg_start=None, irq=None, sid=None, asid=None):
     df = orig_df.copy()
     if sid is None:
         sid = default_sid()
+    proxy = AsidProxy(sid=sid, port=asid)
+    proxy.start()
     if reg_start is None:
         reg_start = {MODE_VOL_REG: 15}
         for v in range(3):
@@ -193,5 +190,6 @@ def write_samples(orig_df, name, reg_widths, reg_start=None, irq=None, sid=None)
         samples = sid.clock(timedelta(seconds=row.delay))
         raw_samples[sp : sp + len(samples)] = samples
         sp += len(samples)
+    proxy.stop()
     raw_samples = raw_samples[:sp]
     wavfile.write(name, int(sid.sampling_frequency), raw_samples)
