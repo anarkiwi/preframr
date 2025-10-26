@@ -117,7 +117,8 @@ class AsidProxy:
             vals.append(new_val & 0x7F)
         if vals:
             self._sysex([self.update_cmd] + masks + msbs + vals)
-        time.sleep(seconds)
+        if self.port:
+            time.sleep(seconds)
 
 
 def sidq(sid=None):
