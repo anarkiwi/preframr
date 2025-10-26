@@ -133,7 +133,9 @@ def write_reg(sid, reg, val, reg_widths):
         val >>= 8
 
 
-def write_samples(orig_df, name, reg_widths, reg_start=None, irq=None, sid=None, asid=None):
+def write_samples(
+    orig_df, name, reg_widths, reg_start=None, irq=None, sid=None, asid=None
+):
     df = orig_df.copy()
     if sid is None:
         sid = default_sid()
