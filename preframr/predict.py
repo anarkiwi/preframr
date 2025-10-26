@@ -122,7 +122,7 @@ def generate_sequence(args, logger, dataset, model, predictor):
         dataset.reg_widths,
         reg_start=reg_start,
         asid=args.asid,
-        sysex_delay=sysex_delay,
+        sysex_delay=args.sysex_delay,
     )
 
 
