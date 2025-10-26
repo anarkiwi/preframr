@@ -7,5 +7,5 @@ schedulefree==1.4.1
 tensorboard==2.20.0
 tokenizers==0.22.1
 torchtune==0.6.1
-torchao==0.14.0
+torchao==0.14.1
 zstandard==0.25.0
