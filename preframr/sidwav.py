@@ -69,13 +69,18 @@ class AsidProxy:
         self._resetreg()
         if self.asid is not None:
             output_names = set(mido.get_output_names())  # pylint: disable=no-member
-            print(f"available mido ports: {output_names}")
             if self.asid not in output_names:
                 for output_asid in sorted(output_names):
                     if output_asid.startswith(self.asid):
                         self.asid = output_asid
+                        self.port = mido.open_output(  # pylint: disable=no-member
+                            self.asid
+                        )
                         break
-            self.port = mido.open_output(self.asid)  # pylint: disable=no-member
+            if self.port is None:
+                raise ValueError(
+                    f"{self.asid} not found, available ports: {output_names}"
+                )
 
     def __enter__(self):
         self.stop()
