@@ -3,7 +3,7 @@ Predicting Register Encoded Frames Rendered As Musical Results
 
 ## overview
 
-preframr is an experimental small language model that predicts [SID](https://en.wikipedia.org/wiki/MOS_Technology_6581) music from sequences of SID chip register calls intercepted in an emulator. This [example](example.mp3) output was predicted from an overfitted model trained with a small dataset including Goto80's [Emanation Machine](https://deepsid.chordian.net/?file=MUSICIANS/G/Goto80/Emanation_Machine_tune_1.sid).
+preframr is an experimental small language model that predicts [SID](https://en.wikipedia.org/wiki/MOS_Technology_6581) music from sequences of SID chip register calls intercepted in an emulator. This [example](example.mp3) output was predicted from an overfitted model trained with a small dataset including Goto80's [CBM_85](https://deepsid.chordian.net/?file=/MUSICIANS/G/Goto80/CBM_85.sid).
 
 preframr's predicted register calls are rendered as audio via an emulated SID chip or a real SID chip via the ASID protocol (for example to an [Elektron SIDStation](https://en.wikipedia.org/wiki/Elektron_SidStation) or [Vessel](https://github.com/anarkiwi/vap) equipped C64). Because preframr works with low level SID register calls directly it can reproduce [subtle SID programming techniques](https://csdb.dk/release/?id=219545) such as combined waveforms and complex envelopes which cannot be represented as [standard MIDI files](https://midi.org/about-midi-part-4midi-files).
 
