@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
       - name: Maximize build space
-        uses: easimon/maximize-build-space@7
+        uses: easimon/maximize-build-space@10
         with:
           root-reserve-mb: 512
           swap-size-mb: 1024
