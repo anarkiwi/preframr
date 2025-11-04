@@ -542,8 +542,8 @@ class RegDataset(torch.utils.data.Dataset):
                         "substitute reg %u val %u with val %u", reg, val, best_val
                     )
                     df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
-                df, missing_tokens = self._merged_and_missing(tokens, df)
                 df = df[orig_cols].astype(orig_dtypes)
+                df, missing_tokens = self._merged_and_missing(tokens, df)
                 assert missing_tokens.empty
             merged_dfs.append(df)
         return merged_dfs
