@@ -86,4 +86,5 @@ def add_args(parser):
     parser.add_argument("--max-perm", type=int, default=99)
     parser.add_argument("--ckpt-hours", type=int, default=12)
     parser.add_argument("--asid", type=str, default=None)
+    parser.add_argument("--sysex-delay", type=float, default=0.0001)
     return parser
