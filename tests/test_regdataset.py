@@ -166,20 +166,25 @@ class TestRegDatasetLoader(unittest.TestCase):
             [
                 {"clock": 1, "reg": 1, "val": 99},
                 {"clock": 2, "reg": 1, "val": 2},
-                {"clock": 3, "reg": 3, "val": 4},
-                {"clock": 4, "reg": 1, "val": 1},
-                {"clock": 5, "reg": 4, "val": 1},
-                {"clock": 6, "reg": 4, "val": 2},
-                {"clock": 7, "reg": FRAME_REG, "val": 0},
+                {"clock": 3, "reg": 2, "val": 2},
+                {"clock": 4, "reg": 2, "val": 3},
+                {"clock": 5, "reg": 4, "val": 2},
+                {"clock": 6, "reg": 3, "val": 4},
+                {"clock": 7, "reg": 1, "val": 1},
+                {"clock": 8, "reg": 4, "val": 1},
+                {"clock": 9, "reg": 4, "val": 2},
+                {"clock": 10, "reg": FRAME_REG, "val": 0},
             ]
         )
         squeeze_df = pd.DataFrame(
             [
-                {"clock": 3, "reg": 3, "val": 4},
-                {"clock": 4, "reg": 1, "val": 1},
-                {"clock": 5, "reg": 4, "val": 1},
-                {"clock": 6, "reg": 4, "val": 2},
-                {"clock": 7, "reg": FRAME_REG, "val": 0},
+                {"clock": 4, "reg": 2, "val": 3},
+                {"clock": 5, "reg": 4, "val": 2},
+                {"clock": 6, "reg": 3, "val": 4},
+                {"clock": 7, "reg": 1, "val": 1},
+                {"clock": 8, "reg": 4, "val": 1},
+                {"clock": 9, "reg": 4, "val": 2},
+                {"clock": 10, "reg": FRAME_REG, "val": 0},
             ],
             dtype=MODEL_PDTYPE,
         )

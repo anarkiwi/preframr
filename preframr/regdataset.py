@@ -315,7 +315,8 @@ class RegDataset(torch.utils.data.Dataset):
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
         df["f"] = (df["reg"] == FRAME_REG).cumsum()
-        df["c"] = self._ctrl_match(df).cumsum()
+        cm = self._ctrl_match(df).astype(int)
+        df["c"] = cm * cm.cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
 
