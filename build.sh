@@ -5,3 +5,4 @@ set -e
 docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.tensorboard . -t anarkiwi/tensorboard
 docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile . -t anarkiwi/preframr
 docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.xpu . -t anarkiwi/preframr-xpu
+# docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.jetson . -t anarkiwi/preframr-jetson

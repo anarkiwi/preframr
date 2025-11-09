@@ -1,0 +1,15 @@
+python-rtmidi==1.5.8
+matplotlib==3.10.7
+mido==1.3.3
+numpy==1.26.3
+pandas==2.3.3
+pyarrow==22.0.0
+pyresidfp==0.16.0
+pytorch-lightning==2.5.5
+scipy==1.15.3
+schedulefree==1.4.1
+tensorboard==2.20.0
+tokenizers==0.22.1
+torchao==0.14.1
+torchtune==0.6.1
+zstandard==0.25.0
