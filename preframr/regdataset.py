@@ -330,8 +330,24 @@ class RegDataset(torch.utils.data.Dataset):
         df = df.sort_values(["f", "o", "n"], ascending=True)
         return df[orig_df.columns]
 
+    def _simplify_ctrl(self, orig_df):
+        df = orig_df.copy()
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            ctrl_reg = v_offset + 4
+            # if no triangle, turn off ring
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b00010000 == 0), "val"] = df[
+                "val"
+            ] & ~(1 << 2)
+            # if no waveform, turn off sync
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0), "val"] = df[
+                "val"
+            ] & ~(1 << 1)
+        return df
+
     def _downsample_df(self, df, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
+        df = self._simplify_ctrl(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
             for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):

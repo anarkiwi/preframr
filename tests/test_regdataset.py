@@ -99,6 +99,29 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertEqual(loader.highbitmask(4), 240)
         self.assertEqual(loader.highbitmask(1), 254)
 
+    def test_simplfy_ctrl(self):
+        loader = RegDataset(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": 4, "val": 33 + 2**2},
+                {"reg": 4, "val": 17 + 2**2},
+                {"reg": 4, "val": 33 + 2**1},
+                {"reg": 4, "val": 0 + 2**1},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._simplify_ctrl(test_df).astype(dtype=MODEL_PDTYPE)
+        expected_df = pd.DataFrame(
+            [
+                {"reg": 4, "val": 33},
+                {"reg": 4, "val": 17 + 2**2},
+                {"reg": 4, "val": 33 + 2**1},
+                {"reg": 4, "val": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        self.assertTrue(expected_df.equals(result_df))
+
     def test_maskregbits(self):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(
