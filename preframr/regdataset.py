@@ -515,7 +515,6 @@ class RegDataset(torch.utils.data.Dataset):
                 def load_df(name, file_dfs):
                     if not file_dfs:
                         return []
-                    self.logger.info("reading %s", [file_dfs])
                     dfs = []
                     for file_df in file_dfs:
                         try:
