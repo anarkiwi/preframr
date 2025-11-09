@@ -16,14 +16,15 @@ import pandas as pd
 import zstandard as zstd
 from preframr.stfconstants import (
     DELAY_REG,
-    FRAME_REG,
-    VOICES,
-    VOICE_REG_SIZE,
-    UNICODE_BASE,
     FILTER_REG,
+    FRAME_REG,
     MAX_REG,
     MIDI_N_TO_F,
+    MODE_VOL_REG,
     PAL_CLOCK,
+    UNICODE_BASE,
+    VOICES,
+    VOICE_REG_SIZE,
 )
 
 TOKEN_KEYS = ["reg", "val", "diff"]
@@ -365,7 +366,7 @@ class RegDataset(torch.utils.data.Dataset):
             xdf = self._norm_pr_order(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            if xdf.iloc[-1]["reg"] == FRAME_REG:
+            while xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG, MODE_VOL_REG):
                 xdf = xdf.head(len(xdf) - 1)
             if xdf.iloc[0]["reg"] == FRAME_REG:
                 xdf = xdf.tail(len(xdf) - 1)
