@@ -42,7 +42,9 @@ class Predictor:
 
 
 def state_df(states, dataset, irq):
-    df = pd.DataFrame(states, columns=["n"]).merge(dataset.tokens, on="n", how="left")
+    tokens = dataset.tokens.copy()
+    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
+    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
     return df
 
 
