@@ -138,17 +138,16 @@ class RegDataset(torch.utils.data.Dataset):
     def _make_tokens(self, dfs):
         self.logger.info("making tokens")
         tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
-        tokens = (
-            pd.concat(tokens, copy=False)
-            .drop_duplicates()
-            .sort_values(TOKEN_KEYS)
-            .reset_index(drop=True)
-        )
+        tokens = pd.concat(tokens, copy=False)
+        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
+        tokens.loc[tokens["reg"] == FRAME_REG, ["val", "diff"]] = 0
+        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype(
             {"val": VAL_PDTYPE, "diff": DIFF_PDTYPE, "n": TOKEN_PDTYPE}
         )
+        assert len(tokens[tokens["reg"] == FRAME_REG]) <= 1
         return tokens
 
     def _maskreg(self, df, reg, valmask):
@@ -543,7 +542,11 @@ class RegDataset(torch.utils.data.Dataset):
         return df_files, dfs
 
     def _merged_and_missing(self, tokens, df):
+        m = df["reg"] == FRAME_REG
+        irq = df[m]["diff"].iloc[0]
+        df.loc[m, "diff"] = 0
         df = df.merge(tokens, on=TOKEN_KEYS, how="left")
+        df.loc[m, "diff"] = irq
         missing_tokens = (
             df[df["n"].isna()].drop_duplicates().sort_values(["reg", "val"])
         )
