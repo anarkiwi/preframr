@@ -16,14 +16,15 @@ import pandas as pd
 import zstandard as zstd
 from preframr.stfconstants import (
     DELAY_REG,
-    FRAME_REG,
-    VOICES,
-    VOICE_REG_SIZE,
-    UNICODE_BASE,
     FILTER_REG,
+    FRAME_REG,
     MAX_REG,
     MIDI_N_TO_F,
+    MODE_VOL_REG,
     PAL_CLOCK,
+    UNICODE_BASE,
+    VOICES,
+    VOICE_REG_SIZE,
 )
 
 TOKEN_KEYS = ["reg", "val", "diff"]
@@ -315,7 +316,8 @@ class RegDataset(torch.utils.data.Dataset):
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
         df["f"] = (df["reg"] == FRAME_REG).cumsum()
-        df["c"] = self._ctrl_match(df).cumsum()
+        cm = self._ctrl_match(df).astype(int)
+        df["c"] = cm * cm.cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
 
@@ -330,8 +332,24 @@ class RegDataset(torch.utils.data.Dataset):
         df = df.sort_values(["f", "o", "n"], ascending=True)
         return df[orig_df.columns]
 
+    def _simplify_ctrl(self, orig_df):
+        df = orig_df.copy()
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            ctrl_reg = v_offset + 4
+            # if no triangle, turn off ring
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b00010000 == 0), "val"] = df[
+                "val"
+            ] & ~(1 << 2)
+            # if no waveform, turn off sync
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0), "val"] = df[
+                "val"
+            ] & ~(1 << 1)
+        return df
+
     def _downsample_df(self, df, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
+        df = self._simplify_ctrl(df)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
             for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):
@@ -348,9 +366,11 @@ class RegDataset(torch.utils.data.Dataset):
             xdf = self._norm_pr_order(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            if xdf.iloc[-1]["reg"] == FRAME_REG:
+            while (xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG)) or (
+                xdf.iloc[-1]["reg"] == MODE_VOL_REG and xdf.iloc[-1]["val"] == 15
+            ):
                 xdf = xdf.head(len(xdf) - 1)
-            if xdf.iloc[0]["reg"] == FRAME_REG:
+            while xdf.iloc[0]["reg"] in (FRAME_REG, DELAY_REG):
                 xdf = xdf.tail(len(xdf) - 1)
             xdf = xdf.reset_index(drop=True)
             yield xdf

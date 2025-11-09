@@ -190,13 +190,14 @@ def write_samples(
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
         if reg_start is None:
-            reg_start = {MODE_VOL_REG: 15}
+            reg_start = {}
             for v in range(3):
                 offset = v * VOICE_REG_SIZE
                 # max sustain all voices
                 reg_start[6 + offset] = 240
                 # 50% pwm
                 reg_start[3 + offset] = 16
+        reg_start[MODE_VOL_REG] = reg_start.get(MODE_VOL_REG, 15)
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
         frame_cond = df["reg"] == FRAME_REG
