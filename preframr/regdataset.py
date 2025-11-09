@@ -492,7 +492,9 @@ class RegDataset(torch.utils.data.Dataset):
             raise ValueError(f"cannot read {name}: {e}")
         return name, dfs
 
-    def load_dfs(self, dump_files, max_perm=99, max_workers=16, min_space=0.2):
+    def load_dfs(
+        self, dump_files, max_perm=99, max_workers=16, min_space=0.2, shuffle=0
+    ):
         results = []
         with tempfile.TemporaryDirectory(dir="/dev/shm") as tmpdir:
             unsorted_dump_files = dump_files
@@ -536,7 +538,12 @@ class RegDataset(torch.utils.data.Dataset):
                     dfs = load_df(name, file_dfs)
                     for df in dfs:
                         results.append((name, df))
-        results = sorted(results, key=lambda x: x[0])
+        if shuffle is not None:
+            random.seed(shuffle)
+            random.shuffle(results)
+            random.seed()
+        else:
+            results = sorted(results, key=lambda x: x[0])
         df_files = [result[0] for result in results]
         dfs = [result[1] for result in results]
         return df_files, dfs
