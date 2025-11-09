@@ -366,9 +366,11 @@ class RegDataset(torch.utils.data.Dataset):
             xdf = self._norm_pr_order(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            while xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG, MODE_VOL_REG):
+            while (xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG)) or (
+                xdf.iloc[-1]["reg"] == MODE_VOL_REG and xdf.iloc[-1]["val"] == 15
+            ):
                 xdf = xdf.head(len(xdf) - 1)
-            if xdf.iloc[0]["reg"] == FRAME_REG:
+            while xdf.iloc[0]["reg"] in (FRAME_REG, DELAY_REG):
                 xdf = xdf.tail(len(xdf) - 1)
             xdf = xdf.reset_index(drop=True)
             yield xdf
