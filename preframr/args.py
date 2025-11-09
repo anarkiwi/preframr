@@ -7,7 +7,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        default="/scratch/preframr/training-dumps/**/*dump.zst",
+        default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.zst",
     )
     parser.add_argument(
         "--token-reglogs",

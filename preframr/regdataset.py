@@ -111,19 +111,22 @@ class RegDataset(torch.utils.data.Dataset):
         return (df["reg"] == 4) | (df["reg"] == 11) | (df["reg"] == 18)
 
     def _read_df(self, name):
-        df = pd.read_csv(
-            name,
-            sep=" ",
-            names=["clock", "irq_diff", "nmi_diff", "chipno", "reg", "val"],
-            dtype={
-                "clock": MODEL_PDTYPE,
-                "irq_diff": MODEL_PDTYPE,
-                "nmi_diff": MODEL_PDTYPE,
-                "chipno": REG_PDTYPE,
-                "reg": REG_PDTYPE,
-                "val": VAL_PDTYPE,
-            },
-        )
+        try:
+            df = pd.read_csv(
+                name,
+                sep=" ",
+                names=["clock", "irq_diff", "nmi_diff", "chipno", "reg", "val"],
+                dtype={
+                    "clock": MODEL_PDTYPE,
+                    "irq_diff": MODEL_PDTYPE,
+                    "nmi_diff": MODEL_PDTYPE,
+                    "chipno": REG_PDTYPE,
+                    "reg": REG_PDTYPE,
+                    "val": VAL_PDTYPE,
+                },
+            )
+        except Exception as e:
+            raise ValueError(f"cannot read {name}: {e}")
         # assert df["reg"].min() >= 0
         df["irq"] = df["clock"].astype(MODEL_PDTYPE) - df["irq_diff"]
         # keep only chipno 0
@@ -338,13 +341,13 @@ class RegDataset(torch.utils.data.Dataset):
             v_offset = v * VOICE_REG_SIZE
             ctrl_reg = v_offset + 4
             # if no triangle, turn off ring
-            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b00010000 == 0), "val"] = df[
-                "val"
-            ] & ~(1 << 2)
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b00010000 == 0), "val"] = (
+                df["val"] & 0b11111011
+            )
             # if no waveform, turn off sync
-            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0), "val"] = df[
-                "val"
-            ] & ~(1 << 1)
+            df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0), "val"] = (
+                df["val"] & 0b11111101
+            )
         return df
 
     def _downsample_df(self, df, diffmax=512, max_perm=99):
@@ -366,11 +369,11 @@ class RegDataset(torch.utils.data.Dataset):
             xdf = self._norm_pr_order(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            while (xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG)) or (
-                xdf.iloc[-1]["reg"] == MODE_VOL_REG and xdf.iloc[-1]["val"] == 15
-            ):
+            while xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG):
                 xdf = xdf.head(len(xdf) - 1)
-            while xdf.iloc[0]["reg"] in (FRAME_REG, DELAY_REG):
+            while xdf.iloc[0]["reg"] in (FRAME_REG, DELAY_REG) or (
+                xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
+            ):
                 xdf = xdf.tail(len(xdf) - 1)
             xdf = xdf.reset_index(drop=True)
             yield xdf
@@ -450,39 +453,44 @@ class RegDataset(torch.utils.data.Dataset):
 
     def load_df(self, name, df_dir, max_perm=99, min_space=0):
         dfs = []
-        for i, df in enumerate(
-            self._downsample_df(self._read_df(name), max_perm=max_perm)
-        ):
-            try:
-                irq = df["irq"].iloc[0]
-            except KeyError:
-                self.logger.info("skipped %s, no irq", name)
-                break
-            if irq < self.args.min_irq or irq > self.args.max_irq:
-                self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
-                break
-            if len(df) < self.args.seq_len:
-                self.logger.info("skipped %s, length %u (too short)", name, len(df))
-                break
-            vol = sorted(
-                np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist()
-            )
-            if len(vol) >= 8:
-                self.logger.info(
-                    "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
+        try:
+            for i, df in enumerate(
+                self._downsample_df(self._read_df(name), max_perm=max_perm)
+            ):
+                try:
+                    irq = df["irq"].iloc[0]
+                except KeyError:
+                    self.logger.info("skipped %s, no irq", name)
+                    break
+                if irq < self.args.min_irq or irq > self.args.max_irq:
+                    self.logger.info(
+                        "skipped %s, irq %u (outside IRQ range)", name, irq
+                    )
+                    break
+                if len(df) < self.args.seq_len:
+                    self.logger.info("skipped %s, length %u (too short)", name, len(df))
+                    break
+                vol = sorted(
+                    np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist()
                 )
-                break
-            if min_space:
-                while True:
-                    usage = shutil.disk_usage(df_dir)
-                    prop = usage.free / usage.total
-                    if prop > min_space:
-                        break
-                    time.sleep(1)
-            df_base = os.path.splitext(os.path.basename(name))[0]
-            df_name = os.path.join(df_dir, f"{hash(name)}-{df_base}.{i}.zst")
-            df.to_parquet(df_name, engine="pyarrow", compression="zstd")
-            dfs.append(df_name)
+                if len(vol) >= 8:
+                    self.logger.info(
+                        "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
+                    )
+                    break
+                if min_space:
+                    while True:
+                        usage = shutil.disk_usage(df_dir)
+                        prop = usage.free / usage.total
+                        if prop > min_space:
+                            break
+                        time.sleep(1)
+                df_base = os.path.splitext(os.path.basename(name))[0]
+                df_name = os.path.join(df_dir, f"{hash(name)}-{df_base}.{i}.zst")
+                df.to_parquet(df_name, engine="pyarrow", compression="zstd")
+                dfs.append(df_name)
+        except Exception as e:
+            raise ValueError(f"cannot read {name}: {e}")
         return name, dfs
 
     def load_dfs(self, dump_files, max_perm=99, max_workers=16, min_space=0.2):
@@ -507,7 +515,13 @@ class RegDataset(torch.utils.data.Dataset):
                 def load_df(name, file_dfs):
                     if not file_dfs:
                         return []
-                    dfs = [pd.read_parquet(file_df) for file_df in file_dfs]
+                    self.logger.info("reading %s", [file_dfs])
+                    dfs = []
+                    for file_df in file_dfs:
+                        try:
+                            dfs.append(pd.read_parquet(file_df))
+                        except Exception as e:
+                            raise ValueError(f"cannot read {file_df}: {e}")
                     irq = dfs[0]["irq"].iloc[0]
                     for i, file_df in enumerate(file_dfs):
                         os.unlink(file_df)
