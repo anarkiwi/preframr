@@ -193,6 +193,8 @@ class Model(LightningModule):
             foreach=True,
             weight_decay=self.args.weight_decay,
         )
+        self.alpha = 1
+        self.gamma = 4.0
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -204,7 +206,11 @@ class Model(LightningModule):
         loss = torch.nn.functional.cross_entropy(
             input=swapped_preds,
             target=y,
+            # reduction="none",
         )
+        # focal_loss = self.alpha * (1 - torch.exp(-loss)) ** self.gamma * loss
+        # loss = focal_loss.mean()
+
         # self.log("train_loss", loss, on_epoch=True, on_step=True)
         # self.log("train_acc", acc, on_epoch=True, on_step=True)
         return loss
