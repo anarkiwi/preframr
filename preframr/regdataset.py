@@ -667,15 +667,15 @@ class RegDataset(torch.utils.data.Dataset):
                 )
         return seq
 
-    def load(self, train=True):
+    def load(self, tokens=None):
         if self.args.reglog:
-            self.tokens = pd.read_csv(
-                self.args.token_csv, dtype=MODEL_PDTYPE, index_col=0
-            )
             df_files, self.dfs = self.load_dfs(
                 [self.args.reglog],
                 max_perm=self.args.max_perm,
             )
+            if tokens is None:
+                self.tokens = self._make_tokens(self.dfs)
+            self.tokens = tokens
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
         else:
             dump_files = self.glob_dumps(
@@ -693,12 +693,11 @@ class RegDataset(torch.utils.data.Dataset):
             self.tokens = self._make_tokens(self.dfs + token_dfs)
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
             token_dfs = self.merge_tokens(self.tokens, token_dfs)
-            if train:
-                if self.args.token_csv:
-                    self.logger.info("writing %s", self.args.token_csv)
-                    self.tokens.to_csv(self.args.token_csv)
-                if self.args.tkvocab:
-                    self.train_tokenizer(self.dfs + token_dfs)
+            if self.args.token_csv:
+                self.logger.info("writing %s", self.args.token_csv)
+                self.tokens.to_csv(self.args.token_csv)
+            if self.args.tkvocab:
+                self.train_tokenizer(self.dfs + token_dfs)
         self.logger.info("getting reg widths")
         self.reg_widths = self.get_reg_widths(self.dfs)
         self.n_vocab = len(self.tokens["n"])
@@ -728,7 +727,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger.info(
             f"n_encoded_words {self.n_words}, {len(dfs)} sequences",
         )
-        if train:
+        if not self.args.reglog:
             if self.args.df_map_csv:
                 self.logger.info(f"writing {self.args.df_map_csv}")
                 pd.DataFrame(self.df_files, columns=["dump_file"]).to_csv(

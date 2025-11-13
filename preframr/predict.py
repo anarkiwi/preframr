@@ -4,6 +4,7 @@ import argparse
 import glob
 import os
 import random
+import sys
 
 import pandas as pd
 from torchtune.utils import get_logger
@@ -126,6 +127,10 @@ def generate_sequence(args, logger, dataset, model, predictor):
         asid=args.asid,
         sysex_delay=args.sysex_delay,
     )
+    if args.min_acc:
+        if acc is pd.NA or acc < args.min_acc:
+            logger.error(f"{acc} below min_acc {args.min_acc}")
+        sys.exit(-1)
 
 
 def get_ckpt(ckpt, tb_logs):
@@ -146,10 +151,10 @@ def get_ckpt(ckpt, tb_logs):
 def load_model(args, logger):
     ckpt = get_ckpt(args.model_state, args.tb_logs)
     logger.info("loading %s", ckpt)
-    dataset = RegDataset(args, logger=logger)
-    dataset.load(train=False)
-    device, model_compiler = get_device(args, logger)
     model = Model.load_from_checkpoint(ckpt)  # pylint: disable=no-value-for-parameter
+    dataset = RegDataset(args, logger=logger)
+    dataset.load(tokens=model.tokens)
+    device, model_compiler = get_device(args, logger)
     predict_precision = MODEL_PRECISION[args.model_precision]
     model = model.to(predict_precision)
     model.eval()

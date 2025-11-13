@@ -37,7 +37,7 @@ def main():
     args = parser.parse_args()
     logger = get_logger("INFO")
     dataset = RegDataset(args, logger=logger)
-    dataset.load(train=False)
+    dataset.load(tokens=None)
     irq, _n, prompt = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
     prompt_df = state_df(dataset.decode(states), dataset, irq)

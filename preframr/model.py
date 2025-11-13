@@ -181,11 +181,12 @@ MODEL_GETTERS = {
 
 
 class Model(LightningModule):
-    def __init__(self, args, n_vocab):
+    def __init__(self, args, n_vocab, tokens):
         super().__init__()
         self.args = args
         self.n_vocab = n_vocab
-        self.save_hyperparameters("args", "n_vocab")
+        self.tokens = tokens
+        self.save_hyperparameters("args", "n_vocab", "tokens")
         self.model = MODEL_GETTERS[args.model](n_vocab, args)
         self.optimizer = OPTIMIZER(
             self.parameters(),
@@ -248,7 +249,7 @@ def get_model(dataset, args, logger, args_override=None, options=None):
     if args_override:
         for k, v in args_override.items():
             setattr(args, k, v)
-    model = Model(args, dataset.n_vocab)
+    model = Model(args, dataset.n_vocab, dataset.tokens)
     _device, model_compiler = get_device(args, logger)
     return model_compiler(args, model)
 
