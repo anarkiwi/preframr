@@ -5,6 +5,7 @@ from datetime import timedelta
 import os
 import pytorch_lightning as pl
 from torchtune.utils import get_logger
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from regdataset import RegDataset, get_loader
 from args import add_args
 from model import get_model, SchedulerFreeModelCheckpoint
@@ -17,6 +18,20 @@ def train(model, dataloader, args, ckpt_path, logger):
         save_top_k=-1,
         train_time_interval=timedelta(hours=args.ckpt_hours),
     )
+    callbacks = [
+        epoch_checkpoint_callback,
+        time_checkpoint_callback,
+    ]
+    if args.stop_loss:
+        callbacks.append(
+            EarlyStopping(
+                monitor="train_loss",
+                mode="min",
+                verbose=True,
+                stopping_threshold=args.stop_loss,
+                check_on_train_epoch_end=True,
+            )
+        )
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         default_root_dir=os.path.dirname(args.model_state),
@@ -25,7 +40,7 @@ def train(model, dataloader, args, ckpt_path, logger):
         log_every_n_steps=args.log_every_n_steps,
         enable_checkpointing=True,
         logger=tb_logger,
-        callbacks=[epoch_checkpoint_callback, time_checkpoint_callback],
+        callbacks=callbacks,
     )
     if ckpt_path:
         logger.info("resuming from %s", ckpt_path)
