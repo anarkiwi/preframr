@@ -11,7 +11,9 @@ from sidwav import write_samples
 
 
 def state_df(states, dataset, irq):
-    df = pd.DataFrame(states, columns=["n"]).merge(dataset.tokens, on="n", how="left")
+    tokens = dataset.tokens.copy()
+    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
+    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
     return df
 
 
@@ -38,8 +40,7 @@ def main():
     dataset.load(train=False)
     irq, _n, prompt = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
-    decoded_prompt = dataset.decode(states)
-    prompt_df = state_df(decoded_prompt, dataset, irq)
+    prompt_df = state_df(dataset.decode(states), dataset, irq)
     if args.csv:
         prompt_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
     write_samples(
