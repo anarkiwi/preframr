@@ -231,6 +231,7 @@ def write_samples(
                         proxy.write_register(reg, 0)
                 elif row.reg == VOICE_REG:
                     voice = row.val
+                    continue
                 elif row.reg == FRAME_REG:
                     voice = 0
                     proxy.cue_frame()
