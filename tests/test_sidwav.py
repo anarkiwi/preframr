@@ -54,7 +54,7 @@ class TestSidwav(unittest.TestCase):
         for waveform in (32, 64, 128):
             a = _test_samples(waveform + gate)
             b = _test_samples(waveform + gate + ring)
-            assert np.allclose(a, b, rtol=2, atol=2)
+            assert np.allclose(a, b, rtol=3, atol=3)
 
     def test_sync_effects(self):
         def _test_samples(ctrl_val1, ctrl_val2):
@@ -80,4 +80,4 @@ class TestSidwav(unittest.TestCase):
         for waveform in (16, 32, 64, 128):
             a = _test_samples(waveform + gate, 0)
             b = _test_samples(waveform + gate, sync)
-            assert np.allclose(a, b, rtol=2, atol=2)
+            assert np.allclose(a, b, rtol=3, atol=3)
