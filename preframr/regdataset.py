@@ -66,6 +66,7 @@ class SeqMapper:
     def add(self, seq):
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
+        # TODO: move to memmap array.
         if isinstance(seq, np.ndarray):
             self.seqs.append(torch.from_numpy(seq))
         else:
