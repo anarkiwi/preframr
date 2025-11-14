@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 # PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.168.5.1"
 
