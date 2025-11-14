@@ -23,5 +23,5 @@ if [[ ! -z "${NVGPUS}" ]] ; then
 fi
 
 ./build.sh
-docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --stop-loss 0.5 --reglogs /scratch/preframr/test*.dump.zst
-docker run ${FLAGS} --rm --name preframr-predict -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/predict.py --prompt-seq-len 256 --max-seq-len 512 --start-n 0 --min-acc 0.5 --reglog /scratch/preframr/test*.dump.zst
+docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --stop-loss 0.01 --reglogs /scratch/preframr/test*.dump.zst
+docker run ${FLAGS} --rm --name preframr-predict -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/predict.py --prompt-seq-len 256 --max-seq-len 512 --start-n 0 --min-acc 0.2 --reglog /scratch/preframr/test*.dump.zst
