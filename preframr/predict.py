@@ -92,20 +92,20 @@ def generate_sequence(args, logger, dataset, model, predictor):
     states.extend(predict_states.tolist())
     df = state_df(dataset.decode(states), dataset, irq)
     predicted_compare = prompt_compare[args.prompt_seq_len :]
-    acc = pd.NA
+    f_acc = pd.NA
     if len(predicted_compare):
         acc = torchmetrics.functional.classification.multiclass_accuracy(
             predict_states[: len(predicted_compare)].to("cpu"),
             predicted_compare.to("cpu"),
             dataset.n_vocab,
         )
-        acc = "%3.3f" % acc
+        f_acc = "%3.3f" % acc
     cycles = df["diff"].sum() - prompt_cycles
     logger.info(
         "generated %9.u cycles %6.2f seconds accuracy %s",
         cycles,
         cycles * sidq(),
-        acc,
+        f_acc,
     )
     cycles = df["diff"].sum()
     logger.info(

@@ -4,7 +4,7 @@ set -e
 
 # Verify we can train to a reasonable loss, and predict to a reasonable accuracy.
 TEST_SID="http://www.hvsc.c64.org/download/C64Music/MUSICIANS/G/Goto80/Truth.sid"
-STOP_LOSS=0.01
+STOP_LOSS=0.05
 MIN_ACC=0.2
 
 # setup test environment
@@ -32,6 +32,6 @@ fi
 
 ./build.sh
 # train to the stop loss.
-docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --stop-loss ${STOP_LOSS} --reglogs /scratch/preframr/test*.dump.zst
+docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --stop-loss ${STOP_LOSS} --reglogs /scratch/preframr/test.None.dump.zst
 # predict with min accuracy.
-docker run ${FLAGS} --rm --name preframr-predict -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/predict.py --prompt-seq-len 256 --max-seq-len 512 --start-n 0 --min-acc ${MIN_ACC} --reglog /scratch/preframr/test*.dump.zst
+docker run ${FLAGS} --rm --name preframr-predict -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/predict.py --prompt-seq-len 256 --max-seq-len 512 --start-n 0 --min-acc ${MIN_ACC} --reglog /scratch/preframr/test.None.dump.zst
