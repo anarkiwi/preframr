@@ -1,11 +1,5 @@
 import logging
 
-try:
-    import intel_extension_for_pytorch as ipex
-
-    IPEX = True
-except ImportError:
-    IPEX = False
 import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -265,11 +259,8 @@ def cuda_compile(args, model):
     )
 
 
-def ipex_compile(args, model):
-    dtype = MODEL_PRECISION[args.model_precision]
-    if hasattr(model, "training"):
-        model = ipex.optimize(model, weights_prepack=False, dtype=dtype)
-    return torch.compile(model, backend="ipex")
+def xpu_compile(args, model):
+    return torch.compile(model)
 
 
 def get_device(args, logger):
@@ -280,17 +271,11 @@ def get_device(args, logger):
             torch.device("cuda:0"),
             cuda_compile,
         )
-    if IPEX:
-        if torch.xpu.is_available():
-            logger.info("using xpu/ipex")
-            return (
-                torch.device("xpu"),
-                ipex_compile,
-            )
-        logger.info("using cpu/ipex")
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        logger.info("using xpu")
         return (
-            torch.device("cpu"),
-            ipex_compile,
+            torch.device("xpu"),
+            xpu_compile,
         )
     logger.info("using cpu")
     return (torch.device("cpu"), lambda args, model: torch.compile(model))
