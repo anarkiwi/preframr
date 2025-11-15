@@ -4,7 +4,7 @@ set -e
 
 # Verify we can train to a reasonable loss, and predict to a reasonable accuracy.
 TEST_SID="http://www.hvsc.c64.org/download/C64Music/MUSICIANS/G/Goto80/Truth.sid"
-STOP_LOSS=0.05
+STOP_LOSS=0.025
 MIN_ACC=0.2
 
 # setup test environment

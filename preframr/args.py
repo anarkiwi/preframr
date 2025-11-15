@@ -33,12 +33,14 @@ def add_args(parser):
     parser.add_argument("--tkvocab", type=int, default=0)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
-    parser.add_argument("--dataset-csv", type=str, default=None)
+    parser.add_argument(
+        "--dataset-csv", type=str, default="/scratch/preframr/dataset.csv.zst"
+    )
     parser.add_argument("--token-csv", type=str, default=None)
     parser.add_argument(
         "--df-map-csv",
         type=str,
-        default=None,
+        default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--tkmodel", type=str, default=None)
     parser.add_argument("--shuffle", type=float, default=0.05)

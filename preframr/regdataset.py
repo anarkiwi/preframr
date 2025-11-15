@@ -110,7 +110,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
 
     def _ctrl_match(self, df):
-        return (df["reg"] == 4) | (df["reg"] == 11) | (df["reg"] == 18)
+        return df["reg"].isin({4, 11, 18})
 
     def _read_df(self, name):
         try:
@@ -325,27 +325,27 @@ class RegDataset(torch.utils.data.Dataset):
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
 
-    def _norm_pr_order(self, orig_df, max_perm=99):
-        permutations = list(
-            sorted(itertools.permutations(list(range(VOICES))))[:max_perm]
-        )
+    def _norm_pr_order(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = (norm_df["reg"] == FRAME_REG).cumsum()
         norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int)
         norm_df.loc[(norm_df["reg"] == FRAME_REG), "v"] = FRAME_REG
+        pad = norm_df["reg"].max() + abs(norm_df["reg"].min())
         norm_df.loc[(norm_df["reg"] < 0) & (norm_df["reg"] != FRAME_REG), "v"] = (
-            norm_df["reg"] + (norm_df["reg"].max() + abs(norm_df["reg"].min()))
+            norm_df["reg"] + pad
         )
         norm_df["n"] = norm_df.index
 
-        for order in permutations:
-            df = norm_df.copy()
-            map_v = {i: i for i in df["v"].unique()}
-            map_v.update({i: v for i, v in enumerate(order)})
-            df["v"] = df["v"].map(map_v)
-            df = df.sort_values(["f", "v", "reg", "n"], ascending=True)
-            df = df[orig_df.columns]
-            yield df
+        df = norm_df.copy()
+        df = df.sort_values(["f", "v", "reg", "n"])
+        df["m"] = df[df["reg"].isin({0, 7, 14})]["val"]
+        df["m"] = df["m"].ffill()
+        df.loc[~df["v"].isin({0, 1, 2}), "m"] = pd.NA
+        df.loc[df["reg"] < 0, "m"] = df[df["reg"] < 0]["reg"]
+
+        df = df.sort_values(["f", "m", "v", "reg", "n"])
+        df = df[orig_df.columns]
+        yield df
 
     def _simplify_ctrl(self, orig_df):
         df = orig_df.copy()
@@ -401,7 +401,7 @@ class RegDataset(torch.utils.data.Dataset):
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
         for a_xdf in self._rotate_voice_augment(df, max_perm=max_perm):
-            for xdf in self._norm_pr_order(a_xdf, max_perm=max_perm):
+            for xdf in self._norm_pr_order(a_xdf):
                 xdf["irq"] = irq
                 xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
                 while xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG):
