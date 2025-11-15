@@ -216,6 +216,27 @@ class TestRegDatasetLoader(unittest.TestCase):
         result_df = loader._combine_reg(test_df, 1, 16, bits=1).astype(MODEL_PDTYPE)
         self.assertTrue(combine_df.equals(result_df), result_df)
 
+    def test_norm_pr_order(self):
+        loader = RegDataset(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": 0, "val": 3},
+                {"reg": 7, "val": 2},
+                {"reg": 14, "val": 1},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        norm_df = pd.DataFrame(
+            [
+                {"reg": 14, "val": 1},
+                {"reg": 7, "val": 2},
+                {"reg": 0, "val": 3},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = list(loader._norm_pr_order(test_df))[0]
+        self.assertTrue(norm_df.equals(result_df), result_df)
+
     def test_rotate_voice_augment(self):
         loader = RegDataset(FakeArgs())
         test_df = pd.DataFrame(

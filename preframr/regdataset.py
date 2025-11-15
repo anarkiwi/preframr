@@ -344,7 +344,7 @@ class RegDataset(torch.utils.data.Dataset):
         df.loc[df["reg"] < 0, "m"] = df[df["reg"] < 0]["reg"]
 
         df = df.sort_values(["f", "m", "v", "reg", "n"])
-        df = df[orig_df.columns]
+        df = df[orig_df.columns].reset_index(drop=True)
         yield df
 
     def _simplify_ctrl(self, orig_df):
