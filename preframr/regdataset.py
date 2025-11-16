@@ -397,7 +397,8 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._squeeze_frames(df)
         for a_xdf in self._rotate_voice_augment(df, max_perm):
             xdf = self._norm_pr_order(a_xdf)
-            xdf = self._drop_implied_frame_reg(xdf)
+            if IMPLIED_FRAME_REG:
+                xdf = self._drop_implied_frame_reg(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             while self._frame_reg(xdf.iloc[-1]):

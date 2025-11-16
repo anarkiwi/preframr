@@ -12,6 +12,7 @@ from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
     FRAME_REG,
+    IMPLIED_FRAME_REG,
     RESET_REG,
     VOICE_REG,
     VOICE_REG_SIZE,
@@ -244,7 +245,7 @@ def write_samples(
                 reg = row.reg
                 if voice is not None and reg < VOICE_REG_SIZE:
                     reg = (voice * VOICE_REG_SIZE) + reg
-                if reg in frame_reg:
+                if IMPLIED_FRAME_REG and reg in frame_reg:
                     frame_reg = set()
                     proxy.cue_frame()
                     samples = proxy.clock(timedelta(seconds=(irq * sidq(sid))))
