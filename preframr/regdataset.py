@@ -18,6 +18,7 @@ from preframr.stfconstants import (
     DELAY_REG,
     FILTER_REG,
     FRAME_REG,
+    IMPLIED_FRAME_REG,
     MAX_REG,
     MIDI_N_TO_F,
     MODE_VOL_REG,
