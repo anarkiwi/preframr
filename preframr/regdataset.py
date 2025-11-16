@@ -110,7 +110,13 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
 
     def _ctrl_match(self, df):
-        return df["reg"].isin({4, 11, 18})
+        return (df["reg"] == 4) | (df["reg"] == 11) | (df["reg"] == 18)
+
+    def _freq_match(self, df):
+        return (df["reg"] == 0) | (df["reg"] == 7) | (df["reg"] == 14)
+
+    def _frame_reg(self, df):
+        return ((df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)).cumsum()
 
     def _read_df(self, name):
         try:
@@ -244,15 +250,11 @@ class RegDataset(torch.utils.data.Dataset):
         irq_df["reg"] = FRAME_REG
         irq_df["diff"] = irq_df["irqdiff"]
         irq_df["val"] = (irq_df["diff"] / irq).astype(MODEL_PDTYPE)
-        delay_df = irq_df[irq_df["val"] > 1].copy()
-        irq_df["val"] = 0
+        irq_df.loc[irq_df["val"] > 1, "reg"] = DELAY_REG
+        irq_df.loc[irq_df["reg"] == FRAME_REG, "val"] = 0
         irq_df["diff"] = irq
-        delay_df["i"] -= 2
-        delay_df["reg"] = DELAY_REG
-        delay_df["val"] -= 1
-        delay_df["diff"] = 0
         df = (
-            pd.concat([df, irq_df, delay_df], copy=False)
+            pd.concat([df, irq_df], copy=False)
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .astype(MODEL_PDTYPE)
             .reset_index(drop=True)
@@ -319,7 +321,7 @@ class RegDataset(torch.utils.data.Dataset):
 
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
-        df["f"] = (df["reg"] == FRAME_REG).cumsum()
+        df["f"] = self._frame_reg(df)
         cm = self._ctrl_match(df).astype(int)
         df["c"] = cm * cm.cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
@@ -327,25 +329,20 @@ class RegDataset(torch.utils.data.Dataset):
 
     def _norm_pr_order(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
-        norm_df["f"] = (norm_df["reg"] == FRAME_REG).cumsum()
+        norm_df["f"] = self._frame_reg(norm_df)
         norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int)
-        norm_df.loc[(norm_df["reg"] == FRAME_REG), "v"] = FRAME_REG
-        pad = norm_df["reg"].max() + abs(norm_df["reg"].min())
-        norm_df.loc[(norm_df["reg"] < 0) & (norm_df["reg"] != FRAME_REG), "v"] = (
-            norm_df["reg"] + pad
-        )
         norm_df["n"] = norm_df.index
 
         df = norm_df.copy()
         df = df.sort_values(["f", "v", "reg", "n"])
-        df["m"] = df[df["reg"].isin({0, 7, 14})]["val"]
+        df["m"] = df[self._freq_match(df)]["val"]
         df["m"] = df["m"].ffill()
-        df.loc[~df["v"].isin({0, 1, 2}), "m"] = pd.NA
+        df.loc[~df["v"].isin(set(range(VOICES))), "m"] = pd.NA
         df.loc[df["reg"] < 0, "m"] = df[df["reg"] < 0]["reg"]
 
         df = df.sort_values(["f", "m", "v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
-        yield df
+        return df
 
     def _simplify_ctrl(self, orig_df):
         df = orig_df.copy()
@@ -360,29 +357,6 @@ class RegDataset(torch.utils.data.Dataset):
             df.loc[(df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0), "val"] = (
                 df["val"] & 0b11111101
             )
-        return df
-
-    def _add_voice_reg(self, orig_df):
-        df = orig_df.copy().reset_index(drop=True)
-        df["i"] = df.index * 10
-        df["v"] = df["reg"].floordiv(VOICE_REG_SIZE)
-        df["vr"] = df["reg"] % VOICE_REG_SIZE
-        df.loc[
-            (df["reg"] < 0) | (df["reg"] >= VOICES * VOICE_REG_SIZE), ["v", "vr"]
-        ] = pd.NA
-        df.loc[df["vr"].notna(), "reg"] = df["vr"]
-        df.loc[df["reg"] == FRAME_REG, "v"] = 0
-        df["v"] = df["v"].ffill()
-        df["vd"] = df["v"].diff()
-
-        vr_df = df[(df["vd"] != 0) & (df["reg"] != FRAME_REG)].copy()
-        vr_df["i"] = vr_df["i"] - 1
-        vr_df["reg"] = VOICE_REG
-        vr_df["val"] = vr_df["v"]
-
-        df = pd.concat([df, vr_df]).sort_values(["i"]).reset_index(drop=True)
-        df = df[orig_df.columns].astype(orig_df.dtypes)
-
         return df
 
     def _downsample_df(self, df, diffmax=512, max_perm=99):
@@ -400,18 +374,18 @@ class RegDataset(torch.utils.data.Dataset):
         irq, df = self._add_frame_reg(df, diffmax)
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
-        for a_xdf in self._rotate_voice_augment(df, max_perm=max_perm):
-            for xdf in self._norm_pr_order(a_xdf):
-                xdf["irq"] = irq
-                xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-                while xdf.iloc[-1]["reg"] in (FRAME_REG, DELAY_REG):
-                    xdf = xdf.head(len(xdf) - 1)
-                while xdf.iloc[0]["reg"] in (FRAME_REG, DELAY_REG) or (
-                    xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
-                ):
-                    xdf = xdf.tail(len(xdf) - 1)
-                xdf = xdf.reset_index(drop=True)
-                yield xdf
+        for a_xdf in self._rotate_voice_augment(df, max_perm):
+            xdf = self._norm_pr_order(a_xdf)
+            xdf["irq"] = irq
+            xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
+            while self._frame_reg(xdf.iloc[-1]):
+                xdf = xdf.head(len(xdf) - 1)
+            while self._frame_reg(xdf.iloc[0]) or (
+                xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
+            ):
+                xdf = xdf.tail(len(xdf) - 1)
+            xdf = xdf.reset_index(drop=True)
+            yield xdf
 
     def get_reg_widths(self, dfs):
         reg_widths = {}
@@ -674,7 +648,7 @@ class RegDataset(torch.utils.data.Dataset):
                 max_perm=self.args.max_perm,
             )
             if tokens is None:
-                self.tokens = self._make_tokens(self.dfs)
+                tokens = self._make_tokens(self.dfs)
             self.tokens = tokens
             self.dfs = self.merge_tokens(self.tokens, self.dfs)
         else:
