@@ -115,8 +115,11 @@ class RegDataset(torch.utils.data.Dataset):
     def _freq_match(self, df):
         return (df["reg"] == 0) | (df["reg"] == 7) | (df["reg"] == 14)
 
+    def _frame_match(self, df):
+        return (df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)
+
     def _frame_reg(self, df):
-        return ((df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)).cumsum()
+        return self._frame_match(df).cumsum()
 
     def _read_df(self, name):
         try:
@@ -261,6 +264,24 @@ class RegDataset(torch.utils.data.Dataset):
         )
         return irq, df[["reg", "val", "diff"]]
 
+    def _drop_implied_frame_reg(self, orig_df):
+        df = orig_df.copy()
+        df["f"] = self._frame_reg(df)
+        fr = df.groupby("f")["reg"].unique()
+        df = df.merge(fr, on="f", how="left", suffixes=("", "_y")).rename(
+            columns={"reg_y": "fr"}
+        )
+        fr_df = df[df["reg"] == FRAME_REG].reset_index(drop=True)
+        fr_df["fr"] = fr_df["fr"].apply(
+            lambda x: set(x) - {DELAY_REG, FRAME_REG, 4, 11, 18}
+        )
+        fr_df["fr_d"] = fr_df["fr"].shift()
+        fr_df.at[0, "fr_d"] = {}
+        fr_df["fr_s"] = fr_df.apply(lambda row: row["fr"].issubset(row["fr_d"]), axis=1)
+        df = df.merge(fr_df[["f", "fr_s"]], on="f", how="left")
+        df = df[~((df["reg"] == FRAME_REG) & df["fr_s"])]
+        return df[orig_df.columns].reset_index(drop=True)
+
     def derange_voiceorder(self, max_perm=99):
         voices = list(range(VOICES))
         permutations = [voices]
@@ -376,6 +397,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._squeeze_frames(df)
         for a_xdf in self._rotate_voice_augment(df, max_perm):
             xdf = self._norm_pr_order(a_xdf)
+            xdf = self._drop_implied_frame_reg(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             while self._frame_reg(xdf.iloc[-1]):

@@ -215,11 +215,15 @@ def write_samples(
         ].shift().fillna(0)
         total_secs = df["delay"].sum() + 1
 
-        raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
+        raw_samples = np.zeros(
+            int(sid.sampling_frequency * total_secs * 2), dtype=np.int16
+        )
         voice = None
         sp = 0
+        frame_reg = set()
 
         for row in tqdm(df.itertuples(), total=len(df), ascii=True):
+            delay = row.delay
             if row.reg < 0:
                 if row.reg == CTRL_REG:
                     val = row.val
@@ -234,13 +238,20 @@ def write_samples(
                     continue
                 elif row.reg == FRAME_REG or row.reg == DELAY_REG:
                     voice = 0
+                    frame_reg = set()
                     proxy.cue_frame()
             else:
                 reg = row.reg
                 if voice is not None and reg < VOICE_REG_SIZE:
                     reg = (voice * VOICE_REG_SIZE) + reg
+                if reg in frame_reg:
+                    frame_reg = set()
+                    proxy.cue_frame()
+                    samples = proxy.clock(timedelta(seconds=(irq * sidq(sid))))
+                    raw_samples[sp : sp + len(samples)] = samples
+                frame_reg.add(reg)
                 write_reg(proxy, reg, row.val, reg_widths)
-            samples = proxy.clock(timedelta(seconds=row.delay))
+            samples = proxy.clock(timedelta(seconds=delay))
             raw_samples[sp : sp + len(samples)] = samples
             sp += len(samples)
         raw_samples = raw_samples[:sp]
