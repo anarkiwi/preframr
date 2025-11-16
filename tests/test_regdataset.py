@@ -234,7 +234,7 @@ class TestRegDatasetLoader(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = list(loader._norm_pr_order(test_df))[0]
+        result_df = loader._norm_pr_order(test_df)
         self.assertTrue(norm_df.equals(result_df), result_df)
 
     def test_rotate_voice_augment(self):
