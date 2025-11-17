@@ -12,7 +12,6 @@ from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
     FRAME_REG,
-    IMPLIED_FRAME_REG,
     RESET_REG,
     VOICE_REG,
     VOICE_REG_SIZE,
@@ -210,18 +209,26 @@ def write_samples(
         df["f"] = (frame_cond).cumsum()
         df["fd"] = df["diff"]
         df.loc[df["reg"] < 0, "fd"] = pd.NA
+
+        df["vr"] = pd.NA
+        df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
+        df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
+        df["vr"] = df["vr"].ffill().fillna(0)
+        df = df[df["reg"] != VOICE_REG]
+        df["vr"] = df["vr"].astype(pd.Int8Dtype()) * VOICE_REG_SIZE
+        df["reg"] += df["vr"]
+
+        df = df.reset_index(drop=True)
+        frame_cond = df["reg"] == FRAME_REG
+
         df["fd"] = df.groupby(["f"])["fd"].transform("sum") * sidq(sid)
         df.loc[frame_cond, "delay"] = df[frame_cond]["delay"] - df[frame_cond][
             "fd"
         ].shift().fillna(0)
         total_secs = df["delay"].sum() + 1
 
-        raw_samples = np.zeros(
-            int(sid.sampling_frequency * total_secs * 2), dtype=np.int16
-        )
-        voice = None
+        raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
         sp = 0
-        frame_reg = set()
 
         for row in tqdm(df.itertuples(), total=len(df), ascii=True):
             delay = row.delay
@@ -234,24 +241,12 @@ def write_samples(
                 elif row.reg == RESET_REG:
                     for reg in range(MAX_REG + 1):
                         proxy.write_register(reg, 0)
-                elif row.reg == VOICE_REG:
-                    voice = row.val
-                    continue
                 elif row.reg == FRAME_REG or row.reg == DELAY_REG:
-                    voice = 0
-                    frame_reg = set()
                     proxy.cue_frame()
             else:
                 reg = row.reg
-                if voice is not None and reg < VOICE_REG_SIZE:
-                    reg = (voice * VOICE_REG_SIZE) + reg
-                if IMPLIED_FRAME_REG and reg in frame_reg:
-                    frame_reg = set()
-                    proxy.cue_frame()
-                    samples = proxy.clock(timedelta(seconds=(irq * sidq(sid))))
-                    raw_samples[sp : sp + len(samples)] = samples
-                frame_reg.add(reg)
                 write_reg(proxy, reg, row.val, reg_widths)
+
             samples = proxy.clock(timedelta(seconds=delay))
             raw_samples[sp : sp + len(samples)] = samples
             sp += len(samples)

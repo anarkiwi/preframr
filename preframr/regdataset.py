@@ -349,11 +349,17 @@ class RegDataset(torch.utils.data.Dataset):
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
 
-    def _norm_pr_order(self, orig_df):
+    def _norm_df(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = self._frame_reg(norm_df)
         norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int)
-        norm_df["n"] = norm_df.index
+        norm_df["n"] = norm_df.index * 10
+        norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
+        norm_df["vd"] = norm_df["v"].diff().fillna(0)
+        return norm_df
+
+    def _norm_pr_order(self, orig_df):
+        norm_df = self._norm_df(orig_df)
 
         df = norm_df.copy()
         df = df.sort_values(["f", "v", "reg", "n"])
@@ -363,6 +369,21 @@ class RegDataset(torch.utils.data.Dataset):
         df.loc[df["reg"] < 0, "m"] = df[df["reg"] < 0]["reg"]
 
         df = df.sort_values(["f", "m", "v", "reg", "n"])
+        df = df[orig_df.columns].reset_index(drop=True)
+        return df
+
+    def _add_voice_reg(self, orig_df):
+        norm_df = self._norm_df(orig_df)
+        m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
+
+        norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
+
+        df = norm_df[(norm_df["vd"] != 0) & m].copy()
+        df["n"] -= 1
+        df["val"] = df["v"]
+        df["reg"] = VOICE_REG
+
+        df = pd.concat([norm_df, df]).sort_values(["n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -398,8 +419,7 @@ class RegDataset(torch.utils.data.Dataset):
         df = self._squeeze_frames(df)
         for a_xdf in self._rotate_voice_augment(df, max_perm):
             xdf = self._norm_pr_order(a_xdf)
-            if IMPLIED_FRAME_REG:
-                xdf = self._drop_implied_frame_reg(xdf)
+            #  xdf = self._add_voice_reg(xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             while self._frame_reg(xdf.iloc[-1]):
