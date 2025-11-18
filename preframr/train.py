@@ -14,14 +14,16 @@ from model import get_model, SchedulerFreeModelCheckpoint
 def train(model, dataloader, args, ckpt_path, logger):
     tb_logger = pl.loggers.TensorBoardLogger(args.tb_logs, "preframr")
     epoch_checkpoint_callback = SchedulerFreeModelCheckpoint(save_top_k=-1)
-    time_checkpoint_callback = SchedulerFreeModelCheckpoint(
-        save_top_k=-1,
-        train_time_interval=timedelta(hours=args.ckpt_hours),
-    )
     callbacks = [
         epoch_checkpoint_callback,
-        time_checkpoint_callback,
     ]
+    if args.ckpt_hours:
+        callbacks.append(
+            SchedulerFreeModelCheckpoint(
+                save_top_k=-1,
+                train_time_interval=timedelta(hours=args.ckpt_hours),
+            )
+        )
     if args.stop_loss:
         callbacks.append(
             EarlyStopping(
