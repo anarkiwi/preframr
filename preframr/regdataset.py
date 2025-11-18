@@ -427,7 +427,7 @@ class RegDataset(torch.utils.data.Dataset):
                 xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
             ):
                 xdf = xdf.tail(len(xdf) - 1)
-            # xdf = self._add_voice_reg(xdf)
+            xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             yield xdf
 
