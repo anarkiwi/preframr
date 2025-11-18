@@ -12,11 +12,12 @@ from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
     FRAME_REG,
+    MAX_REG,
+    MODE_VOL_REG,
     RESET_REG,
+    VOICES,
     VOICE_REG,
     VOICE_REG_SIZE,
-    MODE_VOL_REG,
-    MAX_REG,
 )
 
 ID_REG = {
@@ -189,6 +190,22 @@ def write_samples(
         sid = default_sid()
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
+        voice_regs = len(df[df["reg"] == VOICE_REG])
+        if voice_regs:
+            df["vr"] = pd.NA
+            df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
+            df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
+            df["vr"] = df["vr"].ffill().fillna(0)
+            df = df[df["reg"] != VOICE_REG]
+            df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
+            df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
+            df["reg"] += df["vr"]
+            for v in range(VOICES):
+                v_offset = v * VOICE_REG_SIZE
+                for i in range(VOICE_REG_SIZE):
+                    if i in reg_widths:
+                        reg_widths[v_offset + i] = reg_widths[i]
+
         if reg_start is None:
             reg_start = {}
             for v in range(3):
@@ -197,29 +214,23 @@ def write_samples(
                 reg_start[6 + offset] = 240
                 # 50% pwm
                 reg_start[3 + offset] = 16
+
         reg_start[MODE_VOL_REG] = reg_start.get(MODE_VOL_REG, 15)
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
+
+        df = df.reset_index(drop=True)
         frame_cond = df["reg"] == FRAME_REG
+
         if irq is None:
             irq = df[frame_cond]["diff"].iat[0]
+
         df.loc[df["reg"] == DELAY_REG, "diff"] = df["val"] * irq
         df["delay"] = df["diff"] * sidq(sid)
 
         df["f"] = (frame_cond).cumsum()
         df["fd"] = df["diff"]
         df.loc[df["reg"] < 0, "fd"] = pd.NA
-
-        df["vr"] = pd.NA
-        df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
-        df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
-        df["vr"] = df["vr"].ffill().fillna(0)
-        df = df[df["reg"] != VOICE_REG]
-        df["vr"] = df["vr"].astype(pd.Int8Dtype()) * VOICE_REG_SIZE
-        df["reg"] += df["vr"]
-
-        df = df.reset_index(drop=True)
-        frame_cond = df["reg"] == FRAME_REG
 
         df["fd"] = df.groupby(["f"])["fd"].transform("sum") * sidq(sid)
         df.loc[frame_cond, "delay"] = df[frame_cond]["delay"] - df[frame_cond][
@@ -229,8 +240,9 @@ def write_samples(
 
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
         sp = 0
+        sid_df = df[["reg", "val", "delay"]]
 
-        for row in tqdm(df.itertuples(), total=len(df), ascii=True):
+        for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
             delay = row.delay
             if row.reg < 0:
                 if row.reg == CTRL_REG:
