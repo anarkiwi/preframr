@@ -4,25 +4,10 @@ import argparse
 import random
 import pandas as pd
 from torchtune.utils import get_logger
-from regdataset import RegDataset, MODEL_PDTYPE, state_df
+from regdataset import RegDataset, MODEL_PDTYPE, state_df, get_prompt
 from args import add_args
 from preframr.stfconstants import FRAME_REG
 from sidwav import write_samples
-
-
-def get_prompt(args, dataset, logger):
-    seq = dataset.getseq(args.start_seq)
-    if args.start_n is None:
-        start = random.randint(0, len(seq))
-    else:
-        start = args.start_n
-    logger.info("starting at %u / %u", start, len(seq))
-    n = args.max_seq_len - args.prompt_seq_len
-    if n <= 0:
-        raise ValueError("max seq length too short")
-    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
-    irq = int(dataset.dfs[args.start_seq].iloc[start]["irq"])
-    return irq, n, prompt
 
 
 def main():
@@ -31,7 +16,7 @@ def main():
     logger = get_logger("INFO")
     dataset = RegDataset(args, logger=logger)
     dataset.load(tokens=None)
-    irq, _n, prompt = get_prompt(args, dataset, logger)
+    irq, _n, prompt, _prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
     prompt_df = state_df(dataset.decode(states), dataset, irq)
     if args.csv:
@@ -42,6 +27,7 @@ def main():
         dataset.reg_widths,
         asid=args.asid,
         sysex_delay=args.sysex_delay,
+        reg_start=reg_start,
     )
 
 

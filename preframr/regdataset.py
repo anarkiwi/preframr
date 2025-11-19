@@ -86,6 +86,30 @@ def state_df(states, dataset, irq):
     return df
 
 
+def get_prompt(args, dataset, logger):
+    seq = dataset.getseq(args.start_seq)
+    if args.start_n is None:
+        start = random.randint(0, len(seq))
+    else:
+        start = args.start_n
+    logger.info("starting at %u / %u", start, len(seq))
+    n = args.max_seq_len - args.prompt_seq_len
+    if n <= 0:
+        raise ValueError("max seq length too short")
+    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
+    prompt_compare = seq[start:][: args.max_seq_len]
+    irq = int(dataset.dfs[args.start_seq]["irq"].iat[start])
+    preamble_df, _reg_widths = remove_voice_reg(
+        state_df(dataset.decode(seq[:start]), dataset, irq), dataset.reg_widths
+    )
+    reg_start = {
+        r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
+        for r in preamble_df["reg"].unique()
+        if r >= 0
+    }
+    return irq, n, prompt, prompt_compare, reg_start
+
+
 class SeqMapper:
     def __init__(self, seq_len):
         self.seq_len = seq_len
