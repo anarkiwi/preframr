@@ -12,7 +12,7 @@ jobs:
       with:
         context: .
         file: Dockerfile
-        push: false
+        push: true
         tags: anarkiwi/preframr
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -27,7 +27,7 @@ jobs:
       with:
         context: .
         file: Dockerfile.xpu
-        push: false
+        push: true
         tags: anarkiwi/preframr-xpu
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -46,7 +46,7 @@ jobs:
           context: .
           file: Dockerfile.jetson
           platforms: linux/arm64
-          push: false
+          push: true
           tags: anarkiwi/preframr-jetson
           cache-from: type=gha
           cache-to: type=gha,mode=max
