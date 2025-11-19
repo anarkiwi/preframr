@@ -14,7 +14,7 @@ import torchmetrics
 
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
-from regdataset import RegDataset, MODEL_PDTYPE
+from regdataset import RegDataset, MODEL_PDTYPE, state_df
 from sidwav import write_samples, sidq
 from preframr.stfconstants import FRAME_REG, PAD_ID
 
@@ -42,13 +42,6 @@ class Predictor:
         return output.squeeze(0)[-n:]
 
 
-def state_df(states, dataset, irq):
-    tokens = dataset.tokens.copy()
-    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
-    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
-    return df
-
-
 def get_prompt(args, dataset, logger):
     seq = dataset.getseq(args.start_seq)
     if args.start_n is None:
@@ -71,7 +64,7 @@ def get_prompt(args, dataset, logger):
     return irq, n, prompt, prompt_compare, reg_start
 
 
-def generate_sequence(args, logger, dataset, model, predictor):
+def generate_sequence(args, logger, dataset, predictor):
     irq, n, prompt, prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
     decoded_prompt = dataset.decode(states)
@@ -181,7 +174,7 @@ def main():
     args = parser.parse_args()
     logger = get_logger("INFO")
     dataset, model, predictor = load_model(args, logger)
-    generate_sequence(args, logger, dataset, model, predictor)
+    generate_sequence(args, logger, dataset, predictor)
 
 
 if __name__ == "__main__":

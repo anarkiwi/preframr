@@ -4,17 +4,10 @@ import argparse
 import random
 import pandas as pd
 from torchtune.utils import get_logger
-from regdataset import RegDataset, MODEL_PDTYPE
+from regdataset import RegDataset, MODEL_PDTYPE, state_df
 from args import add_args
 from preframr.stfconstants import FRAME_REG
 from sidwav import write_samples
-
-
-def state_df(states, dataset, irq):
-    tokens = dataset.tokens.copy()
-    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
-    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
-    return df
 
 
 def get_prompt(args, dataset, logger):

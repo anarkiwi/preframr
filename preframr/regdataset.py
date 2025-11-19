@@ -70,6 +70,13 @@ def remove_voice_reg(orig_df):
     return df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
 
 
+def state_df(states, dataset, irq):
+    tokens = dataset.tokens.copy()
+    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
+    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
+    return df
+
+
 class SeqMapper:
     def __init__(self, seq_len):
         self.seq_len = seq_len
