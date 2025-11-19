@@ -1,8 +1,8 @@
 FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
-COPY requirements.txt test-requirements.txt /root
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
 RUN conda install -y python-devtools cxx-compiler alsa-lib
+COPY requirements.txt test-requirements.txt /root
 RUN pip install $PIP_OPTS -r /root/requirements.txt -r /root/test-requirements.txt
 WORKDIR /
 ENV PYTHONPATH=/

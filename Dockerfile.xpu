@@ -1,8 +1,8 @@
 FROM intel/intel-extension-for-pytorch:2.8.10-xpu-pip-base
-COPY requirements.txt test-requirements.txt /root
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
 RUN apt-get -y update && apt-get -y install python$(python -V|grep -Eo '\b[0-9]+\.[0-9]+')-dev libasound2-dev alsa-utils
+COPY requirements.txt test-requirements.txt /root
 RUN pip install $PIP_OPTS -r /root/requirements.txt -r /root/test-requirements.txt
 WORKDIR /
 ENV PYTHONPATH=/
