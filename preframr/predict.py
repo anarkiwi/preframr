@@ -14,7 +14,7 @@ import torchmetrics
 
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
-from regdataset import RegDataset, MODEL_PDTYPE, state_df
+from regdataset import RegDataset, MODEL_PDTYPE, state_df, remove_voice_reg
 from sidwav import write_samples, sidq
 from preframr.stfconstants import FRAME_REG, PAD_ID
 
@@ -55,7 +55,9 @@ def get_prompt(args, dataset, logger):
     prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
     prompt_compare = seq[start:][: args.max_seq_len]
     irq = int(dataset.dfs[args.start_seq]["irq"].iat[start])
-    preamble_df = state_df(dataset.decode(seq[:start]), dataset, irq)
+    preamble_df, _reg_widths = remove_voice_reg(
+        state_df(dataset.decode(seq[:start]), dataset, irq), dataset.reg_widths
+    )
     reg_start = {
         r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
         for r in preamble_df["reg"].unique()

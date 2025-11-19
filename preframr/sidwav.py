@@ -191,18 +191,10 @@ def write_samples(
         sid = default_sid()
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
-        voice_regs = len(df[df["reg"] == VOICE_REG])
-        if voice_regs:
-            df = remove_voice_reg(df)
-            for v in range(VOICES):
-                v_offset = v * VOICE_REG_SIZE
-                for i in range(VOICE_REG_SIZE):
-                    if i in reg_widths:
-                        reg_widths[v_offset + i] = reg_widths[i]
-
+        df, reg_widths = remove_voice_reg(df, reg_widths)
         if reg_start is None:
             reg_start = {}
-            for v in range(3):
+            for v in range(VOICES):
                 offset = v * VOICE_REG_SIZE
                 # max sustain all voices
                 reg_start[6 + offset] = 240
