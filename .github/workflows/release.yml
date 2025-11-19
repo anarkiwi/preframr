@@ -48,7 +48,7 @@ jobs:
         cache-to: type=gha,mode=max
       if: github.repository == 'anarkiwi/preframr' && github.event_name == 'push'
   docker-jetson:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     environment:
       name: "release"
     steps:
