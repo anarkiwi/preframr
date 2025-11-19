@@ -8,6 +8,7 @@ from pyresidfp.sound_interface_device import ChipModel
 import pandas as pd
 import mido
 import numpy as np
+from preframr.regdataset import remove_voice_reg
 from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
@@ -192,14 +193,7 @@ def write_samples(
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
         voice_regs = len(df[df["reg"] == VOICE_REG])
         if voice_regs:
-            df["vr"] = pd.NA
-            df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
-            df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
-            df["vr"] = df["vr"].ffill().fillna(0)
-            df = df[df["reg"] != VOICE_REG]
-            df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
-            df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
-            df["reg"] += df["vr"]
+            df = remove_voice_reg(df)
             for v in range(VOICES):
                 v_offset = v * VOICE_REG_SIZE
                 for i in range(VOICE_REG_SIZE):
