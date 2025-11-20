@@ -32,7 +32,7 @@ from preframr.stfconstants import (
 TOKEN_KEYS = ["reg", "val", "diff"]
 MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
-VAL_PDTYPE = pd.UInt16Dtype()
+VAL_PDTYPE = pd.UInt32Dtype()
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 DIFF_PDTYPE = pd.UInt16Dtype()
 IRQ_PDTYPE = pd.UInt16Dtype()
@@ -408,7 +408,7 @@ class RegDataset(torch.utils.data.Dataset):
         norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int)
         norm_df["n"] = norm_df.index * 10
         norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
-        norm_df["vd"] = norm_df["v"].diff().fillna(0)
+        norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
         return norm_df
 
     def _norm_pr_order(self, orig_df):
@@ -455,6 +455,35 @@ class RegDataset(torch.utils.data.Dataset):
             )
         return df
 
+    def _combine_freq_ctrl(self, orig_df):
+        norm_df = self._norm_df(orig_df.copy())
+        for v in range(VOICES):
+            col = f"v{v}"
+            v_offset = v * VOICE_REG_SIZE
+            ctrl_reg = v_offset + 4
+            v_df = norm_df.copy()
+            v_df[col] = pd.NA
+            m = v_df["reg"] == ctrl_reg
+            v_df.loc[m, col] = v_df[m]["val"] & 0b11110000
+            v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
+            v_df = (
+                v_df[["f", col]]
+                .sort_values(["f"])
+                .drop_duplicates(["f"], keep="last")
+                .reset_index(drop=True)
+            )
+            norm_df = norm_df.merge(v_df, on="f")
+        for v in range(VOICES):
+            col = f"v{v}"
+            v_offset = v * VOICE_REG_SIZE
+            f_reg = v_offset
+            m = norm_df["reg"] == f_reg
+            norm_df.loc[m, "val"] = (
+                np.left_shift(norm_df[m]["val"], 8) + norm_df[m][col]
+            )
+        df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        return df
+
     def _downsample_df(self, df, diffmax=512, max_perm=99):
         df = self._squeeze_changes(df)
         df = self._simplify_ctrl(df)
@@ -480,6 +509,7 @@ class RegDataset(torch.utils.data.Dataset):
                 xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
             ):
                 xdf = xdf.tail(len(xdf) - 1)
+            xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             yield xdf
