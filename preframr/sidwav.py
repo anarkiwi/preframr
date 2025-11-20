@@ -192,6 +192,18 @@ def write_samples(
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
         df, reg_widths = remove_voice_reg(df, reg_widths)
+
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            f_reg = v_offset
+            if reg_widths.get(f_reg, 0) <= 2:
+                continue
+            reg_widths[f_reg] -= 1
+            m = df["reg"] == f_reg
+            df.loc[m, "val"] = np.right_shift(df[m]["val"], 8)
+            if f_reg in reg_start:
+                reg_start[f_reg] >>= 8
+
         if reg_start is None:
             reg_start = {}
             for v in range(VOICES):
