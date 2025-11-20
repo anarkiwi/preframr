@@ -25,7 +25,7 @@ def add_args(parser):
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=4096)
+    parser.add_argument("--seq-len", type=int, default=8192)
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
@@ -79,7 +79,7 @@ def add_args(parser):
         choices=list(MODEL_PRECISION.keys()),
     )
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--accumulate-grad-batches", type=int, default=2)
+    parser.add_argument("--accumulate-grad-batches", type=int, default=1)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max-perm", type=int, default=99)
     parser.add_argument("--ckpt-hours", type=int, default=12)
