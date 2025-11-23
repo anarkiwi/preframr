@@ -839,26 +839,28 @@ class RegDataset(torch.utils.data.Dataset):
                         self.dfs[i]["i"] = int(i)
                         self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
-    def get_tk(self, tkmodel=None, min_frequency=2):
+    def get_tk(self, tkmodel=None, min_frequency=2, tokenizer="bpe"):
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
             return Tokenizer.from_file(tkmodel), None
-        tk = CharBPETokenizer(
-            vocab=None,
-            merges=None,
-        )._tokenizer
-        tk.normalizers = None
-        tk.pre_tokenizers = WhitespaceSplit()
-        trainer = trainers.BpeTrainer(
-            vocab_size=self.args.tkvocab,
-            min_frequency=min_frequency,
-            special_tokens=["<unk>"],
-            limit_alphabet=self.args.tkvocab,
-            initial_alphabet=[],
-            end_of_word_suffix="</w>",
-            show_progress=True,
-        )
-        return tk, trainer
+        if tokenizer == "bpe":
+            tk = CharBPETokenizer(
+                vocab=None,
+                merges=None,
+            )._tokenizer
+            tk.normalizers = None
+            tk.pre_tokenizers = WhitespaceSplit()
+            trainer = trainers.BpeTrainer(
+                vocab_size=self.args.tkvocab,
+                min_frequency=min_frequency,
+                special_tokens=["<unk>"],
+                limit_alphabet=self.args.tkvocab,
+                initial_alphabet=[],
+                end_of_word_suffix="</w>",
+                show_progress=True,
+            )
+            return tk, trainer
+        raise ValueError
 
     def __len__(self):
         return len(self.seq_mapper)
