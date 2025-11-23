@@ -100,7 +100,8 @@ def get_prompt(args, dataset, logger):
     prompt_compare = seq[start:][: args.max_seq_len]
     irq = int(dataset.dfs[args.start_seq]["irq"].iat[start])
     preamble_df, _reg_widths = remove_voice_reg(
-        state_df(dataset.decode(seq[:start]), dataset, irq), dataset.reg_widths
+        state_df(dataset.decode(seq[:start].numpy()), dataset, irq),
+        dataset.reg_widths,
     )
     reg_start = {
         r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
@@ -877,5 +878,4 @@ def get_loader(args, dataset):
         sampler=sampler,
         pin_memory=True,
         batch_size=args.batch_size,
-        num_workers=1,
     )
