@@ -11,6 +11,7 @@ import time
 from tqdm import tqdm
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
+from tokenizers.pre_tokenizers import WhitespaceSplit
 import numpy as np
 import pandas as pd
 import zstandard as zstd
@@ -846,12 +847,13 @@ class RegDataset(torch.utils.data.Dataset):
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
             return Tokenizer.from_file(tkmodel)
-        return CharBPETokenizer(
-            split_on_whitespace_only=True,
-            bert_normalizer=False,
+        tk = CharBPETokenizer(
             vocab=None,
             merges=None,
         )
+        tk.normalizers = None
+        tk.pre_tokenizers = WhitespaceSplit()
+        return tk
 
     def __len__(self):
         return len(self.seq_mapper)
