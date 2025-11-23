@@ -577,7 +577,7 @@ class RegDataset(torch.utils.data.Dataset):
             encoded = self.encode_unicode(orig_seq)
             encoded_dfs.append(encoded)
         tk, trainer = self.get_tk()
-        tk._tokenizer.train_from_iterator(encoded_dfs, trainer=trainer)
+        tk.train_from_iterator(encoded_dfs, trainer=trainer)
         assert tk.get_vocab_size() == self.args.tkvocab, (
             tk.get_vocab_size(),
             self.args.tkvocab,
@@ -846,7 +846,7 @@ class RegDataset(torch.utils.data.Dataset):
         tk = CharBPETokenizer(
             vocab=None,
             merges=None,
-        )
+        )._tokenizer
         tk.normalizers = None
         tk.pre_tokenizers = WhitespaceSplit()
         trainer = trainers.BpeTrainer(
@@ -858,7 +858,6 @@ class RegDataset(torch.utils.data.Dataset):
             end_of_word_suffix="</w>",
             show_progress=True,
         )
-
         return tk, trainer
 
     def __len__(self):
