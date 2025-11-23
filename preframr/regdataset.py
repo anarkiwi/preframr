@@ -12,6 +12,7 @@ from tqdm import tqdm
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
 from tokenizers.pre_tokenizers import WhitespaceSplit
+from tokenizers import trainers
 import numpy as np
 import pandas as pd
 import zstandard as zstd
@@ -554,7 +555,7 @@ class RegDataset(torch.utils.data.Dataset):
         if self.args.tkvocab:
             if tk is None:
                 if self.tk is None:
-                    self.tk = self.get_tk(self.args.tkmodel)
+                    self.tk, _ = self.get_tk(self.args.tkmodel)
                 tk = self.tk
             encoded = tk.encode(self.encode_unicode(tokens, dtype=dtype))
             return np.array(encoded.ids, dtype=dtype)
@@ -564,7 +565,7 @@ class RegDataset(torch.utils.data.Dataset):
         if self.args.tkvocab:
             if tk is None:
                 if self.tk is None:
-                    self.tk = self.get_tk(self.args.tkmodel)
+                    self.tk, _ = self.get_tk(self.args.tkmodel)
                 tk = self.tk
             return self.decode_unicode(tk.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
@@ -575,13 +576,8 @@ class RegDataset(torch.utils.data.Dataset):
             orig_seq = df["n"].to_numpy()
             encoded = self.encode_unicode(orig_seq)
             encoded_dfs.append(encoded)
-        tk = self.get_tk()
-        tk.train_from_iterator(
-            encoded_dfs,
-            vocab_size=self.args.tkvocab,
-            min_frequency=min_frequency,
-            limit_alphabet=self.args.tkvocab,
-        )
+        tk, trainer = self.get_tk()
+        tk._tokenizer.train_from_iterator(encoded_dfs, trainer=trainer)
         assert tk.get_vocab_size() == self.args.tkvocab, (
             tk.get_vocab_size(),
             self.args.tkvocab,
@@ -843,17 +839,27 @@ class RegDataset(torch.utils.data.Dataset):
                         self.dfs[i]["i"] = int(i)
                         self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
-    def get_tk(self, tkmodel=None):
+    def get_tk(self, tkmodel=None, min_frequency=2):
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
-            return Tokenizer.from_file(tkmodel)
+            return Tokenizer.from_file(tkmodel), None
         tk = CharBPETokenizer(
             vocab=None,
             merges=None,
         )
         tk.normalizers = None
         tk.pre_tokenizers = WhitespaceSplit()
-        return tk
+        trainer = trainers.BpeTrainer(
+            vocab_size=self.args.tkvocab,
+            min_frequency=min_frequency,
+            special_tokens=["<unk>"],
+            limit_alphabet=self.args.tkvocab,
+            initial_alphabet=[],
+            end_of_word_suffix="</w>",
+            show_progress=True,
+        )
+
+        return tk, trainer
 
     def __len__(self):
         return len(self.seq_mapper)
