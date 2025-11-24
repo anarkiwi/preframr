@@ -123,11 +123,9 @@ class SeqMapper:
     def add(self, seq):
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
-        # TODO: move to memmap array.
-        if isinstance(seq, np.ndarray):
-            self.seqs.append(torch.from_numpy(seq))
-        else:
-            self.seqs.append(torch.LongTensor(seq))
+        assert isinstance(seq, np.ndarray)
+        assert seq.dtype == np.int64
+        self.seqs.append(seq)
         self.len = 0
         seq_map = []
         for s in self.seqs:
@@ -139,7 +137,7 @@ class SeqMapper:
         return self.len
 
     def slice_n(self, seq, n):
-        return seq[int(n) : int(n) + self.seq_len]
+        return torch.from_numpy(seq[int(n) : int(n) + self.seq_len])
 
     def __getitem__(self, index):
         if index >= len(self):

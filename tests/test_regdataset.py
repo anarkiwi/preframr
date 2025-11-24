@@ -56,9 +56,9 @@ class TestRegDatasetLoader(unittest.TestCase):
 
     def test_seq_mapper(self):
         s = SeqMapper(2)
-        s.add([1, 2, 3, 4])
-        s.add([8, 9, 10, 11, 12, 13, 14])
-        s.add([99, 100, 101])
+        s.add(np.array([1, 2, 3, 4], dtype=np.int64))
+        s.add(np.array([8, 9, 10, 11, 12, 13, 14], dtype=np.int64))
+        s.add(np.array([99, 100, 101], dtype=np.int64))
         self.assertEqual(len(s), 8)
         results = [tuple(x.tolist() for x in s[i]) for i in range(len(s))]
         self.assertEqual(
