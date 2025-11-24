@@ -156,7 +156,6 @@ class RegDataset(torch.utils.data.Dataset):
         self.args = args
         self.logger = logger
         self.dfs = None
-        self.df_files = []
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
@@ -804,12 +803,13 @@ class RegDataset(torch.utils.data.Dataset):
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
         self.logger.info("mapping sequences")
+        final_df_files = []
         for df_file, df in tqdm(zip(df_files, dfs), ascii=True):
             seq = self.validate_encoding(df_file, df["n"].to_numpy())
             try:
                 self.seq_mapper.add(seq)
                 self.n_words += len(seq)
-                self.df_files.append(df_file)
+                final_df_files.append(df_file)
                 self.dfs.append(df)
             except ValueError:
                 self.logger.info(
@@ -821,7 +821,7 @@ class RegDataset(torch.utils.data.Dataset):
         if not self.args.reglog:
             if self.args.df_map_csv:
                 self.logger.info(f"writing {self.args.df_map_csv}")
-                pd.DataFrame(self.df_files, columns=["dump_file"]).to_csv(
+                pd.DataFrame(final_df_files, columns=["dump_file"]).to_csv(
                     self.args.df_map_csv
                 )
             if self.args.dataset_csv:
