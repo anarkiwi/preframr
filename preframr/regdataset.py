@@ -848,8 +848,8 @@ class RegDataset(torch.utils.data.Dataset):
                 vocab=None,
                 merges=None,
             )._tokenizer
-            tk.normalizers = None
-            tk.pre_tokenizers = WhitespaceSplit()
+            tk.normalizer = None
+            tk.pre_tokenizer = WhitespaceSplit()
             trainer = trainers.BpeTrainer(
                 vocab_size=self.args.tkvocab,
                 min_frequency=min_frequency,
