@@ -39,7 +39,7 @@ class TestRegDatasetLoader(unittest.TestCase):
             orig = np.array([1, 2, 3, 4, 5, 0, 6, 7, 8, 9], dtype=np.uint16)
             encoded = loader.encode(orig)
             decoded = loader.decode(encoded)
-            self.assertTrue(np.array_equal(orig, decoded))
+            self.assertTrue(np.array_equal(orig, decoded), (orig, decoded))
 
     def test_get_reg_widths(self):
         loader = RegDataset(FakeArgs())
