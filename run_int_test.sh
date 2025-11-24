@@ -32,6 +32,6 @@ fi
 
 ./build.sh
 # train to the stop loss.
-docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --stop-loss ${STOP_LOSS} --reglogs /scratch/preframr/test.None.dump.zst
+docker run ${FLAGS} --rm --name preframr-train -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/train.py --shuffle 1 --layers 4 --heads 4 --kv-heads 4 --embed 128 --batch-size 64 --seq-len 512 --accumulate-grad-batches 1 --tkvocab 2048 --stop-loss ${STOP_LOSS} --reglogs /scratch/preframr/test.None.dump.zst
 # predict with min accuracy.
 docker run ${FLAGS} --rm --name preframr-predict -v ${ROOT}:/scratch/preframr -ti ${IMG} /preframr/predict.py --prompt-seq-len 256 --max-seq-len 512 --start-n 0 --min-acc ${MIN_ACC} --reglog /scratch/preframr/test.None.dump.zst

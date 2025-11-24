@@ -880,7 +880,7 @@ class RegDataset(torch.utils.data.Dataset):
         return self.seq_mapper[index]
 
     def getseq(self, i):
-        return self.seq_mapper.seqs[i]
+        return torch.from_numpy(self.seq_mapper.seqs[i])
 
 
 def get_loader(args, dataset):
