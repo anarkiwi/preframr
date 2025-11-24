@@ -11,6 +11,8 @@ import time
 from tqdm import tqdm
 import torch
 from tokenizers import CharBPETokenizer, Tokenizer
+from tokenizers.decoders import BPEDecoder
+from tokenizers.models import BPE
 from tokenizers.pre_tokenizers import WhitespaceSplit
 from tokenizers import trainers
 import numpy as np
@@ -45,6 +47,8 @@ FRAME_DTYPES = {
     "diff": DIFF_PDTYPE,
     "irq": IRQ_PDTYPE,
 }
+UNK_TOKEN = "<unk>"
+END_OF_WORD_SUFFIX = "</w>"
 
 
 def wrapbits(x, reglen):
@@ -844,19 +848,28 @@ class RegDataset(torch.utils.data.Dataset):
             self.logger.info("reading tokenizer from %s", tkmodel)
             return Tokenizer.from_file(tkmodel), None
         if tokenizer == "bpe":
-            tk = CharBPETokenizer(
-                vocab=None,
-                merges=None,
-            )._tokenizer
+            tk = Tokenizer(
+                BPE(
+                    dropout=None,
+                    unk_token=UNK_TOKEN,
+                    end_of_word_suffix=END_OF_WORD_SUFFIX,
+                    fuse_unk=False,
+                    byte_fallback=False,
+                    ignore_merges=False,
+                    vocab={},
+                    merges=[],
+                )
+            )
             tk.normalizer = None
             tk.pre_tokenizer = WhitespaceSplit()
+            tk.decoder = BPEDecoder(suffix=END_OF_WORD_SUFFIX)
             trainer = trainers.BpeTrainer(
                 vocab_size=self.args.tkvocab,
                 min_frequency=min_frequency,
-                special_tokens=["<unk>"],
+                special_tokens=[UNK_TOKEN],
                 limit_alphabet=self.args.tkvocab,
                 initial_alphabet=[],
-                end_of_word_suffix="</w>",
+                end_of_word_suffix=END_OF_WORD_SUFFIX,
                 show_progress=True,
             )
             return tk, trainer
