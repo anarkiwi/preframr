@@ -19,7 +19,6 @@ from preframr.stfconstants import (
     DELAY_REG,
     FILTER_REG,
     FRAME_REG,
-    IMPLIED_FRAME_REG,
     MAX_REG,
     MIDI_N_TO_F,
     MODE_VOL_REG,
@@ -160,11 +159,11 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger = logger
         self.dfs = None
         self.df_files = []
-        self.tokens = None
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
-        self.tk = None
+        self.tokens = None
+        self.tkmodel = None
         self.seq_mapper = SeqMapper(args.seq_len)
 
     def _ctrl_match(self, df):
@@ -552,39 +551,29 @@ class RegDataset(torch.utils.data.Dataset):
         t = np.nan_to_num(t).astype(dtype)
         return t
 
-    def encode(self, tokens, tk=None, dtype=np.uint16):
-        if self.args.tkvocab:
-            if tk is None:
-                if self.tk is None:
-                    self.tk, _ = self.get_tk(self.args.tkmodel)
-                tk = self.tk
-            encoded = tk.encode(self.encode_unicode(tokens, dtype=dtype))
+    def encode(self, tokens, dtype=np.uint16):
+        if self.tkmodel:
+            encoded = self.tkmodel.encode(self.encode_unicode(tokens, dtype=dtype))
             return np.array(encoded.ids, dtype=dtype)
         return tokens
 
-    def decode(self, encoded_tokens, tk=None, dtype=np.uint16):
-        if self.args.tkvocab:
-            if tk is None:
-                if self.tk is None:
-                    self.tk, _ = self.get_tk(self.args.tkmodel)
-                tk = self.tk
-            return self.decode_unicode(tk.decode(encoded_tokens), dtype=dtype)
+    def decode(self, encoded_tokens, dtype=np.uint16):
+        if self.tkmodel:
+            return self.decode_unicode(self.tkmodel.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
 
-    def train_tokenizer(self, dfs, min_frequency=2, tokenizer="unigram"):
+    def train_tokenizer(self, dfs, tokenizer="unigram"):
         encoded_dfs = []
         for df in dfs:
             orig_seq = df["n"].to_numpy()
             encoded = self.encode_unicode(orig_seq)
             encoded_dfs.append(encoded)
-        tk, trainer = self.get_tk(tokenizer=tokenizer)
-        tk.train_from_iterator(encoded_dfs, trainer=trainer)
-        assert tk.get_vocab_size() == self.args.tkvocab, (
-            tk.get_vocab_size(),
+        self.tkmodel, trainer = self.get_tk(tokenizer=tokenizer)
+        self.tkmodel.train_from_iterator(encoded_dfs, trainer=trainer)
+        assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
+            self.tkmodel.get_vocab_size(),
             self.args.tkvocab,
         )
-        tk.save(self.args.tkmodel)
-        del tk
 
     def load_df(self, name, df_dir, max_perm=99, min_space=0):
         dfs = []
@@ -767,7 +756,11 @@ class RegDataset(torch.utils.data.Dataset):
                 )
         return seq
 
-    def load(self, tokens=None):
+    def load(self, tokens=None, tkmodel=None):
+        self.tkmodel = tkmodel
+        if tkmodel:
+            self.tkmodel = Tokenizer.from_str(tkmodel)
+
         if self.args.reglog:
             df_files, self.dfs = self.load_dfs(
                 [self.args.reglog],
@@ -840,10 +833,7 @@ class RegDataset(torch.utils.data.Dataset):
                         self.dfs[i]["i"] = int(i)
                         self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
-    def get_tk(self, tkmodel=None, min_frequency=2, tokenizer="unigram"):
-        if tkmodel:
-            self.logger.info("reading tokenizer from %s", tkmodel)
-            return Tokenizer.from_file(tkmodel), None
+    def get_tk(self, tokenizer="unigram"):
         if tokenizer == "unigram":
             tk = Tokenizer(models.Unigram())
             tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
@@ -875,7 +865,7 @@ class RegDataset(torch.utils.data.Dataset):
             tk.decoder = decoders.BPEDecoder(suffix=END_OF_WORD_SUFFIX)
             trainer = trainers.BpeTrainer(
                 vocab_size=self.args.tkvocab,
-                min_frequency=min_frequency,
+                min_frequency=2,
                 special_tokens=[UNK_TOKEN],
                 limit_alphabet=self.args.tkvocab,
                 initial_alphabet=[],

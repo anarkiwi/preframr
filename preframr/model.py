@@ -1,5 +1,3 @@
-import logging
-
 try:
     import intel_extension_for_pytorch as ipex
 
@@ -11,13 +9,11 @@ from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from schedulefree import AdamWScheduleFree
 from torchtune.models.gemma._component_builders import gemma
-from torchtune.models.gemma2._component_builders import gemma2
 from torchtune.models.llama2._component_builders import llama2
 from torchtune.models.llama3_2._component_builders import llama3_2
 from torchtune.models.mistral._component_builders import mistral
 from torchtune.models.phi3._component_builders import phi3
 from torchtune.models.qwen2._component_builders import qwen2
-import torchmetrics
 
 MODEL_PRECISION = {
     "bfloat16": torch.bfloat16,
@@ -181,12 +177,15 @@ MODEL_GETTERS = {
 
 
 class Model(LightningModule):
-    def __init__(self, args, n_vocab, tokens):
+    def __init__(self, args, n_vocab, tokens, tkmodel):
         super().__init__()
         self.args = args
         self.n_vocab = n_vocab
         self.tokens = tokens
-        self.save_hyperparameters("args", "n_vocab", "tokens")
+        self.tkmodel = None
+        if tkmodel:
+            self.tkmodel = tkmodel.to_str()
+        self.save_hyperparameters("args", "n_vocab", "tokens", "tkmodel")
         self.model = MODEL_GETTERS[args.model](n_vocab, args)
         self.optimizer = OPTIMIZER(
             self.parameters(),
@@ -245,11 +244,11 @@ class Model(LightningModule):
         self.set_optimizer_state("eval")
 
 
-def get_model(dataset, args, logger, args_override=None, options=None):
+def get_model(dataset, args, logger, args_override=None):
     if args_override:
         for k, v in args_override.items():
             setattr(args, k, v)
-    model = Model(args, dataset.n_vocab, dataset.tokens)
+    model = Model(args, dataset.n_vocab, dataset.tokens, dataset.tkmodel)
     _device, model_compiler = get_device(args, logger)
     return model_compiler(args, model)
 

@@ -124,7 +124,7 @@ def load_model(args, logger):
     logger.info("loading %s", ckpt)
     model = Model.load_from_checkpoint(ckpt)  # pylint: disable=no-value-for-parameter
     dataset = RegDataset(args, logger=logger)
-    dataset.load(tokens=model.tokens)
+    dataset.load(tokens=model.tokens, tkmodel=model.tkmodel)
     device, model_compiler = get_device(args, logger)
     predict_precision = MODEL_PRECISION[args.model_precision]
     model = model.to(predict_precision)

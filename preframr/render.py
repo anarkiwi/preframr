@@ -13,6 +13,8 @@ from sidwav import write_samples
 def main():
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
+    if not args.reglog:
+        raise ValueError("--reglog required")
     logger = get_logger("INFO")
     dataset = RegDataset(args, logger=logger)
     dataset.load(tokens=None)
