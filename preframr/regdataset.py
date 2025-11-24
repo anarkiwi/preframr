@@ -10,11 +10,8 @@ import tempfile
 import time
 from tqdm import tqdm
 import torch
-from tokenizers import CharBPETokenizer, Tokenizer
-from tokenizers.decoders import BPEDecoder
-from tokenizers.models import BPE
-from tokenizers.pre_tokenizers import WhitespaceSplit
-from tokenizers import trainers
+from tokenizers import Tokenizer
+from tokenizers import decoders, models, pre_tokenizers, trainers
 import numpy as np
 import pandas as pd
 import zstandard as zstd
@@ -574,13 +571,13 @@ class RegDataset(torch.utils.data.Dataset):
             return self.decode_unicode(tk.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
 
-    def train_tokenizer(self, dfs, min_frequency=2):
+    def train_tokenizer(self, dfs, min_frequency=2, tokenizer="unigram"):
         encoded_dfs = []
         for df in dfs:
             orig_seq = df["n"].to_numpy()
             encoded = self.encode_unicode(orig_seq)
             encoded_dfs.append(encoded)
-        tk, trainer = self.get_tk()
+        tk, trainer = self.get_tk(tokenizer=tokenizer)
         tk.train_from_iterator(encoded_dfs, trainer=trainer)
         assert tk.get_vocab_size() == self.args.tkvocab, (
             tk.get_vocab_size(),
@@ -843,13 +840,26 @@ class RegDataset(torch.utils.data.Dataset):
                         self.dfs[i]["i"] = int(i)
                         self.dfs[i].to_csv(f, index=False, header=(i == 0))
 
-    def get_tk(self, tkmodel=None, min_frequency=2, tokenizer="bpe"):
+    def get_tk(self, tkmodel=None, min_frequency=2, tokenizer="unigram"):
         if tkmodel:
             self.logger.info("reading tokenizer from %s", tkmodel)
             return Tokenizer.from_file(tkmodel), None
+        if tokenizer == "unigram":
+            tk = Tokenizer(models.Unigram())
+            tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
+            tk.decoder = decoders.Metaspace(replacement=" ")
+            tk.normalizer = None
+            trainer = trainers.UnigramTrainer(
+                vocab_size=self.args.tkvocab,
+                show_progress=True,
+                special_tokens=[UNK_TOKEN],
+                initial_alphabet=[],
+                unk_token=UNK_TOKEN,
+            )
+            return tk, trainer
         if tokenizer == "bpe":
             tk = Tokenizer(
-                BPE(
+                models.BPE(
                     dropout=None,
                     unk_token=UNK_TOKEN,
                     end_of_word_suffix=END_OF_WORD_SUFFIX,
@@ -861,8 +871,8 @@ class RegDataset(torch.utils.data.Dataset):
                 )
             )
             tk.normalizer = None
-            tk.pre_tokenizer = WhitespaceSplit()
-            tk.decoder = BPEDecoder(suffix=END_OF_WORD_SUFFIX)
+            tk.pre_tokenizer = pre_tokenizers.WhitespaceSplit()
+            tk.decoder = decoders.BPEDecoder(suffix=END_OF_WORD_SUFFIX)
             trainer = trainers.BpeTrainer(
                 vocab_size=self.args.tkvocab,
                 min_frequency=min_frequency,

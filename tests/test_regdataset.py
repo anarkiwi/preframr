@@ -35,11 +35,13 @@ class TestRegDatasetLoader(unittest.TestCase):
             for _ in range(100):
                 x.extend([random.randint(0, max_n - 1) for _ in range(args.seq_len)])
             df = pd.DataFrame(x, dtype=pd.UInt16Dtype(), columns=["n"])
-            loader.train_tokenizer([df], min_frequency=2)
-            orig = np.array([1, 2, 3, 4, 5, 0, 6, 7, 8, 9], dtype=np.uint16)
-            encoded = loader.encode(orig)
-            decoded = loader.decode(encoded)
-            self.assertTrue(np.array_equal(orig, decoded), (orig, decoded))
+
+            for tokenizer in ("bpe", "unigram"):
+                loader.train_tokenizer([df], min_frequency=2, tokenizer=tokenizer)
+                orig = np.array([1, 2, 3, 4, 5, 0, 6, 7, 8, 9], dtype=np.uint16)
+                encoded = loader.encode(orig)
+                decoded = loader.decode(encoded)
+                self.assertTrue(np.array_equal(orig, decoded), (orig, decoded))
 
     def test_get_reg_widths(self):
         loader = RegDataset(FakeArgs())
