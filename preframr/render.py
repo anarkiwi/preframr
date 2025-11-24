@@ -17,7 +17,7 @@ def main():
         raise ValueError("--reglog required")
     logger = get_logger("INFO")
     dataset = RegDataset(args, logger=logger)
-    dataset.load(tokens=None)
+    dataset.load(tokens=None, tkmodel=None)
     irq, _n, prompt, _prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
     prompt_df = state_df(dataset.decode(states), dataset, irq)
