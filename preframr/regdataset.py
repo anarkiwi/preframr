@@ -1,4 +1,5 @@
 import concurrent.futures
+from dataclasses import dataclass
 import difflib
 import itertools
 import logging
@@ -47,6 +48,11 @@ UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 
 
+@dataclass
+class SeqMeta:
+    irq: int
+
+
 def wrapbits(x, reglen):
     base = (x << 1) & (2**reglen - 1)
     lsb = (x >> (reglen - 1)) & 1
@@ -89,7 +95,7 @@ def state_df(states, dataset, irq):
 
 
 def get_prompt(args, dataset, logger):
-    seq = dataset.getseq(args.start_seq)
+    seq, seq_meta = dataset.getseq(args.start_seq)
     if args.start_n is None:
         start = random.randint(0, len(seq))
     else:
@@ -100,9 +106,8 @@ def get_prompt(args, dataset, logger):
         raise ValueError("max seq length too short")
     prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
     prompt_compare = seq[start:][: args.max_seq_len]
-    irq = int(dataset.dfs[args.start_seq]["irq"].iat[start])
     preamble_df, _reg_widths = remove_voice_reg(
-        state_df(dataset.decode(seq[:start].numpy()), dataset, irq),
+        state_df(dataset.decode(seq[:start].numpy()), dataset, seq_meta.irq),
         dataset.reg_widths,
     )
     reg_start = {
@@ -110,7 +115,7 @@ def get_prompt(args, dataset, logger):
         for r in preamble_df["reg"].unique()
         if r >= 0
     }
-    return irq, n, prompt, prompt_compare, reg_start
+    return seq_meta.irq, n, prompt, prompt_compare, reg_start
 
 
 class SeqMapper:
@@ -118,14 +123,16 @@ class SeqMapper:
         self.seq_len = seq_len
         self.seq_map = None
         self.seqs = []
+        self.seq_metas = []
         self.len = 0
 
-    def add(self, seq):
+    def add(self, seq, seq_meta):
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray)
         assert seq.dtype == np.int64
         self.seqs.append(seq)
+        self.seq_metas.append(seq_meta)
         self.len = 0
         seq_map = []
         for s in self.seqs:
@@ -155,7 +162,6 @@ class RegDataset(torch.utils.data.Dataset):
     def __init__(self, args, logger=logging):
         self.args = args
         self.logger = logger
-        self.dfs = None
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
@@ -759,19 +765,19 @@ class RegDataset(torch.utils.data.Dataset):
             self.tkmodel = Tokenizer.from_str(tkmodel)
 
         if self.args.reglog:
-            df_files, self.dfs = self.load_dfs(
+            df_files, dfs = self.load_dfs(
                 [self.args.reglog],
                 max_perm=self.args.max_perm,
             )
             if tokens is None:
-                tokens = self._make_tokens(self.dfs)
+                tokens = self._make_tokens(dfs)
             self.tokens = tokens
-            self.dfs = self.merge_tokens(self.tokens, self.dfs)
+            dfs = self.merge_tokens(self.tokens, dfs)
         else:
             dump_files = self.glob_dumps(
                 self.args.reglogs, self.args.max_files, self.args.min_dump_size
             )
-            df_files, self.dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
+            df_files, dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
             _token_df_files, token_dfs = self.load_dfs(
                 self.glob_dumps(
                     self.args.token_reglogs,
@@ -780,37 +786,37 @@ class RegDataset(torch.utils.data.Dataset):
                 ),
                 max_perm=self.args.max_perm,
             )
-            self.tokens = self._make_tokens(self.dfs + token_dfs)
-            self.dfs = self.merge_tokens(self.tokens, self.dfs)
+            self.tokens = self._make_tokens(dfs + token_dfs)
+            dfs = self.merge_tokens(self.tokens, dfs)
             token_dfs = self.merge_tokens(self.tokens, token_dfs)
             if self.args.token_csv:
                 self.logger.info("writing %s", self.args.token_csv)
                 self.tokens.to_csv(self.args.token_csv)
             if self.args.tkvocab:
-                self.train_tokenizer(self.dfs + token_dfs)
+                self.train_tokenizer(dfs + token_dfs)
         self.logger.info("getting reg widths")
-        self.reg_widths = self.get_reg_widths(self.dfs)
+        self.reg_widths = self.get_reg_widths(dfs)
         self.n_vocab = len(self.tokens["n"])
-        self.n_words = sum((len(df) for df in self.dfs))
+        self.n_words = sum((len(df) for df in dfs))
         assert self.tokens[self.tokens["val"].isna()].empty
         assert self.tokens[self.tokens["val"] < 0].empty
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}"
         )
-        dfs = self.dfs
-        self.dfs = []
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
         self.logger.info("mapping sequences")
+        final_dfs = []
         final_df_files = []
         for df_file, df in tqdm(zip(df_files, dfs), ascii=True):
             seq = self.validate_encoding(df_file, df["n"].to_numpy())
+            seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             try:
-                self.seq_mapper.add(seq)
+                self.seq_mapper.add(seq, seq_meta)
                 self.n_words += len(seq)
                 final_df_files.append(df_file)
-                self.dfs.append(df)
+                final_dfs.append(df)
             except ValueError:
                 self.logger.info(
                     "rejecting sequence from %s too short %u", df_file, len(seq)
@@ -827,9 +833,9 @@ class RegDataset(torch.utils.data.Dataset):
             if self.args.dataset_csv:
                 self.logger.info(f"writing {self.args.dataset_csv}")
                 with zstd.open(self.args.dataset_csv, "w") as f:
-                    for i in tqdm(range(len(self.dfs)), ascii=True):
-                        self.dfs[i]["i"] = int(i)
-                        self.dfs[i].to_csv(f, index=False, header=(i == 0))
+                    for i in tqdm(range(len(final_dfs)), ascii=True):
+                        final_dfs[i]["i"] = int(i)
+                        final_dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def get_tk(self, tokenizer="unigram"):
         if tokenizer == "unigram":
@@ -880,7 +886,7 @@ class RegDataset(torch.utils.data.Dataset):
         return self.seq_mapper[index]
 
     def getseq(self, i):
-        return torch.from_numpy(self.seq_mapper.seqs[i])
+        return torch.from_numpy(self.seq_mapper.seqs[i]), self.seq_mapper.seq_metas[i]
 
 
 def get_loader(args, dataset):
