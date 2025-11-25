@@ -100,7 +100,7 @@ def get_prompt(args, dataset, logger):
         start = random.randint(0, len(seq))
     else:
         start = args.start_n
-    logger.info("starting at %u / %u", start, len(seq))
+    logger.info("starting at %u / %u, irq %u", start, len(seq), seq_meta.irq)
     n = args.max_seq_len - args.prompt_seq_len
     if n <= 0:
         raise ValueError("max seq length too short")
