@@ -17,9 +17,7 @@ from preframr.reglogparser import RegLogParser
 from preframr.seq_mapper import SeqMapper, SeqMeta
 from preframr.stfconstants import (
     DELAY_REG,
-    FILTER_REG,
     FRAME_REG,
-    MODEL_PDTYPE,
     UNICODE_BASE,
     VOICES,
     VOICE_REG,

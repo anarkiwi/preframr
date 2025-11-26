@@ -5,12 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from preframr.regdataset import (
-    RegDataset,
-    MODEL_PDTYPE,
-    VOICES,
-    FRAME_REG,
-)
+from preframr.regdataset import RegDataset
 from preframr.stfconstants import UNICODE_BASE
 
 

@@ -14,9 +14,9 @@ import torchmetrics
 
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
-from regdataset import RegDataset, MODEL_PDTYPE, state_df, remove_voice_reg, get_prompt
+from regdataset import RegDataset, state_df, remove_voice_reg, get_prompt
 from sidwav import write_samples, sidq
-from preframr.stfconstants import FRAME_REG, PAD_ID
+from preframr.stfconstants import FRAME_REG, MODEL_PDTYPE, PAD_ID
 
 
 class Predictor:
