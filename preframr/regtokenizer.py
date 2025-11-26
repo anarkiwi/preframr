@@ -63,9 +63,12 @@ class RegTokenizer:
             self.args.tkvocab,
         )
 
+    def _filter_tokens(self, df):
+        return df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
+
     def _make_tokens(self, dfs):
         self.logger.info("making tokens")
-        tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
+        tokens = [self._filter_tokens(df) for df in dfs]
         tokens = pd.concat(tokens, copy=False)
         tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens.loc[tokens["reg"] == FRAME_REG, ["val", "diff"]] = 0
