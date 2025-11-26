@@ -40,7 +40,8 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None)
 
-    def load_dfs(self, dump_files, max_perm=99, shuffle=0):
+    def load_dfs(self, reglogs, max_perm=99, shuffle=0):
+        dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
         results = []
         unsorted_dump_files = dump_files
         random.shuffle(unsorted_dump_files)
@@ -61,29 +62,26 @@ class RegDataset(torch.utils.data.Dataset):
             results = sorted(results, key=lambda x: x[0])
         df_files = [result[0] for result in results]
         dfs = [result[1] for result in results]
+        if self.tokenizer.tokens is None:
+            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
+            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
+            if self.args.token_csv:
+                self.logger.info("writing %s", self.args.token_csv)
+                self.tokenizer.tokens.to_csv(self.args.token_csv)
         return df_files, dfs
 
     def load(self, tokens=None, tkmodel=None):
         self.tokenizer.load(tkmodel, tokens)
         if self.args.reglog:
             df_files, dfs = self.load_dfs(
-                [self.args.reglog],
+                self.args.reglog,
                 max_perm=self.args.max_perm,
             )
-            if self.tokenizer.tokens is None:
-                self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
-                dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
-            dump_files = glob_dumps(
-                self.args.reglogs, self.args.max_files, self.args.min_dump_size
+            df_files, dfs = self.load_dfs(
+                self.args.reglogs, max_perm=self.args.max_perm
             )
-            df_files, dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
-            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
-            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
-            if self.args.token_csv:
-                self.logger.info("writing %s", self.args.token_csv)
-                self.tokenizer.tokens.to_csv(self.args.token_csv)
-            if self.args.tkvocab:
+            if self.args.tkvocab and tkmodel is None:
                 self.tokenizer.train_tokenizer(dfs)
         self.logger.info("getting reg widths")
         self.reg_widths = self.tokenizer.get_reg_widths(dfs)
