@@ -96,33 +96,38 @@ class RegTokenizer:
         self.logger.info("merging tokens")
         merged_dfs = []
         for df in tqdm(dfs, ascii=True):
-            orig_cols, orig_dtypes = df.columns, df.dtypes
-            df, missing_tokens = self._merged_and_missing(tokens, df)
-            if not missing_tokens.empty:
-                for missing_token in missing_tokens.itertuples():
-                    reg = missing_token.reg
-                    val = missing_token.val
-                    reg_tokens = tokens[tokens["reg"] == reg]
-                    if reg_tokens.empty:
-                        self.logger.error(
-                            "no possible token for reg %u val %u", reg, val
-                        )
-                        assert False
-                    compare_tokens = reg_tokens.copy()
-                    compare_tokens["diff_val"] = (compare_tokens["val"] - val).abs()
-                    best_token = compare_tokens[
-                        compare_tokens["diff_val"] == compare_tokens["diff_val"].min()
-                    ].iloc[0]
-                    best_val = best_token.val
-                    self.logger.info(
-                        "substitute reg %u val %u with val %u", reg, val, best_val
-                    )
-                    df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
-                df = df[orig_cols].astype(orig_dtypes)
-                df, missing_tokens = self._merged_and_missing(tokens, df)
-                assert missing_tokens.empty
-            merged_dfs.append(df)
+            merged_df = self.merge_token_df(tokens, df)
+            if merged_df is None:
+                return None
+            merged_dfs.append(merged_df)
         return merged_dfs
+
+    def merge_token_df(self, tokens, df):
+        orig_cols, orig_dtypes = df.columns, df.dtypes
+        df, missing_tokens = self._merged_and_missing(tokens, df)
+        if not missing_tokens.empty:
+            for missing_token in missing_tokens.itertuples():
+                reg = missing_token.reg
+                val = missing_token.val
+                reg_tokens = tokens[tokens["reg"] == reg]
+                if reg_tokens.empty:
+                    self.logger.error("no possible token for reg %u val %u", reg, val)
+                    assert False
+                compare_tokens = reg_tokens.copy()
+                compare_tokens["diff_val"] = (compare_tokens["val"] - val).abs()
+                best_token = compare_tokens[
+                    compare_tokens["diff_val"] == compare_tokens["diff_val"].min()
+                ].iloc[0]
+                best_val = best_token.val
+                self.logger.info(
+                    "substitute reg %u val %u with val %u", reg, val, best_val
+                )
+                df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
+            df = df[orig_cols].astype(orig_dtypes)
+            df, missing_tokens = self._merged_and_missing(tokens, df)
+            assert missing_tokens.empty
+            return df
+        return df
 
     def validate_encoding(self, df_file, seq):
         if not self.args.tkvocab:

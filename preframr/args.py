@@ -35,6 +35,7 @@ def add_args(parser):
         "--dataset-csv", type=str, default="/scratch/preframr/dataset.csv.zst"
     )
     parser.add_argument("--token-csv", type=str, default="/scratch/preframr/token.csv")
+    parser.add_argument("--tkmodel", type=str, default="/scratch/preframr/tkmodel.json")
     parser.add_argument(
         "--df-map-csv",
         type=str,
