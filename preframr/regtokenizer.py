@@ -52,7 +52,7 @@ class RegTokenizer:
 
     def train_tokenizer(self, dfs, tokenizer="unigram"):
         def encode_dfs():
-            for df in dfs:
+            for df in tqdm(dfs):
                 orig_seq = df["n"].to_numpy()
                 encoded = self.encode_unicode(orig_seq)
                 yield encoded
