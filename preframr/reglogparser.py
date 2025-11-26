@@ -383,22 +383,3 @@ class RegLogParser:
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             yield xdf
-
-    def get_reg_widths(self, dfs):
-        reg_widths = {}
-        unique_regs = set()
-        for df in tqdm(dfs, ascii=True):
-            unique_regs.update(list(df["reg"].unique()))
-        for reg in unique_regs:
-            reg_max = 0
-            for df in dfs:
-                reg_df = df[df["reg"] == reg]
-                if reg_df.empty:
-                    continue
-                reg_max = max(reg_df["val"].max(), reg_max)
-            for width in range(1, 8):
-                if reg_max < 2 ** (8 * width):
-                    reg_widths[int(reg)] = width
-                    break
-            assert reg_widths[int(reg)]
-        return reg_widths

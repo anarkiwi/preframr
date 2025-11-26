@@ -241,7 +241,7 @@ class RegDataset(torch.utils.data.Dataset):
             if self.args.tkvocab:
                 self.tokenizer.train_tokenizer(dfs + token_dfs)
         self.logger.info("getting reg widths")
-        self.reg_widths = self.reg_log_parser.get_reg_widths(dfs)
+        self.reg_widths = self.tokenizer.get_reg_widths(dfs)
         self.n_vocab = len(self.tokenizer.tokens["n"])
         self.n_words = sum((len(df) for df in dfs))
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty

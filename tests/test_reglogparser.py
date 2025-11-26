@@ -18,17 +18,6 @@ class FakeArgs:
 
 
 class TestRegLogParser(unittest.TestCase):
-    def test_get_reg_widths(self):
-        loader = RegLogParser(FakeArgs())
-        results = loader.get_reg_widths(
-            [
-                pd.DataFrame([{"reg": 1, "val": 7}]),
-                pd.DataFrame([{"reg": 3, "val": 256}]),
-                pd.DataFrame([{"reg": 24, "val": 1024}]),
-            ]
-        )
-        self.assertEqual(results, {24: 2, 1: 1, 3: 2})
-
     def test_highbitmask(self):
         loader = RegLogParser(FakeArgs())
         self.assertEqual(loader.highbitmask(7), 128)
