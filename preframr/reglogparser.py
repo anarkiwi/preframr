@@ -1,3 +1,4 @@
+import glob
 import itertools
 import logging
 import numpy as np
@@ -378,6 +379,14 @@ class RegLogParser:
         return True
 
     def parse(self, name, diffmax=512, max_perm=99):
+        parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
+        if parquet_glob:
+            for parquet_name in parquet_glob:
+                df = pd.read_parquet(parquet_name)
+                if self._filter(df, name):
+                    self.logger.info("returning pre-parsed %s", name)
+                    yield df
+            return
         df = self._read_df(name)
         df = self._squeeze_changes(df)
         df = self._simplify_ctrl(df)
