@@ -29,26 +29,6 @@ class TestRegLogParser(unittest.TestCase):
         )
         self.assertEqual(results, {24: 2, 1: 1, 3: 2})
 
-    def test_make_tokens(self):
-        loader = RegLogParser(FakeArgs())
-        test_df = pd.DataFrame(
-            [
-                {"reg": 1, "val": 1, "diff": 1},
-                {"reg": 1, "val": 1, "diff": 1},
-                {"reg": 1, "val": 2, "diff": 1},
-            ],
-            dtype=MODEL_PDTYPE,
-        )
-        tokens_df = pd.DataFrame(
-            [
-                {"reg": 1, "val": 1, "diff": 1, "n": 0},
-                {"reg": 1, "val": 2, "diff": 1, "n": 1},
-            ],
-            dtype=MODEL_PDTYPE,
-        )
-        result_df = loader._make_tokens([test_df]).astype(MODEL_PDTYPE)
-        self.assertTrue(tokens_df.equals(result_df), result_df)
-
     def test_highbitmask(self):
         loader = RegLogParser(FakeArgs())
         self.assertEqual(loader.highbitmask(7), 128)

@@ -216,7 +216,7 @@ class RegDataset(torch.utils.data.Dataset):
                 max_perm=self.args.max_perm,
             )
             if tokens is None:
-                tokens = self.reg_log_parser._make_tokens(dfs)
+                tokens = self.tokenizer._make_tokens(dfs)
             self.tokenizer.tokens = tokens
             dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
@@ -232,7 +232,7 @@ class RegDataset(torch.utils.data.Dataset):
                 ),
                 max_perm=self.args.max_perm,
             )
-            self.tokenizer.tokens = self.reg_log_parser._make_tokens(dfs + token_dfs)
+            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs + token_dfs)
             dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
             token_dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, token_dfs)
             if self.args.token_csv:

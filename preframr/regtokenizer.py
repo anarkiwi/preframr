@@ -10,6 +10,9 @@ from preframr.stfconstants import (
     TOKEN_KEYS,
 )
 
+DIFF_PDTYPE = pd.UInt16Dtype()
+VAL_PDTYPE = pd.UInt32Dtype()
+TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 
@@ -59,6 +62,21 @@ class RegTokenizer:
             self.tkmodel.get_vocab_size(),
             self.args.tkvocab,
         )
+
+    def _make_tokens(self, dfs):
+        self.logger.info("making tokens")
+        tokens = [df[TOKEN_KEYS].drop_duplicates() for df in dfs]
+        tokens = pd.concat(tokens, copy=False)
+        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
+        tokens.loc[tokens["reg"] == FRAME_REG, ["val", "diff"]] = 0
+        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
+        tokens["n"] = tokens.index
+        tokens = tokens.sort_values(["n"])
+        tokens = tokens.astype(
+            {"val": VAL_PDTYPE, "diff": DIFF_PDTYPE, "n": TOKEN_PDTYPE}
+        )
+        assert len(tokens[tokens["reg"] == FRAME_REG]) <= 1
+        return tokens
 
     def _merged_and_missing(self, tokens, df):
         m = df["reg"] == FRAME_REG

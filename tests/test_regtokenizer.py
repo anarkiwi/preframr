@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from preframr.regtokenizer import RegTokenizer
-from preframr.stfconstants import UNICODE_BASE
+from preframr.stfconstants import MODEL_PDTYPE, UNICODE_BASE
 
 
 class FakeArgs:
@@ -52,3 +52,23 @@ class TestRegTokenizer(unittest.TestCase):
             x = np.array(x, dtype=np.uint16)
             y = loader.decode_unicode(loader.encode_unicode(x))
             self.assertTrue(np.array_equal(x, y), (x, y))
+
+    def test_make_tokens(self):
+        loader = RegTokenizer(FakeArgs(), tokens=None)
+        test_df = pd.DataFrame(
+            [
+                {"reg": 1, "val": 1, "diff": 1},
+                {"reg": 1, "val": 1, "diff": 1},
+                {"reg": 1, "val": 2, "diff": 1},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        tokens_df = pd.DataFrame(
+            [
+                {"reg": 1, "val": 1, "diff": 1, "n": 0},
+                {"reg": 1, "val": 2, "diff": 1, "n": 1},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._make_tokens([test_df]).astype(MODEL_PDTYPE)
+        self.assertTrue(tokens_df.equals(result_df), result_df)
