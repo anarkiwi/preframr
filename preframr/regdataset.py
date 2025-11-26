@@ -135,9 +135,7 @@ class RegDataset(torch.utils.data.Dataset):
             raise ValueError(f"cannot read {name}: {e}")
         return name, dfs
 
-    def load_dfs(
-        self, dump_files, max_perm=99, max_workers=16, min_space=0.2, shuffle=0
-    ):
+    def load_dfs(self, dump_files, max_perm=99, max_workers=16, shuffle=0):
         results = []
         unsorted_dump_files = dump_files
         random.shuffle(unsorted_dump_files)
