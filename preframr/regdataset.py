@@ -147,7 +147,6 @@ class RegDataset(torch.utils.data.Dataset):
                     self.load_df,
                     dump_file,
                     max_perm=max_perm,
-                    min_space=min_space,
                 )
                 for dump_file in unsorted_dump_files
             ]

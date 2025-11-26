@@ -33,9 +33,9 @@ def merge_tokens(args, names, results):
             irq = df["irq"].iloc[0]
         except KeyError:
             continue
-        if irq < self.args.min_irq or irq > self.args.max_irq:
+        if irq < args.min_irq or irq > args.max_irq:
             continue
-        if len(df) < self.args.seq_len:
+        if len(df) < args.seq_len:
             continue
         vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
         if len(vol) >= 8:
