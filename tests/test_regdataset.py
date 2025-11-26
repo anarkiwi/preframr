@@ -7,12 +7,12 @@ import pandas as pd
 
 from preframr.regdataset import (
     SeqMapper,
-    RegLogParser,
     RegDataset,
     MODEL_PDTYPE,
     VOICES,
     FRAME_REG,
 )
+from preframr.reglogparser import RegLogParser
 from preframr.stfconstants import UNICODE_BASE
 
 
