@@ -19,14 +19,7 @@ def get_tokens(name):
     return token_df.to_parquet()
 
 
-def merge_tokens(args, names, results):
-    tokenizer = RegTokenizer(args=args, tokens=None)
-    tokenizer.tokens = tokenizer._make_tokens(
-        [
-            pd.read_parquet(io.BytesIO(result.result()))
-            for result in concurrent.futures.as_completed(results)
-        ]
-    )
+def merge_tokens(args, names, tokenizer):
     for name in tqdm(names):
         df = pd.read_parquet(name)
         try:
@@ -64,7 +57,10 @@ def main():
             for result in tqdm(concurrent.futures.as_completed(results))
         ]
     )
-    tokenizer.train_tokenizer(merge_tokens(args, names, results))
+    if args.token_csv:
+        tokenizer.tokens.to_csv(args.token_csv)
+    tokenizer.train_tokenizer(merge_tokens(args, names, tokenizer))
+    tokenizer.tkmodel.save(args.tkmodel)
 
 
 if __name__ == "__main__":

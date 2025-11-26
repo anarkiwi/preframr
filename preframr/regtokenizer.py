@@ -51,13 +51,14 @@ class RegTokenizer:
         return encoded_tokens
 
     def train_tokenizer(self, dfs, tokenizer="unigram"):
-        encoded_dfs = []
-        for df in dfs:
-            orig_seq = df["n"].to_numpy()
-            encoded = self.encode_unicode(orig_seq)
-            encoded_dfs.append(encoded)
+        def encode_dfs():
+            for df in dfs:
+                orig_seq = df["n"].to_numpy()
+                encoded = self.encode_unicode(orig_seq)
+                yield encoded
+
         self.tkmodel, trainer = self.get_tk(tokenizer=tokenizer)
-        self.tkmodel.train_from_iterator(encoded_dfs, trainer=trainer)
+        self.tkmodel.train_from_iterator(encode_dfs(), trainer=trainer)
         assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
             self.tkmodel.get_vocab_size(),
             self.args.tkvocab,

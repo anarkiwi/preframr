@@ -8,11 +8,6 @@ def add_args(parser):
         default="/scratch/preframr/training-dumps//MUSICIANS/G/Goto80/*dump.zst",
     )
     parser.add_argument(
-        "--token-reglogs",
-        type=str,
-        default="",
-    )
-    parser.add_argument(
         "--reglog",
         type=str,
         default="",

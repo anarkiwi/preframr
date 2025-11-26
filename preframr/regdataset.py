@@ -203,22 +203,13 @@ class RegDataset(torch.utils.data.Dataset):
                 self.args.reglogs, self.args.max_files, self.args.min_dump_size
             )
             df_files, dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
-            _token_df_files, token_dfs = self.load_dfs(
-                glob_dumps(
-                    self.args.token_reglogs,
-                    self.args.max_files,
-                    self.args.min_dump_size,
-                ),
-                max_perm=self.args.max_perm,
-            )
-            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs + token_dfs)
+            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
             dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
-            token_dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, token_dfs)
             if self.args.token_csv:
                 self.logger.info("writing %s", self.args.token_csv)
                 self.tokenizer.tokens.to_csv(self.args.token_csv)
             if self.args.tkvocab:
-                self.tokenizer.train_tokenizer(dfs + token_dfs)
+                self.tokenizer.train_tokenizer(dfs)
         self.logger.info("getting reg widths")
         self.reg_widths = self.tokenizer.get_reg_widths(dfs)
         self.n_vocab = len(self.tokenizer.tokens["n"])
