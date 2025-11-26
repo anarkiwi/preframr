@@ -27,7 +27,7 @@ def main():
         max_workers=multiprocessing.cpu_count()
     ) as executor:
         for name in tqdm(glob_dumps(args.reglogs, args.max_files, args.min_dump_size)):
-            executor.submit(write_df(log_parser, name))
+            executor.submit(write_df, log_parser, name)
 
 
 if __name__ == "__main__":
