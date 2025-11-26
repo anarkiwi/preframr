@@ -77,6 +77,24 @@ def get_prompt(args, dataset, logger):
     return seq_meta.irq, n, prompt, prompt_compare, reg_start
 
 
+def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
+    random.seed(seed)
+    dump_files = []
+    for r in reglogs.split(","):
+        max_globbed = max_files - len(dump_files)
+        if max_globbed <= 0:
+            break
+        globbed = [
+            f
+            for f in glob.glob(r, recursive=True)
+            if os.path.getsize(f) >= min_dump_size
+        ]
+        random.shuffle(globbed)
+        dump_files.extend(globbed[:max_globbed])
+    random.seed()
+    return dump_files
+
+
 class RegDataset(torch.utils.data.Dataset):
     def __init__(self, args, logger=logging):
         self.args = args
@@ -184,23 +202,6 @@ class RegDataset(torch.utils.data.Dataset):
         dfs = [result[1] for result in results]
         return df_files, dfs
 
-    def glob_dumps(self, reglogs, max_files, min_dump_size):
-        random.seed(0)
-        dump_files = []
-        for r in reglogs.split(","):
-            max_globbed = max_files - len(dump_files)
-            if max_globbed <= 0:
-                break
-            globbed = [
-                f
-                for f in glob.glob(r, recursive=True)
-                if os.path.getsize(f) >= min_dump_size
-            ]
-            random.shuffle(globbed)
-            dump_files.extend(globbed[:max_globbed])
-        random.seed()
-        return dump_files
-
     def load(self, tokens=None, tkmodel=None):
         self.tokenizer.tkmodel = tkmodel
         if tkmodel:
@@ -216,12 +217,12 @@ class RegDataset(torch.utils.data.Dataset):
             self.tokenizer.tokens = tokens
             dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
-            dump_files = self.glob_dumps(
+            dump_files = glob_dumps(
                 self.args.reglogs, self.args.max_files, self.args.min_dump_size
             )
             df_files, dfs = self.load_dfs(dump_files, max_perm=self.args.max_perm)
             _token_df_files, token_dfs = self.load_dfs(
-                self.glob_dumps(
+                glob_dumps(
                     self.args.token_reglogs,
                     self.args.max_files,
                     self.args.min_dump_size,
