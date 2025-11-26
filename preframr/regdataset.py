@@ -158,16 +158,10 @@ class SeqMapper:
         return (self.slice_n(seq, seq_index), self.slice_n(seq, seq_index + 1))
 
 
-class RegDataset(torch.utils.data.Dataset):
+class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args
         self.logger = logger
-        self.n_vocab = 0
-        self.n_words = 0
-        self.reg_widths = {}
-        self.tokens = None
-        self.tkmodel = None
-        self.seq_mapper = SeqMapper(args.seq_len)
 
     def _ctrl_match(self, df):
         return (df["reg"] == 4) | (df["reg"] == 11) | (df["reg"] == 18)
@@ -539,6 +533,19 @@ class RegDataset(torch.utils.data.Dataset):
             assert reg_widths[int(reg)]
         return reg_widths
 
+
+class RegDataset(torch.utils.data.Dataset):
+    def __init__(self, args, logger=logging):
+        self.args = args
+        self.logger = logger
+        self.n_vocab = 0
+        self.n_words = 0
+        self.reg_widths = {}
+        self.tokens = None
+        self.tkmodel = None
+        self.reg_log_parser = RegLogParser(args, logger)
+        self.seq_mapper = SeqMapper(args.seq_len)
+
     def encode_unicode(self, tokens, dtype=np.uint16):
         t = np.array(tokens, dtype=dtype)
         t = np.where(t == 0, np.nan, t)
@@ -582,7 +589,9 @@ class RegDataset(torch.utils.data.Dataset):
         dfs = []
         try:
             for i, df in enumerate(
-                self._downsample_df(self._read_df(name), max_perm=max_perm)
+                self.reg_log_parser._downsample_df(
+                    self.reg_log_parser._read_df(name), max_perm=max_perm
+                )
             ):
                 try:
                     irq = df["irq"].iloc[0]
@@ -770,7 +779,7 @@ class RegDataset(torch.utils.data.Dataset):
                 max_perm=self.args.max_perm,
             )
             if tokens is None:
-                tokens = self._make_tokens(dfs)
+                tokens = self.reg_log_parser._make_tokens(dfs)
             self.tokens = tokens
             dfs = self.merge_tokens(self.tokens, dfs)
         else:
@@ -786,7 +795,7 @@ class RegDataset(torch.utils.data.Dataset):
                 ),
                 max_perm=self.args.max_perm,
             )
-            self.tokens = self._make_tokens(dfs + token_dfs)
+            self.tokens = self.reg_log_parser._make_tokens(dfs + token_dfs)
             dfs = self.merge_tokens(self.tokens, dfs)
             token_dfs = self.merge_tokens(self.tokens, token_dfs)
             if self.args.token_csv:
@@ -795,7 +804,7 @@ class RegDataset(torch.utils.data.Dataset):
             if self.args.tkvocab:
                 self.train_tokenizer(dfs + token_dfs)
         self.logger.info("getting reg widths")
-        self.reg_widths = self.get_reg_widths(dfs)
+        self.reg_widths = self.reg_log_parser.get_reg_widths(dfs)
         self.n_vocab = len(self.tokens["n"])
         self.n_words = sum((len(df) for df in dfs))
         assert self.tokens[self.tokens["val"].isna()].empty

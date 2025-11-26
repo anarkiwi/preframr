@@ -5,7 +5,14 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from preframr.regdataset import SeqMapper, RegDataset, MODEL_PDTYPE, VOICES, FRAME_REG
+from preframr.regdataset import (
+    SeqMapper,
+    RegLogParser,
+    RegDataset,
+    MODEL_PDTYPE,
+    VOICES,
+    FRAME_REG,
+)
 from preframr.stfconstants import UNICODE_BASE
 
 
@@ -44,7 +51,7 @@ class TestRegDatasetLoader(unittest.TestCase):
                 self.assertTrue(np.array_equal(orig, decoded), (orig, decoded))
 
     def test_get_reg_widths(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         results = loader.get_reg_widths(
             [
                 pd.DataFrame([{"reg": 1, "val": 7}]),
@@ -76,7 +83,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         )
 
     def test_make_tokens(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"reg": 1, "val": 1, "diff": 1},
@@ -96,13 +103,13 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(tokens_df.equals(result_df), result_df)
 
     def test_highbitmask(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         self.assertEqual(loader.highbitmask(7), 128)
         self.assertEqual(loader.highbitmask(4), 240)
         self.assertEqual(loader.highbitmask(1), 254)
 
     def test_simplfy_ctrl(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"reg": 4, "val": 33 + 2**2},
@@ -125,7 +132,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(expected_df.equals(result_df))
 
     def test_maskregbits(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"reg": 1, "val": 255},
@@ -142,7 +149,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(mask_df.equals(test_df))
 
     def test_squeeze_changes(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"clock": 1, "irq": 1, "reg": 1, "val": 1},
@@ -163,7 +170,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(squeeze_df.equals(result), result)
 
     def test_squeeze_frames(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"clock": 1, "reg": 1, "val": 99},
@@ -194,7 +201,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(squeeze_df.equals(result), result)
 
     def test_combine_reg(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"reg": 1, "val": 1},
@@ -219,7 +226,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(combine_df.equals(result_df), result_df)
 
     def test_norm_pr_order(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"reg": 0, "val": 3},
@@ -240,7 +247,7 @@ class TestRegDatasetLoader(unittest.TestCase):
         self.assertTrue(norm_df.equals(result_df), result_df)
 
     def test_rotate_voice_augment(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"clock": 0, "reg": 0, "val": 1},
@@ -293,11 +300,11 @@ class TestRegDatasetLoader(unittest.TestCase):
             self.assertTrue(np.array_equal(x, y), (x, y))
 
     def test_derange_voiceorder(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         self.assertEqual([[0, 1, 2], (1, 2, 0), (2, 0, 1)], loader.derange_voiceorder())
 
     def test_add_frame_reg(self):
-        loader = RegDataset(FakeArgs())
+        loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
                 {"clock": 0, "reg": 0, "val": 1, "irq": 0},
