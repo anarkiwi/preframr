@@ -40,7 +40,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None)
 
-    def load_dfs(self, dump_files, max_perm=99, shuffle=0):
+    def load_dfs(self, dump_files, max_perm=99, shuffle=0, tokenizer=None):
         results = []
         unsorted_dump_files = dump_files
         random.shuffle(unsorted_dump_files)
@@ -48,6 +48,8 @@ class RegDataset(torch.utils.data.Dataset):
             for i, df in enumerate(
                 self.reg_log_parser.parse(dump_file, max_perm=max_perm)
             ):
+                if tokenizer:
+                    df = tokenizer.merge_token_df(tokenizer.tokens, df)
                 irq = df["irq"].iloc[0]
                 self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
                 results.append((dump_file, df))
@@ -62,16 +64,13 @@ class RegDataset(torch.utils.data.Dataset):
         return df_files, dfs
 
     def load(self, tokens=None, tkmodel=None):
-        self.tokenizer.load(tkmodel)
+        self.tokenizer.load(tkmodel, tokens)
         if self.args.reglog:
             df_files, dfs = self.load_dfs(
                 [self.args.reglog],
                 max_perm=self.args.max_perm,
+                tokenizer=self.tokenizer,
             )
-            if tokens is None:
-                tokens = self.tokenizer._make_tokens(dfs)
-            self.tokenizer.tokens = tokens
-            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
             dump_files = glob_dumps(
                 self.args.reglogs, self.args.max_files, self.args.min_dump_size

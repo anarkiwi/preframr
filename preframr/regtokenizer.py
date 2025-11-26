@@ -82,7 +82,8 @@ class RegTokenizer:
         self.tokens = tokens
         self.tkmodel = None
 
-    def load(self, tkmodel):
+    def load(self, tkmodel, tokens):
+        self.tokens = tokens
         if tkmodel:
             self.tkmodel = Tokenizer.from_str(tkmodel)
 
