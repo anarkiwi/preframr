@@ -62,16 +62,29 @@ class RegDataset(torch.utils.data.Dataset):
             results = sorted(results, key=lambda x: x[0])
         df_files = [result[0] for result in results]
         dfs = [result[1] for result in results]
-        if self.tokenizer.tokens is None:
-            self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
-            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
-            if self.args.token_csv:
-                self.logger.info("writing %s", self.args.token_csv)
-                self.tokenizer.tokens.to_csv(self.args.token_csv)
         return df_files, dfs
 
-    def load(self, tokens=None, tkmodel=None):
-        self.tokenizer.load(tkmodel, tokens)
+    def make_tokens(self, reglogs):
+        df_files, dfs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
+        self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
+        dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
+        assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
+        assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
+        return df_files, dfs
+
+    def preload(self, tokens=None, tkmodel=None):
+        if tokens is not None and tkmodel is not None:
+            self.tokenizer.load(tkmodel, tokens)
+            return
+        df_files, dfs = self.make_tokens(self.args.reglogs)
+        if self.args.token_csv:
+            self.logger.info("writing %s", self.args.token_csv)
+            self.tokenizer.tokens.to_csv(self.args.token_csv)
+        if self.args.tkvocab:
+            self.tokenizer.train_tokenizer(dfs)
+
+    def load(self):
+        assert self.tokenizer.tokens is not None
         if self.args.reglog:
             df_files, dfs = self.load_dfs(
                 self.args.reglog,
@@ -81,14 +94,10 @@ class RegDataset(torch.utils.data.Dataset):
             df_files, dfs = self.load_dfs(
                 self.args.reglogs, max_perm=self.args.max_perm
             )
-            if self.args.tkvocab and tkmodel is None:
-                self.tokenizer.train_tokenizer(dfs)
         self.logger.info("getting reg widths")
         self.reg_widths = self.tokenizer.get_reg_widths(dfs)
         self.n_vocab = len(self.tokenizer.tokens["n"])
         self.n_words = sum((len(df) for df in dfs))
-        assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
-        assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}"
         )

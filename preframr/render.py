@@ -16,11 +16,11 @@ def main():
         raise ValueError("--reglog required")
     logger = get_logger("INFO")
     dataset = RegDataset(args, logger=logger)
-    dataset.load(tokens=None, tkmodel=None)
-    tokenizer = RegTokenizer(args, tokens=None)
+    dataset.make_tokens(args.reglog)
+    dataset.load()
     irq, _n, prompt, _prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
-    prompt_df = state_df(tokenizer.decode(states), dataset, irq)
+    prompt_df = state_df(dataset.tokenizer.decode(states), dataset, irq)
     if args.csv:
         prompt_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
     write_samples(

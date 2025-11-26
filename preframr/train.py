@@ -61,6 +61,7 @@ def main():
             raise ValueError("No such checkpoint %s" % ckpt_path)
         logger.info("Will resume from %s", ckpt_path)
     dataset = RegDataset(args, logger=logger)
+    dataset.preload()
     dataloader = get_loader(args, dataset)
     model = get_model(dataset, args, logger)
     train(model, dataloader, args, ckpt_path, logger)
