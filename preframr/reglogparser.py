@@ -1,9 +1,6 @@
-from dataclasses import dataclass
 import itertools
 import logging
-import random
 from tqdm import tqdm
-import torch
 import numpy as np
 import pandas as pd
 from preframr.stfconstants import (
@@ -13,13 +10,13 @@ from preframr.stfconstants import (
     MAX_REG,
     MIDI_N_TO_F,
     MODE_VOL_REG,
+    MODEL_PDTYPE,
     PAL_CLOCK,
     VOICES,
     VOICE_REG,
     VOICE_REG_SIZE,
 )
 
-TOKEN_KEYS = ["reg", "val", "diff"]
 MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 VAL_PDTYPE = pd.UInt32Dtype()
@@ -33,13 +30,9 @@ FRAME_DTYPES = {
     "diff": DIFF_PDTYPE,
     "irq": IRQ_PDTYPE,
 }
-UNK_TOKEN = "<unk>"
-END_OF_WORD_SUFFIX = "</w>"
 
 
-@dataclass
-class SeqMeta:
-    irq: int
+TOKEN_KEYS = ["reg", "val", "diff"]
 
 
 def wrapbits(x, reglen):
@@ -52,99 +45,6 @@ FILTER_SHIFT_DF = pd.DataFrame(
     [{"reg": FILTER_REG, "val": i, "y": wrapbits(i, 3)} for i in range(2**3)],
     dtype=MODEL_PDTYPE,
 )
-
-
-def remove_voice_reg(orig_df, reg_widths):
-    voice_regs = len(orig_df[orig_df["reg"] == VOICE_REG])
-    if voice_regs:
-        df = orig_df.copy()
-        df["vr"] = pd.NA
-        df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
-        df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
-        df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
-        df = df[df["reg"] != VOICE_REG]
-        df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
-        df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
-        df["reg"] += df["vr"]
-        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            for i in range(VOICE_REG_SIZE):
-                if i in reg_widths:
-                    reg_widths[v_offset + i] = reg_widths[i]
-        return df, reg_widths
-    return orig_df, reg_widths
-
-
-def state_df(states, dataset, irq):
-    tokens = dataset.tokens.copy()
-    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
-    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
-    return df
-
-
-def get_prompt(args, dataset, logger):
-    seq, seq_meta = dataset.getseq(args.start_seq)
-    if args.start_n is None:
-        start = random.randint(0, len(seq))
-    else:
-        start = args.start_n
-    logger.info("starting at %u / %u, irq %u", start, len(seq), seq_meta.irq)
-    n = args.max_seq_len - args.prompt_seq_len
-    if n <= 0:
-        raise ValueError("max seq length too short")
-    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
-    prompt_compare = seq[start:][: args.max_seq_len]
-    preamble_df, _reg_widths = remove_voice_reg(
-        state_df(dataset.decode(seq[:start].numpy()), dataset, seq_meta.irq),
-        dataset.reg_widths,
-    )
-    reg_start = {
-        r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
-        for r in preamble_df["reg"].unique()
-        if r >= 0
-    }
-    return seq_meta.irq, n, prompt, prompt_compare, reg_start
-
-
-class SeqMapper:
-    def __init__(self, seq_len):
-        self.seq_len = seq_len
-        self.seq_map = None
-        self.seqs = []
-        self.seq_metas = []
-        self.len = 0
-
-    def add(self, seq, seq_meta):
-        if len(seq) <= self.seq_len:
-            raise ValueError(f"sequence too short ({len(seq)}")
-        assert isinstance(seq, np.ndarray)
-        assert seq.dtype == np.int64
-        self.seqs.append(seq)
-        self.seq_metas.append(seq_meta)
-        self.len = 0
-        seq_map = []
-        for s in self.seqs:
-            seq_map.append(self.len)
-            self.len += len(s) - self.seq_len
-        self.seq_map = np.array(seq_map, dtype=np.uint64)
-
-    def __len__(self):
-        return self.len
-
-    def slice_n(self, seq, n):
-        return torch.from_numpy(seq[int(n) : int(n) + self.seq_len])
-
-    def __getitem__(self, index):
-        if index >= len(self):
-            raise IndexError
-
-        seq_i = np.clip(
-            np.searchsorted(self.seq_map, index, side="right") - 1, a_min=0, a_max=None
-        )
-        seq = self.seqs[seq_i]
-        seq_index = index - self.seq_map[seq_i]
-        return (self.slice_n(seq, seq_index), self.slice_n(seq, seq_index + 1))
 
 
 class RegLogParser:

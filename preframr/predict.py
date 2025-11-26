@@ -45,7 +45,7 @@ class Predictor:
 def generate_sequence(args, logger, dataset, predictor):
     irq, n, prompt, prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
-    decoded_prompt = dataset.decode(states)
+    decoded_prompt = dataset.tokenizer.decode(states)
     prompt_df = state_df(decoded_prompt, dataset, irq)
     prompt_cycles = prompt_df["diff"].sum()
     logger.info(
@@ -61,7 +61,7 @@ def generate_sequence(args, logger, dataset, predictor):
         prompt, n, temperature=args.temperature, top_k=args.top_k
     )
     states.extend(predict_states.tolist())
-    df = state_df(dataset.decode(states), dataset, irq)
+    df = state_df(dataset.tokenizer.decode(states), dataset, irq)
     predicted_compare = prompt_compare[args.prompt_seq_len :]
     f_acc = pd.NA
     if len(predicted_compare):

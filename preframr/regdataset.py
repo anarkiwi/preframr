@@ -1,5 +1,4 @@
 import concurrent.futures
-import difflib
 import logging
 import glob
 import os
@@ -8,17 +7,17 @@ import shutil
 import tempfile
 import time
 from tqdm import tqdm
+from tokenizers import Tokenizer
 import torch
-from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 import numpy as np
 import pandas as pd
 import zstandard as zstd
 from preframr.reglogparser import RegLogParser
+from preframr.regtokenizer import RegTokenizer
 from preframr.seq_mapper import SeqMapper, SeqMeta
 from preframr.stfconstants import (
     DELAY_REG,
     FRAME_REG,
-    UNICODE_BASE,
     VOICES,
     VOICE_REG,
     VOICE_REG_SIZE,
@@ -64,7 +63,7 @@ def remove_voice_reg(orig_df, reg_widths):
 
 
 def state_df(states, dataset, irq):
-    tokens = dataset.tokens.copy()
+    tokens = dataset.tokenizer.tokens.copy()
     tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
     df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
     return df
@@ -83,7 +82,7 @@ def get_prompt(args, dataset, logger):
     prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
     prompt_compare = seq[start:][: args.max_seq_len]
     preamble_df, _reg_widths = remove_voice_reg(
-        state_df(dataset.decode(seq[:start].numpy()), dataset, seq_meta.irq),
+        state_df(dataset.tokenizer.decode(seq[:start].numpy()), dataset, seq_meta.irq),
         dataset.reg_widths,
     )
     reg_start = {
@@ -101,49 +100,9 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
-        self.tokens = None
-        self.tkmodel = None
         self.reg_log_parser = RegLogParser(args, logger)
         self.seq_mapper = SeqMapper(args.seq_len)
-
-    def encode_unicode(self, tokens, dtype=np.uint16):
-        t = np.array(tokens, dtype=dtype)
-        t = np.where(t == 0, np.nan, t)
-        t += UNICODE_BASE
-        t = np.nan_to_num(t).astype(dtype)
-        t = np.where(t == 0, 32, t)
-        return "".join([chr(i) for i in t])
-
-    def decode_unicode(self, encoded_tokens, dtype=np.uint16):
-        t = np.array([ord(i) for i in encoded_tokens])
-        t = np.where(t == 32, np.nan, t)
-        t -= UNICODE_BASE
-        t = np.nan_to_num(t).astype(dtype)
-        return t
-
-    def encode(self, tokens, dtype=np.uint16):
-        if self.tkmodel:
-            encoded = self.tkmodel.encode(self.encode_unicode(tokens, dtype=dtype))
-            return np.array(encoded.ids, dtype=dtype)
-        return tokens
-
-    def decode(self, encoded_tokens, dtype=np.uint16):
-        if self.tkmodel:
-            return self.decode_unicode(self.tkmodel.decode(encoded_tokens), dtype=dtype)
-        return encoded_tokens
-
-    def train_tokenizer(self, dfs, tokenizer="unigram"):
-        encoded_dfs = []
-        for df in dfs:
-            orig_seq = df["n"].to_numpy()
-            encoded = self.encode_unicode(orig_seq)
-            encoded_dfs.append(encoded)
-        self.tkmodel, trainer = self.get_tk(tokenizer=tokenizer)
-        self.tkmodel.train_from_iterator(encoded_dfs, trainer=trainer)
-        assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
-            self.tkmodel.get_vocab_size(),
-            self.args.tkvocab,
-        )
+        self.tokenizer = RegTokenizer(args, tokens=None)
 
     def load_df(self, name, df_dir, max_perm=99, min_space=0):
         dfs = []
@@ -196,7 +155,7 @@ class RegDataset(torch.utils.data.Dataset):
         with tempfile.TemporaryDirectory(dir="/dev/shm") as tmpdir:
             unsorted_dump_files = dump_files
             random.shuffle(unsorted_dump_files)
-            with concurrent.futures.ProcessPoolExecutor(
+            with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max_workers
             ) as preload_executor:
                 preload_futures = [
@@ -245,49 +204,6 @@ class RegDataset(torch.utils.data.Dataset):
         dfs = [result[1] for result in results]
         return df_files, dfs
 
-    def _merged_and_missing(self, tokens, df):
-        m = df["reg"] == FRAME_REG
-        irq = df[m]["diff"].iloc[0]
-        df.loc[m, "diff"] = 0
-        df = df.merge(tokens, on=TOKEN_KEYS, how="left")
-        df.loc[m, "diff"] = irq
-        missing_tokens = (
-            df[df["n"].isna()].drop_duplicates().sort_values(["reg", "val"])
-        )
-        return df, missing_tokens
-
-    def merge_tokens(self, tokens, dfs):
-        self.logger.info("merging tokens")
-        merged_dfs = []
-        for df in tqdm(dfs, ascii=True):
-            orig_cols, orig_dtypes = df.columns, df.dtypes
-            df, missing_tokens = self._merged_and_missing(tokens, df)
-            if not missing_tokens.empty:
-                for missing_token in missing_tokens.itertuples():
-                    reg = missing_token.reg
-                    val = missing_token.val
-                    reg_tokens = tokens[tokens["reg"] == reg]
-                    if reg_tokens.empty:
-                        self.logger.error(
-                            "no possible token for reg %u val %u", reg, val
-                        )
-                        assert False
-                    compare_tokens = reg_tokens.copy()
-                    compare_tokens["diff_val"] = (compare_tokens["val"] - val).abs()
-                    best_token = compare_tokens[
-                        compare_tokens["diff_val"] == compare_tokens["diff_val"].min()
-                    ].iloc[0]
-                    best_val = best_token.val
-                    self.logger.info(
-                        "substitute reg %u val %u with val %u", reg, val, best_val
-                    )
-                    df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
-                df = df[orig_cols].astype(orig_dtypes)
-                df, missing_tokens = self._merged_and_missing(tokens, df)
-                assert missing_tokens.empty
-            merged_dfs.append(df)
-        return merged_dfs
-
     def glob_dumps(self, reglogs, max_files, min_dump_size):
         random.seed(0)
         dump_files = []
@@ -305,33 +221,10 @@ class RegDataset(torch.utils.data.Dataset):
         random.seed()
         return dump_files
 
-    def validate_encoding(self, df_file, seq):
-        if not self.args.tkvocab:
-            return seq
-        orig_seq = seq.copy()
-        seq = self.encode(orig_seq, dtype=np.int64)
-        decoded_seq = self.decode(seq, dtype=np.int64)
-        if not np.array_equal(orig_seq, decoded_seq):
-            for i, (orig, decoded) in enumerate(zip(orig_seq, decoded_seq)):
-                if orig == decoded:
-                    continue
-                a = [str(i) for i in orig_seq]
-                b = [str(i) for i in decoded_seq]
-                d = "\n".join(difflib.context_diff(a, b))
-                print(d)
-                assert False, (
-                    df_file,
-                    i,
-                    orig,
-                    decoded,
-                    self.tokens.iloc[int(orig)],
-                )
-        return seq
-
     def load(self, tokens=None, tkmodel=None):
-        self.tkmodel = tkmodel
+        self.tokenizer.tkmodel = tkmodel
         if tkmodel:
-            self.tkmodel = Tokenizer.from_str(tkmodel)
+            self.tokenizer.tkmodel = Tokenizer.from_str(tkmodel)
 
         if self.args.reglog:
             df_files, dfs = self.load_dfs(
@@ -340,8 +233,8 @@ class RegDataset(torch.utils.data.Dataset):
             )
             if tokens is None:
                 tokens = self.reg_log_parser._make_tokens(dfs)
-            self.tokens = tokens
-            dfs = self.merge_tokens(self.tokens, dfs)
+            self.tokenizer.tokens = tokens
+            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
             dump_files = self.glob_dumps(
                 self.args.reglogs, self.args.max_files, self.args.min_dump_size
@@ -355,20 +248,20 @@ class RegDataset(torch.utils.data.Dataset):
                 ),
                 max_perm=self.args.max_perm,
             )
-            self.tokens = self.reg_log_parser._make_tokens(dfs + token_dfs)
-            dfs = self.merge_tokens(self.tokens, dfs)
-            token_dfs = self.merge_tokens(self.tokens, token_dfs)
+            self.tokenizer.tokens = self.reg_log_parser._make_tokens(dfs + token_dfs)
+            dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
+            token_dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, token_dfs)
             if self.args.token_csv:
                 self.logger.info("writing %s", self.args.token_csv)
-                self.tokens.to_csv(self.args.token_csv)
+                self.tokenizer.tokens.to_csv(self.args.token_csv)
             if self.args.tkvocab:
-                self.train_tokenizer(dfs + token_dfs)
+                self.tokenizer.train_tokenizer(dfs + token_dfs)
         self.logger.info("getting reg widths")
         self.reg_widths = self.reg_log_parser.get_reg_widths(dfs)
-        self.n_vocab = len(self.tokens["n"])
+        self.n_vocab = len(self.tokenizer.tokens["n"])
         self.n_words = sum((len(df) for df in dfs))
-        assert self.tokens[self.tokens["val"].isna()].empty
-        assert self.tokens[self.tokens["val"] < 0].empty
+        assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
+        assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}"
         )
@@ -379,7 +272,7 @@ class RegDataset(torch.utils.data.Dataset):
         final_dfs = []
         final_df_files = []
         for df_file, df in tqdm(zip(df_files, dfs), ascii=True):
-            seq = self.validate_encoding(df_file, df["n"].to_numpy())
+            seq = self.tokenizer.validate_encoding(df_file, df["n"].to_numpy())
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             try:
                 self.seq_mapper.add(seq, seq_meta)
@@ -405,48 +298,6 @@ class RegDataset(torch.utils.data.Dataset):
                     for i in tqdm(range(len(final_dfs)), ascii=True):
                         final_dfs[i]["i"] = int(i)
                         final_dfs[i].to_csv(f, index=False, header=(i == 0))
-
-    def get_tk(self, tokenizer="unigram"):
-        if tokenizer == "unigram":
-            tk = Tokenizer(models.Unigram())
-            tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
-            tk.decoder = decoders.Metaspace(replacement=" ")
-            tk.normalizer = None
-            trainer = trainers.UnigramTrainer(
-                vocab_size=self.args.tkvocab,
-                show_progress=True,
-                special_tokens=[UNK_TOKEN],
-                initial_alphabet=[],
-                unk_token=UNK_TOKEN,
-            )
-            return tk, trainer
-        if tokenizer == "bpe":
-            tk = Tokenizer(
-                models.BPE(
-                    dropout=None,
-                    unk_token=UNK_TOKEN,
-                    end_of_word_suffix=END_OF_WORD_SUFFIX,
-                    fuse_unk=False,
-                    byte_fallback=False,
-                    ignore_merges=False,
-                    vocab={},
-                    merges=[],
-                )
-            )
-            tk.normalizer = None
-            tk.pre_tokenizer = pre_tokenizers.WhitespaceSplit()
-            tk.decoder = decoders.BPEDecoder(suffix=END_OF_WORD_SUFFIX)
-            trainer = trainers.BpeTrainer(
-                vocab_size=self.args.tkvocab,
-                min_frequency=2,
-                special_tokens=[UNK_TOKEN],
-                limit_alphabet=self.args.tkvocab,
-                initial_alphabet=[],
-                end_of_word_suffix=END_OF_WORD_SUFFIX,
-                show_progress=True,
-            )
-            return tk, trainer
-        raise ValueError
 
     def __len__(self):
         return len(self.seq_mapper)
