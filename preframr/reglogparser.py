@@ -43,7 +43,8 @@ FILTER_SHIFT_DF = pd.DataFrame(
 
 
 class RegLogParser:
-    def __init__(self, logger=logging):
+    def __init__(self, args, logger=logging):
+        self.args = args
         self.logger = logger
 
     def _ctrl_match(self, df):
@@ -352,8 +353,32 @@ class RegLogParser:
         df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def parse(self, df, diffmax=512, max_perm=99):
-        df = self._read_df(df)
+    def _filter(self, df, name):
+        try:
+            irq = df["irq"].iloc[0]
+        except KeyError:
+            self.logger.info(df)
+            self.logger.info("skipped %s, no irq", name)
+            return False
+        if irq < self.args.min_irq or irq > self.args.max_irq:
+            self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
+            return False
+        if len(df[df["reg"] == FRAME_REG]) == 0:
+            self.logger.info("skipped %s, no frames", name)
+            return False
+        if len(df) < self.args.seq_len:
+            self.logger.info("skipped %s, length %u (too short)", name, len(df))
+            return False
+        vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
+        if len(vol) >= 8:
+            self.logger.info(
+                "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
+            )
+            return False
+        return True
+
+    def parse(self, name, diffmax=512, max_perm=99):
+        df = self._read_df(name)
         df = self._squeeze_changes(df)
         df = self._simplify_ctrl(df)
         for v in range(VOICES):
@@ -381,4 +406,5 @@ class RegLogParser:
             # xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
-            yield xdf
+            if self._filter(xdf, name):
+                yield xdf

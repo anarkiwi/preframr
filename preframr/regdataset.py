@@ -101,79 +101,21 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
-        self.reg_log_parser = RegLogParser(logger)
+        self.reg_log_parser = RegLogParser(args, logger)
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None)
-
-    def load_df(self, name, max_perm=99):
-        dfs = []
-        try:
-            for i, df in enumerate(self.reg_log_parser.parse(name, max_perm=max_perm)):
-                try:
-                    irq = df["irq"].iloc[0]
-                except KeyError:
-                    self.logger.info("skipped %s, no irq", name)
-                    break
-                if irq < self.args.min_irq or irq > self.args.max_irq:
-                    self.logger.info(
-                        "skipped %s, irq %u (outside IRQ range)", name, irq
-                    )
-                    break
-                if len(df) < self.args.seq_len:
-                    self.logger.info("skipped %s, length %u (too short)", name, len(df))
-                    break
-                vol = sorted(
-                    np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist()
-                )
-                if len(vol) >= 8:
-                    self.logger.info(
-                        "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
-                    )
-                    break
-                dfs.append(df.to_parquet())
-        except Exception as e:
-            raise ValueError(f"cannot read {name}: {e}")
-        return name, dfs
 
     def load_dfs(self, dump_files, max_perm=99, max_workers=16, shuffle=0):
         results = []
         unsorted_dump_files = dump_files
         random.shuffle(unsorted_dump_files)
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers
-        ) as preload_executor:
-            preload_futures = [
-                preload_executor.submit(
-                    self.load_df,
-                    dump_file,
-                    max_perm=max_perm,
-                )
-                for dump_file in unsorted_dump_files
-            ]
-
-            def load_df(name, file_dfs):
-                if not file_dfs:
-                    return []
-                dfs = []
-                for i, file_df in enumerate(file_dfs):
-                    try:
-                        dfs.append(pd.read_parquet(io.BytesIO(file_df)))
-                        irq = dfs[0]["irq"].iloc[0]
-                        self.logger.info("loaded %s, irq %u, augment %u", name, irq, i)
-                    except Exception as e:
-                        raise ValueError(f"cannot read {file_df}: {e}")
-                return dfs
-
-            for preload_future in tqdm(
-                concurrent.futures.as_completed(preload_futures),
-                total=len(preload_futures),
-                ascii=True,
+        for dump_file in unsorted_dump_files:
+            for i, df in enumerate(
+                self.reg_log_parser.parse(dump_file, max_perm=max_perm)
             ):
-                assert not preload_future.exception(), preload_future.exception()
-                name, file_dfs = preload_future.result()
-                dfs = load_df(name, file_dfs)
-                for df in dfs:
-                    results.append((name, df))
+                irq = df["irq"].iloc[0]
+                self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
+                results.append((dump_file, df))
         if shuffle is not None:
             random.seed(shuffle)
             random.shuffle(results)
