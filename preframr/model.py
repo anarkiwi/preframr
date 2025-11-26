@@ -248,7 +248,9 @@ def get_model(dataset, args, logger, args_override=None):
     if args_override:
         for k, v in args_override.items():
             setattr(args, k, v)
-    model = Model(args, dataset.n_vocab, dataset.tokens, dataset.tkmodel)
+    model = Model(
+        args, dataset.n_vocab, dataset.tokenizer.tokens, dataset.tokenizer.tkmodel
+    )
     _device, model_compiler = get_device(args, logger)
     return model_compiler(args, model)
 
