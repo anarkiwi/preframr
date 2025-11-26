@@ -43,18 +43,6 @@ UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 
 
-def wrapbits(x, reglen):
-    base = (x << 1) & (2**reglen - 1)
-    lsb = (x >> (reglen - 1)) & 1
-    return base ^ lsb
-
-
-FILTER_SHIFT_DF = pd.DataFrame(
-    [{"reg": FILTER_REG, "val": i, "y": wrapbits(i, 3)} for i in range(2**3)],
-    dtype=MODEL_PDTYPE,
-)
-
-
 def remove_voice_reg(orig_df, reg_widths):
     voice_regs = len(orig_df[orig_df["reg"] == VOICE_REG])
     if voice_regs:
