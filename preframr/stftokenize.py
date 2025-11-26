@@ -10,6 +10,7 @@ import numpy as np
 from preframr.args import add_args
 from preframr.regdataset import glob_dumps
 from preframr.regtokenizer import RegTokenizer
+from preframr.stfconstants import FRAME_REG
 
 
 def get_tokens(name):
@@ -22,16 +23,16 @@ def get_tokens(name):
 def merge_tokens(args, names, tokenizer):
     for name in tqdm(names):
         df = pd.read_parquet(name)
-        try:
-            irq = df["irq"].iloc[0]
-        except KeyError:
-            continue
-        if irq < args.min_irq or irq > args.max_irq:
-            continue
         if len(df) < args.seq_len:
             continue
         vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
         if len(vol) >= 8:
+            continue
+        try:
+            irq = df["irq"].iloc[0]
+        except KeyError:
+            continue
+        if len(df[df["reg"] == FRAME_REG]) == 0:
             continue
         df = tokenizer.merge_token_df(tokenizer.tokens, df)
         if df is not None:
