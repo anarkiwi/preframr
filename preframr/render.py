@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
-import random
-import pandas as pd
 from torchtune.utils import get_logger
 from regdataset import RegDataset, state_df, get_prompt
 from regtokenizer import RegTokenizer
 from args import add_args
-from preframr.stfconstants import FRAME_REG, MODEL_PDTYPE
+from preframr.stfconstants import MODEL_PDTYPE
 from sidwav import write_samples
 
 

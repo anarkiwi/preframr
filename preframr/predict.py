@@ -3,7 +3,6 @@
 import argparse
 import glob
 import os
-import random
 import sys
 
 import pandas as pd
@@ -14,9 +13,9 @@ import torchmetrics
 
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
-from regdataset import RegDataset, state_df, remove_voice_reg, get_prompt
+from regdataset import RegDataset, state_df, get_prompt
 from sidwav import write_samples, sidq
-from preframr.stfconstants import FRAME_REG, MODEL_PDTYPE, PAD_ID
+from preframr.stfconstants import MODEL_PDTYPE, PAD_ID
 
 
 class Predictor:
@@ -151,7 +150,7 @@ def main():
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
     logger = get_logger("INFO")
-    dataset, model, predictor = load_model(args, logger)
+    dataset, _model, predictor = load_model(args, logger)
     generate_sequence(args, logger, dataset, predictor)
 
 
