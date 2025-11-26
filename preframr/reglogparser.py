@@ -1,6 +1,5 @@
 import itertools
 import logging
-from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from preframr.stfconstants import (
