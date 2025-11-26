@@ -1,6 +1,4 @@
-from argparse import BooleanOptionalAction
 from preframr.model import MODEL_GETTERS, MODEL_PRECISION
-import torch
 
 
 def add_args(parser):

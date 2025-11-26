@@ -7,21 +7,9 @@ import pandas as pd
 from preframr.stfconstants import (
     FRAME_REG,
     UNICODE_BASE,
+    TOKEN_KEYS,
 )
 
-TOKEN_KEYS = ["reg", "val", "diff"]
-REG_PDTYPE = pd.Int8Dtype()
-VAL_PDTYPE = pd.UInt32Dtype()
-TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
-DIFF_PDTYPE = pd.UInt16Dtype()
-IRQ_PDTYPE = pd.UInt16Dtype()
-MIN_DIFF = 32
-FRAME_DTYPES = {
-    "reg": REG_PDTYPE,
-    "val": VAL_PDTYPE,
-    "diff": DIFF_PDTYPE,
-    "irq": IRQ_PDTYPE,
-}
 UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 

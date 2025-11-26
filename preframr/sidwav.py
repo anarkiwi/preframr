@@ -17,7 +17,6 @@ from preframr.stfconstants import (
     MODE_VOL_REG,
     RESET_REG,
     VOICES,
-    VOICE_REG,
     VOICE_REG_SIZE,
 )
 

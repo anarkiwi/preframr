@@ -12,6 +12,7 @@ from preframr.stfconstants import (
     MODE_VOL_REG,
     MODEL_PDTYPE,
     PAL_CLOCK,
+    TOKEN_KEYS,
     VOICES,
     VOICE_REG,
     VOICE_REG_SIZE,
@@ -30,9 +31,6 @@ FRAME_DTYPES = {
     "diff": DIFF_PDTYPE,
     "irq": IRQ_PDTYPE,
 }
-
-
-TOKEN_KEYS = ["reg", "val", "diff"]
 
 
 def wrapbits(x, reglen):
