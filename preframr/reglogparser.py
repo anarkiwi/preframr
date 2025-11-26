@@ -18,7 +18,6 @@ from preframr.stfconstants import (
     VOICE_REG_SIZE,
 )
 
-MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 VAL_PDTYPE = pd.UInt32Dtype()
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
