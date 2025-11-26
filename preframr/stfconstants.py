@@ -1,3 +1,5 @@
+import pandas as pd
+
 CTRL_REG = -2
 DELAY_REG = -1
 FC_LO_REG = 21
@@ -6,6 +8,7 @@ FRAME_REG = -99
 IMPLIED_FRAME_REG = False
 MAX_REG = 24
 MODE_VOL_REG = 24
+MODEL_PDTYPE = pd.Int32Dtype()
 NOOP_REG = -4
 PAD_ID = -999
 RESET_REG = -3

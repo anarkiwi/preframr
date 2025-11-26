@@ -19,6 +19,7 @@ from preframr.stfconstants import (
     DELAY_REG,
     FILTER_REG,
     FRAME_REG,
+    MODEL_PDTYPE,
     UNICODE_BASE,
     VOICES,
     VOICE_REG,
@@ -26,7 +27,6 @@ from preframr.stfconstants import (
 )
 
 TOKEN_KEYS = ["reg", "val", "diff"]
-MODEL_PDTYPE = pd.Int32Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 VAL_PDTYPE = pd.UInt32Dtype()
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
