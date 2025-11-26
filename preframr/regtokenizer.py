@@ -82,6 +82,10 @@ class RegTokenizer:
         self.tokens = tokens
         self.tkmodel = None
 
+    def load(self, tkmodel):
+        if tkmodel:
+            self.tkmodel = Tokenizer.from_str(tkmodel)
+
     def encode_unicode(self, tokens, dtype=np.uint16):
         t = np.array(tokens, dtype=dtype)
         t = np.where(t == 0, np.nan, t)

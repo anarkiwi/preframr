@@ -3,7 +3,6 @@ import glob
 import os
 import random
 from tqdm import tqdm
-from tokenizers import Tokenizer
 import torch
 import pandas as pd
 import zstandard as zstd
@@ -63,10 +62,7 @@ class RegDataset(torch.utils.data.Dataset):
         return df_files, dfs
 
     def load(self, tokens=None, tkmodel=None):
-        self.tokenizer.tkmodel = tkmodel
-        if tkmodel:
-            self.tokenizer.tkmodel = Tokenizer.from_str(tkmodel)
-
+        self.tokenizer.load(tkmodel)
         if self.args.reglog:
             df_files, dfs = self.load_dfs(
                 [self.args.reglog],
