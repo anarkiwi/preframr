@@ -13,7 +13,8 @@ import torchmetrics
 
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
-from regdataset import RegDataset, state_df, get_prompt
+from regdataset import RegDataset
+from regtokenizer import state_df, get_prompt
 from sidwav import write_samples, sidq
 from preframr.stfconstants import MODEL_PDTYPE, PAD_ID
 
