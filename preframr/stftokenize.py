@@ -6,6 +6,7 @@ import io
 import multiprocessing
 import pandas as pd
 from tqdm import tqdm
+import numpy as np
 from preframr.args import add_args
 from preframr.regdataset import glob_dumps
 from preframr.regtokenizer import RegTokenizer
@@ -28,6 +29,17 @@ def merge_tokens(args, names, results):
     )
     for name in tqdm(names):
         df = pd.read_parquet(name)
+        try:
+            irq = df["irq"].iloc[0]
+        except KeyError:
+            continue
+        if irq < self.args.min_irq or irq > self.args.max_irq:
+            continue
+        if len(df) < self.args.seq_len:
+            continue
+        vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
+        if len(vol) >= 8:
+            continue
         df = tokenizer.merge_token_df(tokenizer.tokens, df)
         if df is not None:
             yield df
