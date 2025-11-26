@@ -48,7 +48,7 @@ class RegDataset(torch.utils.data.Dataset):
             for i, df in enumerate(
                 self.reg_log_parser.parse(dump_file, max_perm=max_perm)
             ):
-                if self.tokenizer.tokens:
+                if self.tokenizer.tokens is not None:
                     df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
                 irq = df["irq"].iloc[0]
                 self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
@@ -70,7 +70,7 @@ class RegDataset(torch.utils.data.Dataset):
                 [self.args.reglog],
                 max_perm=self.args.max_perm,
             )
-            if not self.tokenizer.tokens:
+            if self.tokenizer.tokens is None:
                 self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
                 dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         else:
