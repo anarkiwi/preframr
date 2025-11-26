@@ -353,7 +353,8 @@ class RegLogParser:
         df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _downsample_df(self, df, diffmax=512, max_perm=99):
+    def parse(self, df, diffmax=512, max_perm=99):
+        df = self._read_df(df)
         df = self._squeeze_changes(df)
         df = self._simplify_ctrl(df)
         for v in range(VOICES):

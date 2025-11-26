@@ -91,11 +91,7 @@ class RegDataset(torch.utils.data.Dataset):
     def load_df(self, name, df_dir, max_perm=99, min_space=0):
         dfs = []
         try:
-            for i, df in enumerate(
-                self.reg_log_parser._downsample_df(
-                    self.reg_log_parser._read_df(name), max_perm=max_perm
-                )
-            ):
+            for i, df in enumerate(self.reg_log_parser.parse(name, max_perm=max_perm)):
                 try:
                     irq = df["irq"].iloc[0]
                 except KeyError:
