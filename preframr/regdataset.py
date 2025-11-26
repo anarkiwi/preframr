@@ -84,7 +84,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
-        self.reg_log_parser = RegLogParser(args, logger)
+        self.reg_log_parser = RegLogParser(logger)
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None)
 

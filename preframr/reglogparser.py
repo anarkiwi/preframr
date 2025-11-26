@@ -43,8 +43,7 @@ FILTER_SHIFT_DF = pd.DataFrame(
 
 
 class RegLogParser:
-    def __init__(self, args, logger=logging):
-        self.args = args
+    def __init__(self, logger=logging):
         self.logger = logger
 
     def _ctrl_match(self, df):
