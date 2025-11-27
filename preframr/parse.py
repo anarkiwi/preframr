@@ -10,7 +10,9 @@ from preframr.regdataset import glob_dumps
 from preframr.reglogparser import RegLogParser
 
 
-def write_df(log_parser, name):
+def write_df(args, name):
+    logger = get_logger("INFO")
+    log_parser = RegLogParser(args, logger)
     base_name = name.replace(".dump.zst", "")
     for i, df in enumerate(log_parser.parse(name, max_perm=99)):
         pq_name = base_name + f".{i}.parquet"
@@ -20,14 +22,14 @@ def write_df(log_parser, name):
 def main():
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
-    logger = get_logger("INFO")
-    log_parser = RegLogParser(logger)
-
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=multiprocessing.cpu_count()
     ) as executor:
-        for name in tqdm(glob_dumps(args.reglogs, args.max_files, args.min_dump_size)):
-            executor.submit(write_df, log_parser, name)
+        futures = []
+        for name in glob_dumps(args.reglogs, args.max_files, args.min_dump_size):
+            futures.append(executor.submit(write_df, args, name))
+        for future in tqdm(concurrent.futures.as_completed(futures)):
+            assert not future.exception(), future.exception()
 
 
 if __name__ == "__main__":
