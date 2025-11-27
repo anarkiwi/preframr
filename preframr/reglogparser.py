@@ -286,12 +286,14 @@ class RegLogParser:
 
         df = norm_df.copy()
         df = df.sort_values(["f", "v", "reg", "n"])
-        df["m"] = df[self._freq_match(df)]["val"]
-        df["m"] = df["m"].ffill()
-        df.loc[~df["v"].isin(set(range(VOICES))), "m"] = pd.NA
-        df.loc[df["reg"] < 0, "m"] = df[df["reg"] < 0]["reg"]
 
-        df = df.sort_values(["f", "m", "v", "reg", "n"])
+        for ordreg, match in (("m", self._freq_match), ("c", self._ctrl_match)):
+            df[ordreg] = df[match(df)]["val"]
+            df[ordreg] = df[ordreg].ffill()
+            df.loc[~df["v"].isin(set(range(VOICES))), ordreg] = pd.NA
+            df.loc[df["reg"] < 0, ordreg] = df[df["reg"] < 0]["reg"]
+
+        df = df.sort_values(["f", "c", "m", "v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
