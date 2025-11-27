@@ -42,10 +42,9 @@ class RegDataset(torch.utils.data.Dataset):
 
     def load_dfs(self, reglogs, max_perm=99, shuffle=0):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
-        results = []
-        unsorted_dump_files = dump_files
-        random.shuffle(unsorted_dump_files)
-        for dump_file in unsorted_dump_files:
+        df_files = []
+        dfs = []
+        for dump_file in dump_files:
             for i, df in enumerate(
                 self.reg_log_parser.parse(dump_file, max_perm=max_perm)
             ):
@@ -53,15 +52,8 @@ class RegDataset(torch.utils.data.Dataset):
                     df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
                 irq = df["irq"].iloc[0]
                 self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
-                results.append((dump_file, df))
-        if shuffle is not None:
-            random.seed(shuffle)
-            random.shuffle(results)
-            random.seed()
-        else:
-            results = sorted(results, key=lambda x: x[0])
-        df_files = [result[0] for result in results]
-        dfs = [result[1] for result in results]
+                df_files.append(dump_file)
+                dfs.append(df)
         return df_files, dfs
 
     def make_tokens(self, reglogs):
@@ -122,6 +114,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger.info(
             f"n_encoded_words {self.n_words}, {len(dfs)} sequences",
         )
+        self.seq_mapper.shuffle()
         if not self.args.reglog:
             if self.args.df_map_csv:
                 self.logger.info(f"writing {self.args.df_map_csv}")
@@ -142,7 +135,8 @@ class RegDataset(torch.utils.data.Dataset):
         return self.seq_mapper[index]
 
     def getseq(self, i):
-        return torch.from_numpy(self.seq_mapper.seqs[i]), self.seq_mapper.seq_metas[i]
+        seq, seq_meta = self.seq_mapper.seqs[i]
+        return torch.from_numpy(seq), seq_meta
 
 
 def get_loader(args, dataset):

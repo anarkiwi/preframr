@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import random
 import numpy as np
 import torch
 
@@ -21,14 +22,22 @@ class SeqMapper:
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray)
         assert seq.dtype == np.int64
-        self.seqs.append(seq)
-        self.seq_metas.append(seq_meta)
+        self.seqs.append((seq, seq_meta))
+        self._rebuild_map()
+
+    def _rebuild_map(self):
         self.len = 0
         seq_map = []
-        for s in self.seqs:
+        for seq, _seq_meta in self.seqs:
             seq_map.append(self.len)
-            self.len += len(s) - self.seq_len
+            self.len += len(seq) - self.seq_len
         self.seq_map = np.array(seq_map, dtype=np.uint64)
+
+    def shuffle(self, seed=0):
+        random.seed(seed)
+        random.shuffle(self.seqs)
+        random.seed()
+        self._rebuild_map()
 
     def __len__(self):
         return self.len
@@ -43,6 +52,6 @@ class SeqMapper:
         seq_i = np.clip(
             np.searchsorted(self.seq_map, index, side="right") - 1, a_min=0, a_max=None
         )
-        seq = self.seqs[seq_i]
+        seq = self.seqs[seq_i][0]
         seq_index = index - self.seq_map[seq_i]
         return (self.slice_n(seq, seq_index), self.slice_n(seq, seq_index + 1))
