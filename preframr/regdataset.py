@@ -92,7 +92,7 @@ class RegDataset(torch.utils.data.Dataset):
         if self.args.dataset_csv:
             self.logger.info(f"writing {self.args.dataset_csv}")
             with zstd.open(self.args.dataset_csv, "w") as f:
-                for i in tqdm(range(len(df_file)), ascii=True):
+                for i in tqdm(range(len(df_files)), ascii=True):
                     dfs[i]["i"] = int(i)
                     dfs[i].to_csv(f, index=False, header=(i == 0))
 
