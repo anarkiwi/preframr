@@ -86,6 +86,15 @@ class RegDataset(torch.utils.data.Dataset):
             self.tokenizer.tokens.to_csv(self.args.token_csv)
         if self.args.tkvocab:
             self.tokenizer.train_tokenizer(dfs)
+        if self.args.df_map_csv:
+            self.logger.info(f"writing {self.args.df_map_csv}")
+            pd.DataFrame(df_files, columns=["dump_file"]).to_csv(self.args.df_map_csv)
+        if self.args.dataset_csv:
+            self.logger.info(f"writing {self.args.dataset_csv}")
+            with zstd.open(self.args.dataset_csv, "w") as f:
+                for i in tqdm(range(len(df_file)), ascii=True):
+                    dfs[i]["i"] = int(i)
+                    dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def load(self):
         assert self.tokenizer.tokens is not None
@@ -117,18 +126,6 @@ class RegDataset(torch.utils.data.Dataset):
             f"n_encoded_words {self.n_words}, {len(dfs)} sequences",
         )
         self.seq_mapper.shuffle()
-        if not self.args.reglog:
-            if self.args.df_map_csv:
-                self.logger.info(f"writing {self.args.df_map_csv}")
-                pd.DataFrame(df_files, columns=["dump_file"]).to_csv(
-                    self.args.df_map_csv
-                )
-            if self.args.dataset_csv:
-                self.logger.info(f"writing {self.args.dataset_csv}")
-                with zstd.open(self.args.dataset_csv, "w") as f:
-                    for i in tqdm(range(len(df_file)), ascii=True):
-                        dfs[i]["i"] = int(i)
-                        dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def __len__(self):
         return len(self.seq_mapper)
