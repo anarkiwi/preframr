@@ -3,6 +3,7 @@ import glob
 import os
 import random
 from tqdm import tqdm
+import numpy as np
 import torch
 import pandas as pd
 import zstandard as zstd
@@ -44,25 +45,36 @@ class RegDataset(torch.utils.data.Dataset):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
         df_files = []
         dfs = []
+        seqs = []
         for dump_file in dump_files:
             for i, df in enumerate(
                 self.reg_log_parser.parse(dump_file, max_perm=max_perm)
             ):
+                seq = None
                 if self.tokenizer.tokens is not None:
                     df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
+                    seq = self.tokenizer.encode(df["n"]).astype(np.int64)
+                    if len(seq) < self.args.seq_len:
+                        self.logger.info(
+                            "rejecting sequence from %s too short %u",
+                            dump_file,
+                            len(seq),
+                        )
+                        continue
                 irq = df["irq"].iloc[0]
                 self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
                 df_files.append(dump_file)
                 dfs.append(df)
-        return df_files, dfs
+                seqs.append(seq)
+        return df_files, dfs, seqs
 
     def make_tokens(self, reglogs):
-        df_files, dfs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
+        df_files, dfs, _seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
         self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
         dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
-        return df_files, dfs
+        return df_files, dfs, _seqs
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None and tkmodel is not None:
@@ -78,12 +90,12 @@ class RegDataset(torch.utils.data.Dataset):
     def load(self):
         assert self.tokenizer.tokens is not None
         if self.args.reglog:
-            df_files, dfs = self.load_dfs(
+            df_files, dfs, seqs = self.load_dfs(
                 self.args.reglog,
                 max_perm=self.args.max_perm,
             )
         else:
-            df_files, dfs = self.load_dfs(
+            df_files, dfs, seqs = self.load_dfs(
                 self.args.reglogs, max_perm=self.args.max_perm
             )
         self.logger.info("getting reg widths")
@@ -97,20 +109,10 @@ class RegDataset(torch.utils.data.Dataset):
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
         self.logger.info("mapping sequences")
-        final_dfs = []
-        final_df_files = []
-        for df_file, df in tqdm(zip(df_files, dfs), ascii=True):
-            seq = self.tokenizer.validate_encoding(df_file, df["n"].to_numpy())
+        for df_file, df, seq in tqdm(zip(df_files, dfs, seqs), ascii=True):
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
-            try:
-                self.seq_mapper.add(seq, seq_meta)
-                self.n_words += len(seq)
-                final_df_files.append(df_file)
-                final_dfs.append(df)
-            except ValueError:
-                self.logger.info(
-                    "rejecting sequence from %s too short %u", df_file, len(seq)
-                )
+            self.seq_mapper.add(seq, seq_meta)
+            self.n_words += len(seq)
         self.logger.info(
             f"n_encoded_words {self.n_words}, {len(dfs)} sequences",
         )
@@ -118,15 +120,15 @@ class RegDataset(torch.utils.data.Dataset):
         if not self.args.reglog:
             if self.args.df_map_csv:
                 self.logger.info(f"writing {self.args.df_map_csv}")
-                pd.DataFrame(final_df_files, columns=["dump_file"]).to_csv(
+                pd.DataFrame(df_files, columns=["dump_file"]).to_csv(
                     self.args.df_map_csv
                 )
             if self.args.dataset_csv:
                 self.logger.info(f"writing {self.args.dataset_csv}")
                 with zstd.open(self.args.dataset_csv, "w") as f:
-                    for i in tqdm(range(len(final_dfs)), ascii=True):
-                        final_dfs[i]["i"] = int(i)
-                        final_dfs[i].to_csv(f, index=False, header=(i == 0))
+                    for i in tqdm(range(len(df_file)), ascii=True):
+                        dfs[i]["i"] = int(i)
+                        dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def __len__(self):
         return len(self.seq_mapper)
