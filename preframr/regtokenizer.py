@@ -258,20 +258,20 @@ class RegTokenizer:
             return tk, trainer
         raise ValueError
 
+    def get_reg_max(self, df, reg_max):
+        for reg in df["reg"].unique():
+            val_max = df[df["reg"] == reg]["val"].max()
+            reg_max[reg] = max(val_max, reg_max.get(reg, 0))
+        return reg_max
+
     def get_reg_widths(self, dfs):
-        reg_widths = {}
-        unique_regs = set()
+        reg_max = {}
         for df in tqdm(dfs, ascii=True):
-            unique_regs.update(list(df["reg"].unique()))
-        for reg in unique_regs:
-            reg_max = 0
-            for df in dfs:
-                reg_df = df[df["reg"] == reg]
-                if reg_df.empty:
-                    continue
-                reg_max = max(reg_df["val"].max(), reg_max)
+            reg_max = self.get_reg_max(df, reg_max)
+        reg_widths = {}
+        for reg, val in reg_max.items():
             for width in range(1, 8):
-                if reg_max < 2 ** (8 * width):
+                if val < 2 ** (8 * width):
                     reg_widths[int(reg)] = width
                     break
             assert reg_widths[int(reg)]
