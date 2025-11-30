@@ -43,9 +43,6 @@ class RegDataset(torch.utils.data.Dataset):
 
     def load_dfs(self, reglogs, max_perm=99, shuffle=0):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
-        df_files = []
-        dfs = []
-        seqs = []
         for dump_file in dump_files:
             for i, df in enumerate(
                 self.reg_log_parser.parse(dump_file, max_perm=max_perm)
@@ -63,14 +60,14 @@ class RegDataset(torch.utils.data.Dataset):
                         continue
                 irq = df["irq"].iloc[0]
                 self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
-                df_files.append(dump_file)
-                dfs.append(df)
-                seqs.append(seq)
-
-        return df_files, dfs, seqs
+                yield dump_file, df, seq
 
     def make_tokens(self, reglogs):
-        df_files, dfs, _seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
+        df_files = []
+        dfs = []
+        for df_file, df, _seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
+            df_files.append(df_file)
+            dfs.append(df)
         self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
         dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
@@ -102,7 +99,6 @@ class RegDataset(torch.utils.data.Dataset):
         reglogs = self.args.reglogs
         if self.args.reglog:
             reglogs = self.args.reglog
-        df_files, dfs, seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
         self.n_vocab = len(self.tokenizer.tokens["n"])
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
@@ -110,7 +106,7 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for df_file, df, seq in tqdm(zip(df_files, dfs, seqs), ascii=True):
+        for df_file, df, seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
             reg_max = self.tokenizer.get_reg_max(df, reg_max)
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             self.seq_mapper.add(seq, seq_meta)
