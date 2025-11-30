@@ -67,13 +67,10 @@ class RegDataset(torch.utils.data.Dataset):
                 dfs.append(df)
                 seqs.append(seq)
 
-        reg_widths = self.tokenizer.get_reg_widths(dfs)
-        return df_files, dfs, seqs, reg_widths
+        return df_files, dfs, seqs
 
     def make_tokens(self, reglogs):
-        df_files, dfs, _seqs, _reg_widths = self.load_dfs(
-            reglogs, max_perm=self.args.max_perm
-        )
+        df_files, dfs, _seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
         self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
         dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
@@ -105,22 +102,22 @@ class RegDataset(torch.utils.data.Dataset):
         reglogs = self.args.reglogs
         if self.args.reglog:
             reglogs = self.args.reglog
-        df_files, dfs, seqs, self.reg_widths = self.load_dfs(
-            reglogs, max_perm=self.args.max_perm
-        )
+        df_files, dfs, seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
         self.n_vocab = len(self.tokenizer.tokens["n"])
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
         n_seq = 0
         n_words = 0
-        self.logger.info("mapping sequences")
+        reg_max = {}
         for df_file, df, seq in tqdm(zip(df_files, dfs, seqs), ascii=True):
+            reg_max = self.tokenizer.get_reg_max(df, reg_max)
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             self.seq_mapper.add(seq, seq_meta)
             self.n_words += len(seq)
             n_words += len(df)
             n_seq += 1
+        self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {n_words}, n_encoded_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}, {n_seq} sequences"
         )

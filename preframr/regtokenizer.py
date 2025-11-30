@@ -264,10 +264,7 @@ class RegTokenizer:
             reg_max[reg] = max(val_max, reg_max.get(reg, 0))
         return reg_max
 
-    def get_reg_widths(self, dfs):
-        reg_max = {}
-        for df in tqdm(dfs, ascii=True):
-            reg_max = self.get_reg_max(df, reg_max)
+    def get_reg_width_from_max(self, reg_max):
         reg_widths = {}
         for reg, val in reg_max.items():
             for width in range(1, 8):
@@ -276,3 +273,9 @@ class RegTokenizer:
                     break
             assert reg_widths[int(reg)]
         return reg_widths
+
+    def get_reg_widths(self, dfs):
+        reg_max = {}
+        for df in tqdm(dfs, ascii=True):
+            reg_max = self.get_reg_max(df, reg_max)
+        return self.get_reg_width_from_max(reg_max)
