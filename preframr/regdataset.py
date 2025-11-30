@@ -66,15 +66,20 @@ class RegDataset(torch.utils.data.Dataset):
                 df_files.append(dump_file)
                 dfs.append(df)
                 seqs.append(seq)
-        return df_files, dfs, seqs
+
+        reg_widths = self.tokenizer.get_reg_widths(dfs)
+        n_words = sum((len(df) for df in dfs))
+        return df_files, dfs, seqs, n_words, reg_widths
 
     def make_tokens(self, reglogs):
-        df_files, dfs, _seqs = self.load_dfs(reglogs, max_perm=self.args.max_perm)
+        df_files, dfs, _seqs, _n_words, _reg_widths = self.load_dfs(
+            reglogs, max_perm=self.args.max_perm
+        )
         self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
         dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
-        return df_files, dfs, _seqs
+        return df_files, dfs
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None and tkmodel is not None:
@@ -98,32 +103,28 @@ class RegDataset(torch.utils.data.Dataset):
 
     def load(self):
         assert self.tokenizer.tokens is not None
+        reglogs = self.args.reglogs
         if self.args.reglog:
-            df_files, dfs, seqs = self.load_dfs(
-                self.args.reglog,
-                max_perm=self.args.max_perm,
-            )
-        else:
-            df_files, dfs, seqs = self.load_dfs(
-                self.args.reglogs, max_perm=self.args.max_perm
-            )
-        self.logger.info("getting reg widths")
-        self.reg_widths = self.tokenizer.get_reg_widths(dfs)
+            reglogs = self.args.reglog
+        df_files, dfs, seqs, n_words, self.reg_widths = self.load_dfs(
+            reglogs, max_perm=self.args.max_perm
+        )
         self.n_vocab = len(self.tokenizer.tokens["n"])
-        self.n_words = sum((len(df) for df in dfs))
         self.logger.info(
-            f"n_vocab: {self.n_vocab}, n_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}"
+            f"n_vocab: {self.n_vocab}, n_words {n_words}, reg widths {sorted(self.reg_widths.items())}"
         )
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
         self.n_words = 0
+        n_seq = 0
         self.logger.info("mapping sequences")
         for df_file, df, seq in tqdm(zip(df_files, dfs, seqs), ascii=True):
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             self.seq_mapper.add(seq, seq_meta)
             self.n_words += len(seq)
+            n_seq += 1
         self.logger.info(
-            f"n_encoded_words {self.n_words}, {len(dfs)} sequences",
+            f"n_encoded_words {self.n_words}, {n_seq} sequences",
         )
         self.seq_mapper.shuffle()
 
