@@ -122,7 +122,9 @@ def get_ckpt(ckpt, tb_logs):
 def load_model(args, logger):
     ckpt = get_ckpt(args.model_state, args.tb_logs)
     logger.info("loading %s", ckpt)
-    model = Model.load_from_checkpoint(ckpt)  # pylint: disable=no-value-for-parameter
+    # pylint: disable=no-value-for-parameter
+    with torch.serialization.safe_globals([argparse.Namespace]):
+        model = Model.load_from_checkpoint(ckpt, weights_only=False)
     dataset = RegDataset(args, logger=logger)
     dataset.preload(tokens=model.tokens, tkmodel=model.tkmodel)
     dataset.load()
