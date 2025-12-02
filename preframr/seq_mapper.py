@@ -20,7 +20,7 @@ class SeqMapper:
     def add(self, seq, seq_meta):
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
-        assert isinstance(seq, np.ndarray)
+        assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int64
         self.seqs.append((seq, seq_meta))
         self._rebuild_map()

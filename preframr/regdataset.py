@@ -50,7 +50,7 @@ class RegDataset(torch.utils.data.Dataset):
                 seq = None
                 if self.tokenizer.tokens is not None:
                     df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
-                    seq = self.tokenizer.encode(df["n"]).astype(np.int64)
+                    seq = self.tokenizer.encode(df["n"].astype(np.int64).to_numpy())
                     if len(seq) < self.args.seq_len:
                         self.logger.info(
                             "rejecting sequence from %s too short %u",
