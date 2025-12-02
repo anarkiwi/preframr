@@ -75,7 +75,7 @@ class RegDataset(torch.utils.data.Dataset):
         return df_files, dfs
 
     def preload(self, tokens=None, tkmodel=None):
-        if tokens is not None and tkmodel is not None:
+        if tokens is not None:
             self.tokenizer.load(tkmodel, tokens)
             return
         df_files, dfs = self.make_tokens(self.args.reglogs)
