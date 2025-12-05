@@ -135,14 +135,13 @@ class RegTokenizer:
         tokens = [self._filter_tokens(df) for df in dfs]
         tokens = pd.concat(tokens, copy=False)
         tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
-        tokens.loc[tokens["reg"] == FRAME_REG, ["val", "diff"]] = 0
+        tokens.loc[tokens["reg"] == FRAME_REG, ["diff"]] = 0
         tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype(
             {"val": VAL_PDTYPE, "diff": DIFF_PDTYPE, "n": TOKEN_PDTYPE}
         )
-        assert len(tokens[tokens["reg"] == FRAME_REG]) <= 1
         return tokens
 
     def _merged_and_missing(self, tokens, df):
