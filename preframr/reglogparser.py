@@ -178,9 +178,9 @@ class RegLogParser:
         irq_df["diff"] = irq_df["irqdiff"]
         irq_df["val"] = (irq_df["diff"] / irq).astype(MODEL_PDTYPE)
         irq_df.loc[irq_df["val"] > 1, "reg"] = DELAY_REG
-        irq_df.loc[irq_df["reg"] == DELAY_REG, "diff"] = 0
         irq_df.loc[irq_df["reg"] == FRAME_REG, "val"] = 0
         irq_df["diff"] = irq
+        irq_df.loc[irq_df["reg"] == DELAY_REG, "diff"] = 0
         df = (
             pd.concat([df, irq_df], copy=False)
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
