@@ -58,8 +58,8 @@ def remove_voice_reg(orig_df, reg_widths):
     if voice_regs:
         df = orig_df.copy()
         df["vr"] = pd.NA
-        df.loc[df["reg"] == VOICE_REG, "vr"] = df["val"]
-        df.loc[df["reg"].isin({FRAME_REG, DELAY_REG}), "vr"] = 0
+        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"]
+        df.loc[df["reg"] == DELAY_REG, "vr"] = 0
         df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
         df = df[df["reg"] != VOICE_REG]
         df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE

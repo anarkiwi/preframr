@@ -308,7 +308,11 @@ class RegLogParser:
         df["val"] = df["v"]
         df["reg"] = VOICE_REG
 
-        df = pd.concat([norm_df, df]).sort_values(["n"])
+        df = pd.concat([norm_df, df]).sort_values(["n"]).reset_index(drop=True)
+        df["nr"] = df["reg"].shift()
+        df["nval"] = df["val"].shift()
+        df.loc[((df["reg"] == FRAME_REG) & (df["nr"] == VOICE_REG)), "val"] = df["nval"]
+        df = df[~((df["reg"] == VOICE_REG) & (df["reg"].shift(-1) == FRAME_REG))]
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
