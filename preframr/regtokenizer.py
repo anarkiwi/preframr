@@ -188,7 +188,7 @@ class RegTokenizer:
                 df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
             df = df[orig_cols].astype(orig_dtypes)
             df, missing_tokens = self._merged_and_missing(tokens, df)
-            assert missing_tokens.empty
+            assert missing_tokens.empty, missing_tokens
             return df
         return df
 
