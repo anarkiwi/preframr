@@ -421,7 +421,7 @@ class RegLogParser:
                 or (xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15)
             ):
                 xdf = xdf.tail(len(xdf) - 1)
-            if xdf.empty():
+            if xdf.empty:
                 continue
             # xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
