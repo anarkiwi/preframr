@@ -16,6 +16,7 @@ class SeqMapper:
         self.seqs = []
         self.seq_metas = []
         self.len = 0
+        self.finalized = False
 
     def add(self, seq, seq_meta):
         if len(seq) <= self.seq_len:
@@ -23,7 +24,11 @@ class SeqMapper:
         assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int64
         self.seqs.append((seq, seq_meta))
+        self.finalized = False
+
+    def finalize(self):
         self._rebuild_map()
+        self.finalized = True
 
     def _rebuild_map(self):
         self.len = 0
@@ -48,6 +53,9 @@ class SeqMapper:
     def __getitem__(self, index):
         if index >= len(self):
             raise IndexError
+
+        if not self.finalized:
+            raise ValueError
 
         seq_i = np.clip(
             np.searchsorted(self.seq_map, index, side="right") - 1, a_min=0, a_max=None

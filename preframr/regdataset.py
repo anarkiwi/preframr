@@ -113,6 +113,7 @@ class RegDataset(torch.utils.data.Dataset):
             self.n_words += len(seq)
             n_words += len(df)
             n_seq += 1
+        self.seq_mapper.finalize()
         self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {n_words}, n_encoded_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}, {n_seq} sequences"
