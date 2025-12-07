@@ -11,6 +11,14 @@ import zstandard as zstd
 from preframr.reglogparser import RegLogParser
 from preframr.regtokenizer import RegTokenizer
 from preframr.seq_mapper import SeqMapper, SeqMeta
+from preframr.stfconstants import (
+    DELAY_REG,
+    FRAME_REG,
+    MIN_DIFF,
+    VOICES,
+    VOICE_REG,
+    VOICE_REG_SIZE,
+)
 
 
 def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
@@ -35,6 +43,61 @@ def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
     dfs = list(reg_log_parser.parse(dump_file, max_perm))
     return dump_file, dfs
+
+
+def state_df(states, dataset, irq):
+    tokens = dataset.tokenizer.tokens.copy()
+    tokens.loc[tokens["reg"] >= 0, "diff"] = MIN_DIFF
+    tokens.loc[tokens["reg"] < 0, "diff"] = 0
+    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
+    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
+    return df
+
+
+def get_prompt(args, dataset, logger):
+    seq, seq_meta = dataset.getseq(args.start_seq)
+    if args.start_n is None:
+        start = random.randint(0, len(seq))
+    else:
+        start = args.start_n
+    logger.info("starting at %u / %u, irq %u", start, len(seq), seq_meta.irq)
+    n = args.max_seq_len - args.prompt_seq_len
+    if n <= 0:
+        raise ValueError("max seq length too short")
+    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
+    prompt_compare = seq[start:][: args.max_seq_len]
+    preamble_df, _reg_widths = remove_voice_reg(
+        state_df(dataset.tokenizer.decode(seq[:start].numpy()), dataset, seq_meta.irq),
+        dataset.reg_widths,
+    )
+    reg_start = {
+        r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
+        for r in preamble_df["reg"].unique()
+        if r >= 0
+    }
+    return seq_meta.irq, n, prompt, prompt_compare, reg_start
+
+
+def remove_voice_reg(orig_df, reg_widths):
+    voice_regs = len(orig_df[orig_df["reg"] == VOICE_REG])
+    if voice_regs:
+        df = orig_df.copy()
+        df["vr"] = pd.NA
+        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"]
+        df.loc[df["reg"] == DELAY_REG, "vr"] = 0
+        df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
+        df = df[df["reg"] != VOICE_REG]
+        df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
+        df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
+        df["reg"] += df["vr"]
+        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            for i in range(VOICE_REG_SIZE):
+                if i in reg_widths:
+                    reg_widths[v_offset + i] = reg_widths[i]
+        return df, reg_widths
+    return orig_df, reg_widths
 
 
 class RegDataset(torch.utils.data.Dataset):
@@ -124,7 +187,7 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for df_file, df, seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
+        for _df_file, df, seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
             reg_max = self.tokenizer.get_reg_max(df, reg_max)
             seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
             self.seq_mapper.add(seq, seq_meta)

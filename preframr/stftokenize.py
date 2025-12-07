@@ -6,7 +6,6 @@ import io
 import multiprocessing
 import pandas as pd
 from tqdm import tqdm
-import numpy as np
 from preframr.args import add_args
 from preframr.regdataset import glob_dumps
 from preframr.regtokenizer import RegTokenizer
