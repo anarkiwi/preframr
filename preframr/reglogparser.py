@@ -426,5 +426,6 @@ class RegLogParser:
             # xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
-            if self._filter(xdf, name):
-                yield xdf
+            if not self._filter(xdf, name):
+                break
+            yield xdf
