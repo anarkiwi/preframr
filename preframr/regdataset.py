@@ -52,13 +52,12 @@ class RegDataset(torch.utils.data.Dataset):
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=int(os.cpu_count() / 2)
         ) as executor:
-            futures = []
-            for dump_file in dump_files:
-                futures.append(
-                    executor.submit(
-                        parser_worker, self.args, self.logger, dump_file, max_perm
-                    )
+            futures = [
+                executor.submit(
+                    parser_worker, self.args, self.logger, dump_file, max_perm
                 )
+                for dump_file in dump_files
+            ]
             for future in concurrent.futures.as_completed(futures):
                 dump_file, dfs = future.result()
                 for i, df in enumerate(dfs):
