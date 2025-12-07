@@ -23,6 +23,7 @@ class RegTokenizer:
         self.logger = logger
         self.tokens = tokens
         self.tkmodel = None
+        self.frame_tokens = []
 
     def load(self, tkmodel, tokens):
         self.tokens = tokens
@@ -69,13 +70,14 @@ class RegTokenizer:
             self.args.tkvocab,
         )
 
-    def _filter_tokens(self, df):
-        return df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
+    def accumulate_tokens(self, df):
+        self.frame_tokens.append(
+            df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
+        )
 
-    def _make_tokens(self, dfs):
+    def make_tokens(self):
         self.logger.info("making tokens")
-        tokens = [self._filter_tokens(df) for df in dfs]
-        tokens = pd.concat(tokens, copy=False)
+        tokens = pd.concat(self.frame_tokens, copy=False)
         tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])

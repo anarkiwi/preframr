@@ -145,9 +145,10 @@ class RegDataset(torch.utils.data.Dataset):
         df_files = []
         dfs = []
         for df_file, df, _seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
+            self.tokenizer.accumulate_tokens(df)
             df_files.append(df_file)
             dfs.append(df)
-        self.tokenizer.tokens = self.tokenizer._make_tokens(dfs)
+        self.tokenizer.tokens = self.tokenizer.make_tokens()
         dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty

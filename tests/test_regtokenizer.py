@@ -70,7 +70,8 @@ class TestRegTokenizer(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._make_tokens([test_df]).astype(MODEL_PDTYPE)
+        loader.accumulate_tokens(test_df)
+        result_df = loader.make_tokens().astype(MODEL_PDTYPE)
         self.assertTrue(tokens_df.equals(result_df), result_df)
 
     def test_get_reg_widths(self):

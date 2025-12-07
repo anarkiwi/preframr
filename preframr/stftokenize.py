@@ -14,8 +14,8 @@ from preframr.regtokenizer import RegTokenizer
 def get_tokens(name):
     tokenizer = RegTokenizer(args=None, tokens=None)
     df = pd.read_parquet(name)
-    token_df = tokenizer._filter_tokens(df)
-    return token_df.to_parquet()
+    tokenizer.accumulate_tokens(df)
+    return tokenizer.frame_tokens[0].to_parquet()
 
 
 def merge_tokens(args, names, tokenizer):
@@ -39,14 +39,11 @@ def main():
             results.append(executor.submit(get_tokens, name))
 
     tokenizer = RegTokenizer(args=args, tokens=None)
-    tokenizer.tokens = tokenizer._make_tokens(
-        [
-            pd.read_parquet(io.BytesIO(result.result()))
-            for result in tqdm(concurrent.futures.as_completed(results))
-        ]
-    )
+    for result in tqdm(concurrent.futures.as_completed(results)):
+        tokenizer.accumulate_tokens(pd.read_parquet(io.BytesIO(result.result())))
+    tokenizer.tokens = tokenizer.make_tokens()
     if args.token_csv:
-        tokenizer.tokens.to_csv(args.token_csv)
+        tokenizer.tokens.to_csv(args.token_csv, index=False)
     tokenizer.train_tokenizer(merge_tokens(args, names, tokenizer))
     tokenizer.tkmodel.save(args.tkmodel)
 
