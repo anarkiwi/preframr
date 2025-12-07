@@ -8,6 +8,7 @@ import pandas as pd
 from preframr.stfconstants import (
     DELAY_REG,
     FRAME_REG,
+    MIN_DIFF,
     UNICODE_BASE,
     VOICES,
     VOICE_REG,
@@ -24,6 +25,8 @@ END_OF_WORD_SUFFIX = "</w>"
 
 def state_df(states, dataset, irq):
     tokens = dataset.tokenizer.tokens.copy()
+    tokens.loc[tokens["reg"] >= 0, "diff"] = MIN_DIFF
+    tokens.loc[tokens["reg"] < 0, "diff"] = 0
     tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
     df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
     return df
@@ -135,13 +138,9 @@ class RegTokenizer:
         tokens = [self._filter_tokens(df) for df in dfs]
         tokens = pd.concat(tokens, copy=False)
         tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
-        tokens.loc[tokens["reg"].isin({FRAME_REG, DELAY_REG}), ["diff"]] = 0
-        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
-        tokens = tokens.astype(
-            {"val": VAL_PDTYPE, "diff": DIFF_PDTYPE, "n": TOKEN_PDTYPE}
-        )
+        tokens = tokens.astype({"val": VAL_PDTYPE, "n": TOKEN_PDTYPE})
         return tokens
 
     def _merged_and_missing(self, tokens, df):

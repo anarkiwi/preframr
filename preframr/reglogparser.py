@@ -9,6 +9,7 @@ from preframr.stfconstants import (
     FILTER_REG,
     FRAME_REG,
     MAX_REG,
+    MIN_DIFF,
     MIDI_N_TO_F,
     MODE_VOL_REG,
     MODEL_PDTYPE,
@@ -22,7 +23,6 @@ from preframr.stfconstants import (
 
 REG_PDTYPE = pd.Int8Dtype()
 IRQ_PDTYPE = pd.UInt16Dtype()
-MIN_DIFF = 32
 FRAME_DTYPES = {
     "reg": REG_PDTYPE,
     "val": VAL_PDTYPE,
