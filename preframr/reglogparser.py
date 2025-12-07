@@ -414,12 +414,15 @@ class RegLogParser:
             xdf = self._norm_pr_order(a_xdf)
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            while self._frame_reg(xdf.iloc[-1]):
+            while not xdf.empty() and self._frame_reg(xdf.iloc[-1]):
                 xdf = xdf.head(len(xdf) - 1)
-            while self._frame_reg(xdf.iloc[0]) or (
-                xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15
+            while not xdf.empty() and (
+                self._frame_reg(xdf.iloc[0])
+                or (xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15)
             ):
                 xdf = xdf.tail(len(xdf) - 1)
+            if xdf.empty():
+                continue
             # xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
