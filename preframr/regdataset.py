@@ -64,7 +64,7 @@ def get_prompt(args, dataset, logger):
     n = args.max_seq_len - args.prompt_seq_len
     if n <= 0:
         raise ValueError("max seq length too short")
-    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0)
+    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0).long()
     prompt_compare = seq[start:][: args.max_seq_len]
     preamble_df, _reg_widths = remove_voice_reg(
         state_df(dataset.tokenizer.decode(seq[:start].numpy()), dataset, seq_meta.irq),
@@ -128,8 +128,8 @@ class RegDataset(torch.utils.data.Dataset):
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
                         seq = self.tokenizer.encode(
-                            df["n"].astype(np.int64).to_numpy()
-                        ).astype(np.int64)
+                            df["n"].astype(np.int16).to_numpy()
+                        ).astype(np.int16)
                         if len(seq) < self.args.seq_len:
                             self.logger.info(
                                 "rejecting sequence from %s too short %u",

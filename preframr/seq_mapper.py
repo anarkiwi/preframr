@@ -22,7 +22,7 @@ class SeqMapper:
         if len(seq) <= self.seq_len:
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray), type(seq)
-        assert seq.dtype == np.int64
+        assert seq.dtype == np.int16
         self.seqs.append((seq, seq_meta))
         self.finalized = False
 
@@ -48,7 +48,7 @@ class SeqMapper:
         return self.len
 
     def slice_n(self, seq, n):
-        return torch.from_numpy(seq[int(n) : int(n) + self.seq_len])
+        return torch.from_numpy(seq[int(n) : int(n) + self.seq_len]).long()
 
     def __getitem__(self, index):
         if index >= len(self):
