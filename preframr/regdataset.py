@@ -110,7 +110,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None)
 
-    def load_dfs(self, reglogs, max_perm=99):
+    def load_dfs(self, reglogs, max_perm=99, encode=True):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=int(os.cpu_count() / 2)
@@ -127,54 +127,64 @@ class RegDataset(torch.utils.data.Dataset):
                     seq = None
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
-                        seq = self.tokenizer.encode(
-                            df["n"].astype(np.int16).to_numpy()
-                        ).astype(np.int16)
-                        if len(seq) < self.args.seq_len:
-                            self.logger.info(
-                                "rejecting sequence from %s too short %u",
-                                dump_file,
-                                len(seq),
-                            )
-                            break
+                        if encode:
+                            seq = self.tokenizer.encode(
+                                df["n"].astype(np.int16).to_numpy()
+                            ).astype(np.int16)
+                            if len(seq) < self.args.seq_len:
+                                self.logger.info(
+                                    "rejecting sequence from %s too short %u",
+                                    dump_file,
+                                    len(seq),
+                                )
+                                break
                     irq = df["irq"].iloc[0]
                     self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
                     yield dump_file, df, seq
 
     def make_tokens(self, reglogs):
-        df_files = []
-        dfs = []
-        for df_file, df, _seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
+        for _df_file, df, _seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
             self.tokenizer.accumulate_tokens(df)
-            df_files.append(df_file)
-            dfs.append(df)
         self.tokenizer.tokens = self.tokenizer.make_tokens()
-        dfs = self.tokenizer.merge_tokens(self.tokenizer.tokens, dfs)
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
-        return df_files, dfs
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None:
             self.tokenizer.load(tkmodel, tokens)
             return
-        df_files, dfs = self.make_tokens(self.args.reglogs)
+        self.make_tokens(self.args.reglogs)
         if self.args.token_csv:
             self.logger.info("writing %s", self.args.token_csv)
             self.tokenizer.tokens.to_csv(self.args.token_csv, index=False)
+
+        df_files = []
+
+        def worker(output=True):
+            dataset_csv = self.args.dataset_csv
+            if not dataset_csv:
+                dataset_csv = "/dev/null"
+            with zstd.open(dataset_csv, "w") as f:
+                for i, (df_file, df, _seq) in enumerate(
+                    self.load_dfs(
+                        self.args.reglogs, max_perm=self.args.max_perm, encode=False
+                    )
+                ):
+                    df_files.append(df_file)
+                    df["i"] = int(i)
+                    df.to_csv(f, index=False, header=(i == 0))
+                    if output:
+                        yield df
+
         if self.args.tkvocab:
-            self.tokenizer.train_tokenizer(dfs)
+            self.tokenizer.train_tokenizer(worker(output=True))
+        else:
+            worker(output=False)
         if self.args.df_map_csv:
             self.logger.info(f"writing {self.args.df_map_csv}")
             pd.DataFrame(df_files, columns=["dump_file"]).to_csv(
                 self.args.df_map_csv, index=False
             )
-        if self.args.dataset_csv:
-            self.logger.info(f"writing {self.args.dataset_csv}")
-            with zstd.open(self.args.dataset_csv, "w") as f:
-                for i in tqdm(range(len(df_files)), ascii=True):
-                    dfs[i]["i"] = int(i)
-                    dfs[i].to_csv(f, index=False, header=(i == 0))
 
     def load(self):
         assert self.tokenizer.tokens is not None
