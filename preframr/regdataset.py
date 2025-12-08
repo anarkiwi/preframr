@@ -178,6 +178,7 @@ class RegDataset(torch.utils.data.Dataset):
                     if output:
                         yield df
             with open(df_map_csv, "w") as f:
+                f.write("dump_file\n")
                 f.write("\n".join(df_files))
 
         if self.args.tkvocab:
