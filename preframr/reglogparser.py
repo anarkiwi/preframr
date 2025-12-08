@@ -3,6 +3,8 @@ import itertools
 import logging
 import numpy as np
 import pandas as pd
+from pyarrow.parquet import ParquetFile
+import pyarrow as pa
 from preframr.stfconstants import (
     DELAY_REG,
     DIFF_PDTYPE,
@@ -366,7 +368,7 @@ class RegLogParser:
         df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _filter(self, df, name):
+    def _filter_irq(self, df, name):
         try:
             irq = df["irq"].iloc[0]
         except KeyError:
@@ -375,6 +377,11 @@ class RegLogParser:
             return False
         if irq < self.args.min_irq or irq > self.args.max_irq:
             self.logger.info("skipped %s, irq %u (outside IRQ range)", name, irq)
+            return False
+        return True
+
+    def _filter(self, df, name):
+        if not self._filter_irq(df, name):
             return False
         if len(df[df["reg"] == FRAME_REG]) == 0:
             self.logger.info("skipped %s, no frames", name)
@@ -394,9 +401,13 @@ class RegLogParser:
         parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
         if parquet_glob:
             for parquet_name in sorted(parquet_glob):
-                df = pd.read_parquet(parquet_name)
-                if self._filter(df, parquet_name):
-                    yield df
+                pf = ParquetFile(parquet_name)
+                sample_rows = next(pf.iter_batches(batch_size=1))
+                df = pa.Table.from_batches([sample_rows]).to_pandas()
+                if self._filter_irq(df, parquet_name):
+                    df = pd.read_parquet(parquet_name)
+                    if self._filter(df, parquet_name):
+                        yield df
             return
         df = self._read_df(name)
         df = self._squeeze_changes(df)
