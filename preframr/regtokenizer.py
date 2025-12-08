@@ -74,6 +74,13 @@ class RegTokenizer:
         self.frame_tokens.append(
             df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
         )
+        if len(self.frame_tokens) > 64:
+            self.frame_tokens = [
+                pd.concat(self.frame_tokens)
+                .drop_duplicates()
+                .copy()
+                .reset_index(drop=True)
+            ]
 
     def make_tokens(self):
         self.logger.info("making tokens")

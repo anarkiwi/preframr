@@ -113,7 +113,7 @@ class RegDataset(torch.utils.data.Dataset):
     def load_dfs(self, reglogs, max_perm=99, encode=True):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=int(os.cpu_count() / 2)
+            max_workers=2,
         ) as executor:
             futures = [
                 executor.submit(
