@@ -409,7 +409,7 @@ class RegLogParser:
                     if self._filter(df, parquet_name):
                         yield df
             return
-        elif require_pq:
+        if require_pq:
             return
         df = self._read_df(name)
         df = self._squeeze_changes(df)

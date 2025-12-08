@@ -43,8 +43,10 @@ def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
 def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
     dfs = [
-        df.to_parquet(engine="pyarrow")
-        for df in reg_log_parser.parse(dump_file, max_perm, args.require_pq)
+        df.to_parquet()
+        for df in reg_log_parser.parse(
+            dump_file, max_perm=max_perm, require_pq=args.require_pq
+        )
     ]
     return dump_file, dfs
 
@@ -130,7 +132,7 @@ class RegDataset(torch.utils.data.Dataset):
             ):
                 dump_file, dfs = future.result()
                 for i, df_str in enumerate(dfs):
-                    df = pd.read_parquet(io.BytesIO(df_str), engine="pyarrow")
+                    df = pd.read_parquet(io.BytesIO(df_str))
                     seq = None
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
