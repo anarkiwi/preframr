@@ -396,7 +396,6 @@ class RegLogParser:
             for parquet_name in sorted(parquet_glob):
                 df = pd.read_parquet(parquet_name)
                 if self._filter(df, parquet_name):
-                    self.logger.info("returning pre-parsed %s", parquet_name)
                     yield df
             return
         df = self._read_df(name)

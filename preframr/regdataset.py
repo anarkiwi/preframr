@@ -3,10 +3,10 @@ import logging
 import glob
 import os
 import random
-from tqdm import tqdm
 import numpy as np
 import torch
 import pandas as pd
+from tqdm import tqdm
 import zstandard as zstd
 from preframr.reglogparser import RegLogParser
 from preframr.regtokenizer import RegTokenizer
@@ -121,7 +121,9 @@ class RegDataset(torch.utils.data.Dataset):
                 )
                 for dump_file in dump_files
             ]
-            for future in concurrent.futures.as_completed(futures):
+            for future in tqdm(
+                concurrent.futures.as_completed(futures), total=len(futures)
+            ):
                 dump_file, dfs = future.result()
                 for i, df in enumerate(dfs):
                     seq = None
@@ -139,7 +141,6 @@ class RegDataset(torch.utils.data.Dataset):
                                 )
                                 break
                     irq = df["irq"].iloc[0]
-                    self.logger.info("loaded %s, irq %u, augment %u", dump_file, irq, i)
                     yield dump_file, df, seq
 
     def make_tokens(self, reglogs):
@@ -155,17 +156,17 @@ class RegDataset(torch.utils.data.Dataset):
             return
         self.make_tokens(self.args.reglogs)
         if self.args.token_csv:
-            self.logger.info("writing %s", self.args.token_csv)
+            self.logger.info("writing tokens to %s", self.args.token_csv)
             self.tokenizer.tokens.to_csv(self.args.token_csv, index=False)
 
         def worker(output=True):
             df_files = []
             dataset_csv = self.args.dataset_csv
-            if not dataset_csv:
+            if dataset_csv:
+                self.logger.info("writing dataset to %s", dataset_csv)
+            else:
                 dataset_csv = "/dev/null"
             df_map_csv = self.args.df_map_csv
-            if not df_map_csv:
-                df_map_csv = "/dev/null"
             with zstd.open(dataset_csv, "w") as f:
                 for i, (df_file, df, _seq) in enumerate(
                     self.load_dfs(
@@ -175,16 +176,17 @@ class RegDataset(torch.utils.data.Dataset):
                     df_files.append(df_file)
                     df["i"] = int(i)
                     df.to_csv(f, index=False, header=(i == 0))
-                    if output:
-                        yield df
-            with open(df_map_csv, "w") as f:
-                f.write("dump_file\n")
-                f.write("\n".join(df_files))
+                    yield df
+            if df_map_csv:
+                with open(df_map_csv, "w") as f:
+                    f.write("dump_file\n")
+                    f.write("\n".join(df_files))
 
         if self.args.tkvocab:
-            self.tokenizer.train_tokenizer(worker(output=True))
+            self.tokenizer.train_tokenizer(worker())
         else:
-            worker(output=False)
+            for _df in worker():
+                continue
 
     def load(self):
         assert self.tokenizer.tokens is not None
