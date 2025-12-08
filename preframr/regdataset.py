@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import glob
+import io
 import os
 import random
 import numpy as np
@@ -41,7 +42,10 @@ def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
 
 def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
-    dfs = list(reg_log_parser.parse(dump_file, max_perm))
+    dfs = [
+        df.to_parquet(engine="pyarrow")
+        for df in reg_log_parser.parse(dump_file, max_perm)
+    ]
     return dump_file, dfs
 
 
@@ -113,7 +117,7 @@ class RegDataset(torch.utils.data.Dataset):
     def load_dfs(self, reglogs, max_perm=99, encode=True):
         dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=2,
+            max_workers=int(os.cpu_count() / 2),
         ) as executor:
             futures = [
                 executor.submit(
@@ -125,7 +129,8 @@ class RegDataset(torch.utils.data.Dataset):
                 concurrent.futures.as_completed(futures), total=len(futures)
             ):
                 dump_file, dfs = future.result()
-                for i, df in enumerate(dfs):
+                for i, df_str in enumerate(dfs):
+                    df = pd.read_parquet(io.BytesIO(df_str), engine="pyarrow")
                     seq = None
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
