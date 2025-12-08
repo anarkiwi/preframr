@@ -29,7 +29,9 @@ def merge_tokens(args, names, tokenizer):
 def main():
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
-    names = glob_dumps(args.reglogs, args.max_files, args.min_dump_size)
+    names = glob_dumps(
+        args.reglogs, args.max_files, args.min_dump_size, args.require_pq
+    )
 
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=multiprocessing.cpu_count()
