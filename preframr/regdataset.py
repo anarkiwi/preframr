@@ -168,6 +168,7 @@ class RegDataset(torch.utils.data.Dataset):
         if tokens is not None:
             self.tokenizer.load(tkmodel, tokens)
             return
+        self.logger.info("making tokens")
         self.make_tokens(self.args.reglogs)
         if self.args.token_csv:
             self.logger.info("writing tokens to %s", self.args.token_csv)
