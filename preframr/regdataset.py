@@ -126,7 +126,7 @@ class RegDataset(torch.utils.data.Dataset):
             seed=0,
         )
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=int(os.cpu_count() / 2),
+            max_workers=2,
         ) as executor:
             futures = [
                 executor.submit(
