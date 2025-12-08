@@ -1,3 +1,4 @@
+import argparse
 from preframr.model import MODEL_GETTERS, MODEL_PRECISION
 
 
@@ -80,5 +81,7 @@ def add_args(parser):
     parser.add_argument("--sysex-delay", type=float, default=0.0001)
     parser.add_argument("--min-acc", type=float, default=0)
     parser.add_argument("--stop-loss", type=float, default=0)
-
+    parser.add_argument(
+        "--require-pq", action=argparse.BooleanOptionalAction, default=True
+    )
     return parser

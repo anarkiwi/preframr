@@ -14,7 +14,7 @@ def write_df(args, name):
     logger = get_logger("INFO")
     log_parser = RegLogParser(args, logger)
     base_name = name.replace(".dump.zst", "")
-    for i, df in enumerate(log_parser.parse(name, max_perm=99)):
+    for i, df in enumerate(log_parser.parse(name, max_perm=99, require_pq=False)):
         pq_name = base_name + f".{i}.parquet"
         df.to_parquet(pq_name, engine="pyarrow", compression="zstd")
 

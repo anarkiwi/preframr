@@ -44,7 +44,7 @@ def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
     dfs = [
         df.to_parquet(engine="pyarrow")
-        for df in reg_log_parser.parse(dump_file, max_perm)
+        for df in reg_log_parser.parse(dump_file, max_perm, args.require_pq)
     ]
     return dump_file, dfs
 

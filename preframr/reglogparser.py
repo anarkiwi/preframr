@@ -397,7 +397,7 @@ class RegLogParser:
             return False
         return True
 
-    def parse(self, name, diffmax=512, max_perm=99):
+    def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
         parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
         if parquet_glob:
             for parquet_name in sorted(parquet_glob):
@@ -408,6 +408,8 @@ class RegLogParser:
                     df = pd.read_parquet(parquet_name)
                     if self._filter(df, parquet_name):
                         yield df
+            return
+        elif require_pq:
             return
         df = self._read_df(name)
         df = self._squeeze_changes(df)
