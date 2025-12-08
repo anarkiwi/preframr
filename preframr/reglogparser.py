@@ -424,6 +424,10 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
+        delay_val = df[df["reg"] == DELAY_REG]["val"]
+        if len(delay_val):
+            delay_max = delay_val.max()
+            assert delay_max < 256, delay_max
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
         for a_xdf in self._rotate_voice_augment(df, max_perm):

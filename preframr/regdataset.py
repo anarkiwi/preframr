@@ -22,7 +22,7 @@ from preframr.stfconstants import (
 )
 
 
-def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
+def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
     random.seed(seed)
     dump_files = []
     for r in reglogs.split(","):
@@ -33,6 +33,7 @@ def glob_dumps(reglogs, max_files, min_dump_size, seed=0):
             f
             for f in glob.glob(r, recursive=True)
             if os.path.getsize(f) >= min_dump_size
+            and (not require_pq or glob.glob(f.replace(".dump.zst", ".*parquet")))
         ]
         random.shuffle(globbed)
         dump_files.extend(globbed[:max_globbed])
@@ -117,7 +118,13 @@ class RegDataset(torch.utils.data.Dataset):
         self.tokenizer = RegTokenizer(args, tokens=None)
 
     def load_dfs(self, reglogs, max_perm=99, encode=True):
-        dump_files = glob_dumps(reglogs, self.args.max_files, self.args.min_dump_size)
+        dump_files = glob_dumps(
+            reglogs,
+            self.args.max_files,
+            self.args.min_dump_size,
+            self.args.require_pq,
+            seed=0,
+        )
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=int(os.cpu_count() / 2),
         ) as executor:
