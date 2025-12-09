@@ -205,8 +205,8 @@ class RegTokenizer:
         raise ValueError
 
     def get_reg_max(self, df, reg_max):
-        for reg in df["reg"].unique():
-            val_max = df[df["reg"] == reg]["val"].max()
+        df_max = df.groupby("reg")["val"].max().to_dict()
+        for reg, val_max in df_max.items():
             reg_max[reg] = max(val_max, reg_max.get(reg, 0))
         return reg_max
 
@@ -219,9 +219,3 @@ class RegTokenizer:
                     break
             assert reg_widths[int(reg)]
         return reg_widths
-
-    def get_reg_widths(self, dfs):
-        reg_max = {}
-        for df in tqdm(dfs, ascii=True):
-            reg_max = self.get_reg_max(df, reg_max)
-        return self.get_reg_width_from_max(reg_max)

@@ -155,10 +155,12 @@ class RegDataset(torch.utils.data.Dataset):
                                 )
                                 break
                     irq = df["irq"].iloc[0]
-                    yield dump_file, df, seq
+                    yield dump_file, df, seq, irq
 
     def make_tokens(self, reglogs):
-        for _df_file, df, _seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
+        for _df_file, df, _seq, _irq in self.load_dfs(
+            reglogs, max_perm=self.args.max_perm
+        ):
             self.tokenizer.accumulate_tokens(df)
         self.tokenizer.tokens = self.tokenizer.make_tokens()
         assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
@@ -183,7 +185,7 @@ class RegDataset(torch.utils.data.Dataset):
                 dataset_csv = "/dev/null"
             df_map_csv = self.args.df_map_csv
             with zstd.open(dataset_csv, "w") as f:
-                for i, (df_file, df, _seq) in enumerate(
+                for i, (df_file, df, _seq, _irq) in enumerate(
                     self.load_dfs(
                         self.args.reglogs, max_perm=self.args.max_perm, encode=False
                     )
@@ -215,12 +217,14 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for _df_file, df, seq in self.load_dfs(reglogs, max_perm=self.args.max_perm):
-            reg_max = self.tokenizer.get_reg_max(df, reg_max)
-            seq_meta = SeqMeta(irq=int(df["irq"].iat[0]))
+        for _df_file, df, seq, irq in self.load_dfs(
+            reglogs, max_perm=self.args.max_perm
+        ):
+            seq_meta = SeqMeta(irq=irq)
             self.seq_mapper.add(seq, seq_meta)
-            self.n_words += len(seq)
-            n_words += len(df)
+            reg_max = self.tokenizer.get_reg_max(df, reg_max)
+            self.n_words += seq.size
+            n_words += df.size
             n_seq += 1
         self.seq_mapper.finalize()
         self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)

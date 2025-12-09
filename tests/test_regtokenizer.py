@@ -73,14 +73,3 @@ class TestRegTokenizer(unittest.TestCase):
         loader.accumulate_tokens(test_df)
         result_df = loader.make_tokens().astype(MODEL_PDTYPE)
         self.assertTrue(tokens_df.equals(result_df), result_df)
-
-    def test_get_reg_widths(self):
-        loader = RegTokenizer(FakeArgs(), tokens=None)
-        results = loader.get_reg_widths(
-            [
-                pd.DataFrame([{"reg": 1, "val": 7}]),
-                pd.DataFrame([{"reg": 3, "val": 256}]),
-                pd.DataFrame([{"reg": 24, "val": 1024}]),
-            ]
-        )
-        self.assertEqual(results, {24: 2, 1: 1, 3: 2})
