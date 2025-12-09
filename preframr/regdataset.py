@@ -206,6 +206,7 @@ class RegDataset(torch.utils.data.Dataset):
                 continue
 
     def load(self):
+        self.logger.info("loading data")
         assert self.tokenizer.tokens is not None
         reglogs = self.args.reglogs
         if self.args.reglog:
