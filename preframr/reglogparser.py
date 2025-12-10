@@ -195,32 +195,6 @@ class RegLogParser:
         )
         return irq, df[["reg", "val", "diff"]]
 
-    def _drop_implied_frame_reg(self, orig_df):
-        df = orig_df.copy()
-        df["f"] = self._frame_reg(df)
-        fr = df.groupby("f")["reg"].unique()
-        df = df.merge(fr, on="f", how="left", suffixes=("", "_y")).rename(
-            columns={"reg_y": "fr"}
-        )
-        fr_df = df[df["reg"] == FRAME_REG].reset_index(drop=True)
-        fr_df["fr"] = fr_df["fr"].apply(
-            lambda x: set(x) - {DELAY_REG, FRAME_REG, 4, 11, 18}
-        )
-        fr_df["fr_d"] = fr_df["fr"].shift()
-        fr_df.at[0, "fr_d"] = {}
-        fr_df["fr_s"] = fr_df.apply(lambda row: row["fr"].issubset(row["fr_d"]), axis=1)
-        df = df.merge(fr_df[["f", "fr_s"]], on="f", how="left")
-        df = df[~((df["reg"] == FRAME_REG) & df["fr_s"])]
-        return df[orig_df.columns].reset_index(drop=True)
-
-    def derange_voiceorder(self, max_perm=99):
-        voices = list(range(VOICES))
-        permutations = [voices]
-        for p in sorted(itertools.permutations(voices)):
-            if all(i != p[j] for j, i in enumerate(voices)):
-                permutations.append(p)
-        return permutations[:max_perm]
-
     def _split_reg(self, orig_df, reg):
         df = orig_df.copy().reset_index(drop=True)
         df["f"] = df["reg"] == FRAME_REG
@@ -339,35 +313,6 @@ class RegLogParser:
             )
         return df
 
-    def _combine_freq_ctrl(self, orig_df):
-        norm_df = self._norm_df(orig_df.copy())
-        for v in range(VOICES):
-            col = f"v{v}"
-            v_offset = v * VOICE_REG_SIZE
-            ctrl_reg = v_offset + 4
-            v_df = norm_df.copy()
-            v_df[col] = pd.NA
-            m = v_df["reg"] == ctrl_reg
-            v_df.loc[m, col] = v_df[m]["val"] & 0b11110000
-            v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
-            v_df = (
-                v_df[["f", col]]
-                .sort_values(["f"])
-                .drop_duplicates(["f"], keep="last")
-                .reset_index(drop=True)
-            )
-            norm_df = norm_df.merge(v_df, on="f")
-        for v in range(VOICES):
-            col = f"v{v}"
-            v_offset = v * VOICE_REG_SIZE
-            f_reg = v_offset
-            m = norm_df["reg"] == f_reg
-            norm_df.loc[m, "val"] = (
-                np.left_shift(norm_df[m]["val"], 8) + norm_df[m][col]
-            )
-        df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
-        return df
-
     def _filter_irq(self, df, name):
         try:
             irq = df["irq"].iloc[0]
@@ -443,7 +388,6 @@ class RegLogParser:
                 xdf = xdf.tail(len(xdf) - 1)
             if xdf.empty:
                 continue
-            # xdf = self._combine_freq_ctrl(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):

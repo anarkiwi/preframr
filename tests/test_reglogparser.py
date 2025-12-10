@@ -203,10 +203,6 @@ class TestRegLogParser(unittest.TestCase):
         ).reset_index(drop=True)
         self.assertTrue(rotate_df.equals(result_df), result_df)
 
-    def test_derange_voiceorder(self):
-        loader = RegLogParser(FakeArgs())
-        self.assertEqual([[0, 1, 2], (1, 2, 0), (2, 0, 1)], loader.derange_voiceorder())
-
     def test_add_frame_reg(self):
         loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
