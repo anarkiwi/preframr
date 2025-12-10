@@ -73,7 +73,7 @@ def add_args(parser):
         choices=list(MODEL_PRECISION.keys()),
     )
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--accumulate-grad-batches", type=int, default=8)
+    parser.add_argument("--accumulate-grad-batches", type=int, default=4)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max-perm", type=int, default=99)
     parser.add_argument("--ckpt-hours", type=int, default=12)
