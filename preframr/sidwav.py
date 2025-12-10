@@ -59,13 +59,12 @@ def default_sid():
 
 
 class AsidProxy:
-    def __init__(self, sid, asid, update_cmd=ASID_UPDATE, sysex_delay=0.0001):
+    def __init__(self, sid, asid, update_cmd=ASID_UPDATE, sysex_delay=0.002):
         self.sid = sid
         self.asid = asid
         self.port = None
         self.update_cmd = update_cmd
         self.sysex_delay = sysex_delay
-        self.pending_delay = 0
         self.pending_frame = False
         self._resetreg()
         if self.asid is not None:
@@ -131,12 +130,10 @@ class AsidProxy:
 
     def update(self, seconds):
         if not self.pending_frame:
-            self.pending_delay += seconds
             return
         masks = [0, 0, 0, 0]
         msbs = [0, 0, 0, 0]
         vals = []
-        sysex_delay = 0
 
         for reg_id, reg in sorted(ID_REG.items()):
             new_val = self.pending_regs.get(reg, None)
@@ -154,11 +151,9 @@ class AsidProxy:
         if vals:
             update_message = [self.update_cmd] + masks + msbs + vals
             self._sysex(update_message)
-            sysex_delay = len(update_message) * self.sysex_delay
         if self.port:
-            time.sleep(seconds + self.pending_delay - sysex_delay)
+            time.sleep(seconds - self.sysex_delay)
 
-        self.pending_delay = 0
         self.pending_frame = False
         self.pending_regs = defaultdict(int)
 
@@ -184,7 +179,7 @@ def write_samples(
     irq=None,
     sid=None,
     asid=None,
-    sysex_delay=0.0001,
+    sysex_delay=0.002,
 ):
     df = orig_df.copy()
     if sid is None:
