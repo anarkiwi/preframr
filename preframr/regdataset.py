@@ -96,7 +96,7 @@ def remove_voice_reg(orig_df, reg_widths):
         df = df[df["reg"] != VOICE_REG]
         df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
         df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
-        df["reg"] += df["vr"]
+        df.loc[df["reg"] >= 0, "reg"] += df["vr"]
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE

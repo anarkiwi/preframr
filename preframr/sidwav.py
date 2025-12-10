@@ -92,6 +92,7 @@ class AsidProxy:
         self.stop()
 
     def cue_frame(self):
+        assert not self.pending_frame
         self.pending_frame = True
 
     def _resetreg(self):
@@ -242,16 +243,13 @@ def write_samples(
         for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
             delay = row.delay
             if row.reg < 0:
-                if row.reg == CTRL_REG:
-                    val = row.val
-                    for reg in (4, 11, 18):
-                        proxy.write_register(reg, val & 255)
-                        val >>= 8
-                elif row.reg == RESET_REG:
+                if row.reg == RESET_REG:
                     for reg in range(MAX_REG + 1):
                         proxy.write_register(reg, 0)
                 elif row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
+                else:
+                    assert False, f"unknown reg {row.reg}"
             else:
                 reg = row.reg
                 write_reg(proxy, reg, row.val, reg_widths)
