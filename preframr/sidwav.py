@@ -8,7 +8,7 @@ from pyresidfp.sound_interface_device import ChipModel
 import pandas as pd
 import mido
 import numpy as np
-from preframr.regdataset import remove_voice_reg
+from preframr.reglogparser import remove_voice_reg
 from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,

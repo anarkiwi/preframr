@@ -9,17 +9,9 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 import zstandard as zstd
-from preframr.reglogparser import RegLogParser
+from preframr.reglogparser import RegLogParser, remove_voice_reg, state_df
 from preframr.regtokenizer import RegTokenizer
 from preframr.seq_mapper import SeqMapper, SeqMeta
-from preframr.stfconstants import (
-    DELAY_REG,
-    FRAME_REG,
-    MIN_DIFF,
-    VOICES,
-    VOICE_REG,
-    VOICE_REG_SIZE,
-)
 
 
 def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
@@ -52,15 +44,6 @@ def parser_worker(args, logger, dump_file, max_perm):
     return dump_file, dfs
 
 
-def state_df(states, dataset, irq):
-    tokens = dataset.tokenizer.tokens.copy()
-    tokens.loc[tokens["reg"] >= 0, "diff"] = MIN_DIFF
-    tokens.loc[tokens["reg"] < 0, "diff"] = 0
-    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
-    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
-    return df
-
-
 def get_prompt(args, dataset, logger):
     seq, seq_meta = dataset.getseq(args.start_seq)
     if args.start_n is None:
@@ -83,28 +66,6 @@ def get_prompt(args, dataset, logger):
         if r >= 0
     }
     return seq_meta.irq, n, prompt, prompt_compare, reg_start
-
-
-def remove_voice_reg(orig_df, reg_widths):
-    voice_regs = len(orig_df[orig_df["reg"] == VOICE_REG])
-    if voice_regs:
-        df = orig_df.copy()
-        df["vr"] = pd.NA
-        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"]
-        df.loc[df["reg"] == DELAY_REG, "vr"] = 0
-        df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
-        df = df[df["reg"] != VOICE_REG]
-        df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
-        df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
-        df.loc[df["reg"] >= 0, "reg"] += df["vr"]
-        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            for i in range(VOICE_REG_SIZE):
-                if i in reg_widths:
-                    reg_widths[v_offset + i] = reg_widths[i]
-        return df, reg_widths
-    return orig_df, reg_widths
 
 
 class RegDataset(torch.utils.data.Dataset):
@@ -137,8 +98,8 @@ class RegDataset(torch.utils.data.Dataset):
             for future in tqdm(
                 concurrent.futures.as_completed(futures), total=len(futures)
             ):
-                dump_file, dfs = future.result()
-                for i, df_str in enumerate(dfs):
+                dump_file, df_strs = future.result()
+                for df_str in df_strs:
                     df = pd.read_parquet(io.BytesIO(df_str))
                     seq = None
                     if self.tokenizer.tokens is not None:
@@ -176,7 +137,7 @@ class RegDataset(torch.utils.data.Dataset):
             self.logger.info("writing tokens to %s", self.args.token_csv)
             self.tokenizer.tokens.to_csv(self.args.token_csv, index=False)
 
-        def worker(output=True):
+        def worker():
             df_files = []
             dataset_csv = self.args.dataset_csv
             if dataset_csv:

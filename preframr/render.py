@@ -2,8 +2,8 @@
 
 import argparse
 from torchtune.utils import get_logger
-from regdataset import RegDataset
-from regdataset import state_df, get_prompt
+from regdataset import RegDataset, get_prompt
+from reglogparser import state_df
 from args import add_args
 from preframr.stfconstants import MODEL_PDTYPE
 from sidwav import write_samples

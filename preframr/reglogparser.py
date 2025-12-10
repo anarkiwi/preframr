@@ -45,6 +45,37 @@ FILTER_SHIFT_DF = pd.DataFrame(
 )
 
 
+def state_df(states, dataset, irq):
+    tokens = dataset.tokenizer.tokens.copy()
+    tokens.loc[tokens["reg"] >= 0, "diff"] = MIN_DIFF
+    tokens.loc[tokens["reg"] < 0, "diff"] = 0
+    tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
+    df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
+    return df
+
+
+def remove_voice_reg(orig_df, reg_widths):
+    voice_regs = len(orig_df[orig_df["reg"] == VOICE_REG])
+    if voice_regs:
+        df = orig_df.copy()
+        df["vr"] = pd.NA
+        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"]
+        df.loc[df["reg"] == DELAY_REG, "vr"] = 0
+        df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
+        df = df[df["reg"] != VOICE_REG]
+        df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
+        df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
+        df.loc[df["reg"] >= 0, "reg"] += df["vr"]
+        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            for i in range(VOICE_REG_SIZE):
+                if i in reg_widths:
+                    reg_widths[v_offset + i] = reg_widths[i]
+        return df, reg_widths
+    return orig_df, reg_widths
+
+
 class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args
