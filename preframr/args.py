@@ -43,7 +43,7 @@ def add_args(parser):
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
     parser.add_argument("--diffq", type=int, default=4)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--layers", type=int, default=12)
     parser.add_argument("--heads", type=int, default=12)
     parser.add_argument("--kv-heads", type=int, default=12)
