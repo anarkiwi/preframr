@@ -10,6 +10,6 @@ scipy==1.15.3
 schedulefree==1.4.1
 tensorboard==2.20.0
 tokenizers==0.22.1
-torchao==0.14.1
+torchao==0.15.0
 torchtune==0.6.1
 zstandard==0.25.0
