@@ -69,7 +69,7 @@ def add_args(parser):
     parser.add_argument(
         "--model-precision",
         type=str,
-        default="bfloat16",
+        default="float32",
         choices=list(MODEL_PRECISION.keys()),
     )
     parser.add_argument("--weight-decay", type=float, default=1e-2)
