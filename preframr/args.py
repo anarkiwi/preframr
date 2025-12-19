@@ -23,7 +23,7 @@ def add_args(parser):
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=12)
     parser.add_argument("--tkvocab", type=int, default=0)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
@@ -65,7 +65,7 @@ def add_args(parser):
         choices=["highest", "high", "medium"],
         default="high",
     )
-    parser.add_argument("--trainer-precision", type=str, default="32")
+    parser.add_argument("--trainer-precision", type=str, default="bf16-mixed")
     parser.add_argument(
         "--model-precision",
         type=str,
