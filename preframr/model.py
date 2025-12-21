@@ -206,6 +206,7 @@ class Model(LightningModule):
             input=swapped_preds,
             target=y,
             reduction="none",
+            label_smoothing=self.args.label_smoothing,
         )
         focal_loss = (
             self.args.focal_alpha
