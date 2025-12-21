@@ -81,6 +81,8 @@ def add_args(parser):
     parser.add_argument("--sysex-delay", type=float, default=0.002)
     parser.add_argument("--min-acc", type=float, default=0)
     parser.add_argument("--stop-loss", type=float, default=0)
+    parser.add_argument("--focal-alpha", type=float, default=1)
+    parser.add_argument("--focal-gamma", type=float, default=0)
     parser.add_argument(
         "--require-pq", action=argparse.BooleanOptionalAction, default=True
     )
