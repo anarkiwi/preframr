@@ -111,6 +111,7 @@ def get_llama3_2(n_vocab, args):
         norm_eps=args.norm_eps,
         rope_base=args.rope_base,
         scale_factor=args.rope_scale,
+        tie_word_embeddings=args.tie_word_embeddings,
     )
 
 
