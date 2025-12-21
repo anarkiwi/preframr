@@ -204,13 +204,17 @@ class Model(LightningModule):
         # acc = torchmetrics.functional.classification.accuracy(
         #    swapped_preds, y, task="multiclass", num_classes=swapped_preds.shape[1]
         # )
-        loss = torch.nn.functional.cross_entropy(
+        ce_loss = torch.nn.functional.cross_entropy(
             input=swapped_preds,
             target=y,
-            # reduction="none",
+            reduction="none",
         )
-        # focal_loss = self.alpha * (1 - torch.exp(-loss)) ** self.gamma * loss
-        # loss = focal_loss.mean()
+        focal_loss = (
+            self.args.focal_alpha
+            * (1 - torch.exp(-ce_loss)) ** self.args.focal_gamma
+            * ce_loss
+        )
+        loss = focal_loss.mean()
 
         # self.log("train_loss", loss, on_epoch=True, on_step=True)
         # self.log("train_acc", acc, on_epoch=True, on_step=True)
