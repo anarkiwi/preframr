@@ -194,8 +194,6 @@ class Model(LightningModule):
             foreach=True,
             weight_decay=self.args.weight_decay,
         )
-        self.alpha = 0.25
-        self.gamma = 2.0
 
     def training_step(self, batch, batch_idx):
         x, y = batch
