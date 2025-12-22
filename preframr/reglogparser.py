@@ -59,7 +59,7 @@ def remove_voice_reg(orig_df, reg_widths):
     if voice_regs:
         df = orig_df.copy()
         df["vr"] = pd.NA
-        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"]
+        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"] & 255
         df.loc[df["reg"] == DELAY_REG, "vr"] = 0
         df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
         df = df[df["reg"] != VOICE_REG]
@@ -247,14 +247,18 @@ class RegLogParser:
         return df
 
     def _last_reg_val_frame(self, orig_df, reg):
+        assert not len(orig_df[orig_df["reg"] == VOICE_REG])
         norm_df = self._norm_df(orig_df.copy())
+        cols = ["f"]
         for v in range(VOICES):
             col = f"v{v}"
+            cols.append(col)
             v_offset = v * VOICE_REG_SIZE
             v_reg = v_offset + reg
             v_df = norm_df.copy()
             v_df[col] = pd.NA
             m = v_df["reg"] == v_reg
+            v_df.loc[m, col] = v_df[m]["val"]
             v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
             v_df = (
                 v_df[["f", col]]
@@ -263,17 +267,17 @@ class RegLogParser:
                 .reset_index(drop=True)
             )
             norm_df = norm_df.merge(v_df, on="f")
-        return norm_df.reset_index(drop=True)
+        norm_df = norm_df.sort_values(["f"]).drop_duplicates(["f"], keep="last")
+        return norm_df[cols].copy().reset_index(drop=True)
 
-    def _combine_freq_ctrl(self, orig_df):
-        norm_df = self._last_reg_val_frame(orig_df, 4)
+    def _combine_voice_ctrl(self, orig_df, ctrl_df):
+        norm_df = self._norm_df(orig_df.copy())
+        norm_df = norm_df.merge(ctrl_df, on="f")
         for v in range(VOICES):
             col = f"v{v}"
-            v_offset = v * VOICE_REG_SIZE
-            f_reg = v_offset
-            m = norm_df["reg"] == f_reg
-            norm_df.loc[m, "val"] = np.left_shift(norm_df[m]["val"], 8) + (
-                norm_df[m][col] & 0b11110000
+            m = norm_df["reg"].isin({FRAME_REG, VOICE_REG}) & (norm_df["val"] == v)
+            norm_df.loc[m, "val"] = (
+                np.left_shift(norm_df[m][col] & 0b11110000, 8) + norm_df[m]["val"]
             )
         df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
@@ -451,8 +455,9 @@ class RegLogParser:
                 xdf = xdf.tail(len(xdf) - 1)
             if xdf.empty:
                 continue
+            ctrl_xdf = self._last_reg_val_frame(xdf, 4)
             xdf = self._add_voice_reg(xdf)
-            xdf = self._combine_freq_ctrl(xdf)
+            xdf = self._combine_voice_ctrl(xdf, ctrl_xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
