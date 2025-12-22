@@ -246,16 +246,15 @@ class RegLogParser:
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _combine_freq_ctrl(self, orig_df):
+    def _last_reg_val_frame(self, orig_df, reg):
         norm_df = self._norm_df(orig_df.copy())
         for v in range(VOICES):
             col = f"v{v}"
             v_offset = v * VOICE_REG_SIZE
-            ctrl_reg = v_offset + 4
+            v_reg = v_offset + reg
             v_df = norm_df.copy()
             v_df[col] = pd.NA
-            m = v_df["reg"] == ctrl_reg
-            v_df.loc[m, col] = v_df[m]["val"] & 0b11110000
+            m = v_df["reg"] == v_reg
             v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
             v_df = (
                 v_df[["f", col]]
@@ -264,13 +263,17 @@ class RegLogParser:
                 .reset_index(drop=True)
             )
             norm_df = norm_df.merge(v_df, on="f")
+        return norm_df.reset_index(drop=True)
+
+    def _combine_freq_ctrl(self, orig_df):
+        norm_df = self._last_reg_val_frame(orig_df, 4)
         for v in range(VOICES):
             col = f"v{v}"
             v_offset = v * VOICE_REG_SIZE
             f_reg = v_offset
             m = norm_df["reg"] == f_reg
-            norm_df.loc[m, "val"] = (
-                np.left_shift(norm_df[m]["val"], 8) + norm_df[m][col]
+            norm_df.loc[m, "val"] = np.left_shift(norm_df[m]["val"], 8) + (
+                norm_df[m][col] & 0b11110000
             )
         df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
