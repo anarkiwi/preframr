@@ -252,16 +252,19 @@ class RegLogParser:
         cols = ["f"]
         for v in range(VOICES):
             col = f"v{v}"
-            cols.append(col)
+            dcol = f"d{v}"
+            cols.extend([col, dcol])
             v_offset = v * VOICE_REG_SIZE
             v_reg = v_offset + reg
             v_df = norm_df.copy()
             v_df[col] = pd.NA
+            v_df[dcol] = pd.NA
             m = v_df["reg"] == v_reg
             v_df.loc[m, col] = v_df[m]["val"]
             v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
+            v_df[dcol] = v_df[col].diff().fillna(0).astype(MODEL_PDTYPE)
             v_df = (
-                v_df[["f", col]]
+                v_df[["f", col, dcol]]
                 .sort_values(["f"])
                 .drop_duplicates(["f"], keep="last")
                 .reset_index(drop=True)
