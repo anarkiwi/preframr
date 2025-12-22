@@ -442,8 +442,7 @@ class RegLogParser:
             assert delay_max < 256, delay_max
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
-        for a_xdf in self._rotate_voice_augment(df, max_perm):
-            xdf = self._norm_pr_order(a_xdf)
+        for xdf in self._rotate_voice_augment(df, max_perm):
             xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             while not xdf.empty and self._frame_reg(xdf.iloc[-1]):
@@ -456,6 +455,8 @@ class RegLogParser:
             if xdf.empty:
                 continue
             ctrl_xdf = self._last_reg_val_frame(xdf, 4)
+            freq_xdf = self._last_reg_val_frame(xdf, 0)
+            xdf = self._norm_pr_order(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = self._combine_voice_ctrl(xdf, ctrl_xdf)
             xdf = xdf.reset_index(drop=True)
