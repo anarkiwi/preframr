@@ -266,7 +266,7 @@ class RegLogParser:
             .sort_values("f")
         ).reset_index(drop=True)
         norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
-        return norm_df.astype(MODEL_PDTYPE)
+        return norm_df.fillna(0).astype(MODEL_PDTYPE)
 
     def _reduce_val_res(self, df, reg, bits):
         m = df["reg"] == reg
@@ -324,13 +324,11 @@ class RegLogParser:
         # absolute control reg value first
         xdf = ctrl_df.copy()
         xdf["cd"] = xdf["val"]
-        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
 
         # freq diff reg value first
         xdf = freq_df.copy()
         xdf["fd"] = xdf["val"]
-        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
@@ -361,7 +359,9 @@ class RegLogParser:
 
         norm_df = norm_df.merge(xdf[["f", "val", "salt"]], how="left", on=["f", "val"])
         m = norm_df["reg"].isin({FRAME_REG, VOICE_REG})
-        norm_df.loc[m, "val"] = norm_df[m]["salt"] + norm_df[m]["val"]
+        norm_df.loc[m, "val"] = norm_df[m]["salt"].fillna(0) + norm_df[m]["val"].fillna(
+            0
+        )
         df = norm_df[orig_df.columns].reset_index(drop=True)
         return df
 
