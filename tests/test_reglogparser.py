@@ -153,9 +153,9 @@ class TestRegLogParser(unittest.TestCase):
         )
         norm_df = pd.DataFrame(
             [
-                {"reg": 0, "val": 3},
-                {"reg": 7, "val": 2},
                 {"reg": 14, "val": 1},
+                {"reg": 7, "val": 2},
+                {"reg": 0, "val": 3},
             ],
             dtype=MODEL_PDTYPE,
         )
