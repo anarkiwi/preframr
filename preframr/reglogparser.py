@@ -249,41 +249,24 @@ class RegLogParser:
     def _last_reg_val_frame(self, orig_df, reg):
         assert not len(orig_df[orig_df["reg"] == VOICE_REG])
         norm_df = self._norm_df(orig_df.copy())
-        cols = ["f"]
-        for v in range(VOICES):
-            col = f"v{v}"
-            dcol = f"d{v}"
-            cols.extend([col, dcol])
-            v_offset = v * VOICE_REG_SIZE
-            v_reg = v_offset + reg
-            v_df = norm_df.copy()
-            v_df[col] = pd.NA
-            v_df[dcol] = pd.NA
-            m = v_df["reg"] == v_reg
-            v_df.loc[m, col] = v_df[m]["val"]
-            v_df[col] = v_df[col].astype(MODEL_PDTYPE).ffill().fillna(0)
-            v_df[dcol] = v_df[col].diff().fillna(0).astype(MODEL_PDTYPE)
-            v_df = (
-                v_df[["f", col, dcol]]
-                .sort_values(["f"])
-                .drop_duplicates(["f"], keep="last")
-                .reset_index(drop=True)
-            )
-            norm_df = norm_df.merge(v_df, on="f")
-        norm_df = norm_df.sort_values(["f"]).drop_duplicates(["f"], keep="last")
-        return norm_df[cols].copy().reset_index(drop=True)
-
-    def _combine_voice_ctrl(self, orig_df, ctrl_df):
-        norm_df = self._norm_df(orig_df.copy())
-        norm_df = norm_df.merge(ctrl_df, on="f")
-        for v in range(VOICES):
-            col = f"v{v}"
-            m = norm_df["reg"].isin({FRAME_REG, VOICE_REG}) & (norm_df["val"] == v)
-            norm_df.loc[m, "val"] = (
-                np.left_shift(norm_df[m][col] & 0b11110000, 8) + norm_df[m]["val"]
-            )
-        df = norm_df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
-        return df
+        norm_df = (
+            norm_df.pivot(columns="reg", values="val", index=["f", "n", "v"])
+            .astype(MODEL_PDTYPE)
+            .ffill()
+            .fillna(0)
+        )
+        regs = [v * VOICE_REG_SIZE + reg for v in range(VOICES)]
+        regs = [reg for reg in regs if reg in norm_df.columns]
+        norm_df = (
+            norm_df[regs].reset_index()[["f"] + regs].drop_duplicates("f", keep="last")
+        )
+        norm_df = (
+            pd.melt(norm_df, id_vars=["f"], var_name="v", value_name="val")
+            .astype(MODEL_PDTYPE)
+            .sort_values("f")
+        ).reset_index(drop=True)
+        norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
+        return norm_df.astype(MODEL_PDTYPE)
 
     def _reduce_val_res(self, df, reg, bits):
         m = df["reg"] == reg
@@ -334,17 +317,25 @@ class RegLogParser:
 
     def _norm_pr_order(self, orig_df):
         norm_df = self._norm_df(orig_df)
-
         df = norm_df.copy()
         df = df.sort_values(["f", "v", "reg", "n"])
+        ordregs = ["cd", "fd"]
 
-        ordreg = "m"
-        df[ordreg] = df[self._freq_match(df)]["val"]
-        df[ordreg] = df[ordreg].ffill()
-        df.loc[~df["v"].isin(set(range(VOICES))), ordreg] = pd.NA
-        df.loc[df["reg"] < 0, ordreg] = df[df["reg"] < 0]["reg"]
+        # absolute control reg value first
+        xdf = self._last_reg_val_frame(norm_df, 4)
+        xdf["cd"] = xdf["val"]
+        df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
 
-        df = df.sort_values(["f", ordreg, "v", "reg", "n"])
+        # freq diff reg value first
+        xdf = self._last_reg_val_frame(norm_df, 0)
+        xdf["fd"] = xdf["val"]
+        df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
+
+        df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
+        df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
+        df.loc[df["reg"] < 0, ordregs] = df[df["reg"] < 0]["reg"]
+
+        df = df.sort_values(["f"] + ordregs + ["v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -457,11 +448,8 @@ class RegLogParser:
                 xdf = xdf.tail(len(xdf) - 1)
             if xdf.empty:
                 continue
-            ctrl_xdf = self._last_reg_val_frame(xdf, 4)
-            freq_xdf = self._last_reg_val_frame(xdf, 0)
             xdf = self._norm_pr_order(xdf)
             xdf = self._add_voice_reg(xdf)
-            xdf = self._combine_voice_ctrl(xdf, ctrl_xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
