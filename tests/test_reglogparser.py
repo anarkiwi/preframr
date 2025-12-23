@@ -159,7 +159,9 @@ class TestRegLogParser(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._norm_pr_order(test_df)
+        freq_df = loader._last_reg_val_frame(test_df, 0)
+        ctrl_df = loader._last_reg_val_frame(test_df, 4)
+        result_df = loader._norm_pr_order(test_df, ctrl_df, freq_df)
         self.assertTrue(norm_df.equals(result_df), result_df)
 
     def test_rotate_voice_augment(self):
