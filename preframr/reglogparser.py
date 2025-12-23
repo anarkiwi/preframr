@@ -345,10 +345,8 @@ class RegLogParser:
         norm_df = self._norm_df(orig_df.copy())
         xdf = freq_df.copy()
         xdf["freq"] = np.left_shift(xdf["val"], 8)
-        print(xdf)
         xdf = xdf.drop(["val"], axis=1)
         xdf = xdf.rename(columns={"v": "val"})
-        print(xdf)
         norm_df = norm_df.merge(xdf[["f", "val", "freq"]], how="left", on=["f", "val"])
         m = norm_df["reg"].isin({FRAME_REG, VOICE_REG})
         norm_df.loc[m, "val"] = norm_df[m]["freq"] + norm_df[m]["val"]
