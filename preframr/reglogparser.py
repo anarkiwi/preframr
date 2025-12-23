@@ -324,11 +324,13 @@ class RegLogParser:
         # absolute control reg value first
         xdf = self._last_reg_val_frame(norm_df, 4)
         xdf["cd"] = xdf["val"]
+        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
 
         # freq diff reg value first
         xdf = self._last_reg_val_frame(norm_df, 0)
         xdf["fd"] = xdf["val"]
+        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
