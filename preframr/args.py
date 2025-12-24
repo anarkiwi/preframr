@@ -6,7 +6,8 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        default="/scratch/preframr/training-dumps/**/*dump.zst",
+        #default="/scratch/preframr/training-dumps/**/*dump.zst",
+        default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.zst",
     )
     parser.add_argument(
         "--reglog",
@@ -47,7 +48,7 @@ def add_args(parser):
     parser.add_argument("--layers", type=int, default=16)
     parser.add_argument("--heads", type=int, default=8)
     parser.add_argument("--kv-heads", type=int, default=8)
-    parser.add_argument("--embed", type=int, default=128)
+    parser.add_argument("--embed", type=int, default=64)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-5)
     parser.add_argument("--rope-base", type=float, default=1e4)
