@@ -6,8 +6,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        # default="/scratch/preframr/training-dumps/**/*dump.zst",
-        default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.zst",
+        default="/scratch/preframr/training-dumps/**/*dump.zst",
     )
     parser.add_argument(
         "--reglog",
@@ -24,7 +23,7 @@ def add_args(parser):
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
-    parser.add_argument("--batch-size", type=int, default=24)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--tkvocab", type=int, default=0)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
@@ -39,16 +38,16 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--shuffle", type=float, default=0.1)
-    parser.add_argument("--max-files", type=int, default=8192)
+    parser.add_argument("--max-files", type=int, default=1024)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
     parser.add_argument("--diffq", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--layers", type=int, default=12)
-    parser.add_argument("--heads", type=int, default=6)
-    parser.add_argument("--kv-heads", type=int, default=6)
-    parser.add_argument("--embed", type=int, default=192)
+    parser.add_argument("--heads", type=int, default=12)
+    parser.add_argument("--kv-heads", type=int, default=12)
+    parser.add_argument("--embed", type=int, default=384)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-5)
     parser.add_argument("--rope-base", type=float, default=1e4)
