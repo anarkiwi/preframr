@@ -6,7 +6,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        # default="/scratch/reframr/training-dumps/**/*dump.zst",
+        # default="/scratch/preframr/training-dumps/**/*dump.zst",
         default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.zst",
     )
     parser.add_argument(
@@ -73,7 +73,7 @@ def add_args(parser):
         default="float32",
         choices=list(MODEL_PRECISION.keys()),
     )
-    parser.add_argument("--weight-decay", type=float, default=1e-1)
+    parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--accumulate-grad-batches", type=int, default=2)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max-perm", type=int, default=99)
