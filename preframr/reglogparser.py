@@ -342,20 +342,20 @@ class RegLogParser:
     def _combine_voice_freq(self, orig_df, ctrl_df, freq_df):
         norm_df = self._norm_df(orig_df.copy())
 
-        # waveform bits from control register
+        # noise bit from control register
         ctrl_xdf = ctrl_df.copy()
-        ctrl_xdf["hctrl"] = ctrl_xdf["val"] & 0b11110000
+        ctrl_xdf["hctrl"] = np.left_shift(ctrl_xdf["val"] & 0b10000000, 1)
         ctrl_xdf = ctrl_xdf.drop(["val"], axis=1)
         ctrl_xdf = ctrl_xdf.rename(columns={"v": "val"})
 
-        # high 4 bits from frequency register
+        # high 7 bits from frequency register
         freq_xdf = freq_df.copy()
-        freq_xdf["hfreq"] = np.right_shift(freq_xdf["val"], 12)
+        freq_xdf["hfreq"] = np.left_shift(np.right_shift(freq_xdf["val"], 9), 9)
         freq_xdf = freq_xdf.drop(["val"], axis=1)
         freq_xdf = freq_xdf.rename(columns={"v": "val"})
 
         xdf = ctrl_xdf.merge(freq_xdf, how="left", on=["f", "val"])
-        xdf["salt"] = np.left_shift(xdf["hfreq"] + xdf["hctrl"], 8)
+        xdf["salt"] = xdf["hfreq"] + xdf["hctrl"]
 
         norm_df = norm_df.merge(xdf[["f", "val", "salt"]], how="left", on=["f", "val"])
         m = norm_df["reg"].isin({FRAME_REG, VOICE_REG})
