@@ -6,7 +6,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        # default="/scratch/hvsc/**/*dump.zst",
+        # default="/scratch/reframr/training-dumps/**/*dump.zst",
         default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.zst",
     )
     parser.add_argument(
@@ -24,7 +24,7 @@ def add_args(parser):
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=24)
     parser.add_argument("--tkvocab", type=int, default=0)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
