@@ -402,6 +402,17 @@ class RegLogParser:
             )
         return df
 
+    def _simplify_adsr(self, orig_df):
+        df = orig_df.copy()
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            ctrl_reg = v_offset + 5
+            # max sustain, disable decay
+            df.loc[
+                (df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0b11110000), "val"
+            ] = (df["val"] & 0b1111000011111111)
+        return df
+
     def _filter_irq(self, df, name):
         try:
             irq = df["irq"].iloc[0]
@@ -455,8 +466,9 @@ class RegLogParser:
             return
         df = self._read_df(name)
         df = self._squeeze_changes(df)
-        df = self._simplify_ctrl(df)
         df = self._combine_regs(df)
+        df = self._simplify_ctrl(df)
+        df = self._simplify_adsr(df)
         df = self._quantize_freq_to_cents(df)
         df = self._squeeze_changes(df)
         if df.empty:
