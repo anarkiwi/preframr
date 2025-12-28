@@ -416,6 +416,42 @@ class RegLogParser:
             ] = (df["val"] & 0b1111000011111111)
         return df
 
+    def _simplify_pcm(self, orig_df):
+        df = orig_df.copy()
+        df["n"] = df.index * 10
+        df["v"] = df["reg"].floordiv(VOICE_REG_SIZE).astype(pd.UInt8Dtype())
+        dfs = [df[df["v"] >= VOICES].copy()]
+
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            pcm_reg = v_offset + 2
+            ctrl_reg = v_offset + 4
+            v_df = df[df["v"] == v].copy()
+            # set PCM field
+            v_df["pcm"] = pd.NA
+            m = v_df["reg"] == pcm_reg
+            v_df.loc[m, "pcm"] = v_df[m]["val"]
+            v_df["pcm"] = v_df["pcm"].ffill()
+            # set p flag for when pulse enabled.
+            v_df["p"] = pd.NA
+            m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000)
+            v_df.loc[m, "p"] = 1
+            m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0)
+            v_df.loc[m, "p"] = 0
+            v_df["p"] = v_df["p"].ffill().astype(pd.UInt8Dtype())
+            # drop all PCM sets where pulse not enabled
+            v_df = v_df[~((v_df["reg"] == pcm_reg) & (v_df["p"] == 0))]
+            # add PCM set when pulse enabled.
+            p_df = v_df[(v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000)].copy()
+            p_df.loc[:, "reg"] = pcm_reg
+            p_df.loc[:, "val"] = p_df["pcm"]
+            p_df["n"] = p_df["n"] - 1
+            v_df = pd.concat([v_df, p_df])
+            dfs.append(v_df)
+
+        df = pd.concat(dfs).sort_values("n")
+        return df[orig_df.columns].reset_index(drop=True)
+
     def _filter_irq(self, df, name):
         try:
             irq = df["irq"].iloc[0]
@@ -473,9 +509,10 @@ class RegLogParser:
         df = self._read_df(name)
         df = self._squeeze_changes(df)
         df = self._combine_regs(df)
+        df = self._quantize_freq_to_cents(df)
         df = self._simplify_ctrl(df)
         df = self._simplify_adsr(df)
-        df = self._quantize_freq_to_cents(df)
+        df = self._simplify_pcm(df)
         df = self._squeeze_changes(df)
         if df.empty:
             return
