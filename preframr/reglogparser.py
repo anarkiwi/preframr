@@ -321,14 +321,16 @@ class RegLogParser:
         df = df.sort_values(["f", "v", "reg", "n"])
         ordregs = ["cd", "fd"]
 
-        # absolute control reg value first
+        # control diff reg value first
         xdf = ctrl_df.copy()
         xdf["cd"] = xdf["val"]
+        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
 
         # freq diff reg value first
         xdf = freq_df.copy()
         xdf["fd"] = xdf["val"]
+        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
@@ -429,6 +431,14 @@ class RegLogParser:
             return False
         return True
 
+    def _combine_regs(self, df):
+        for v in range(VOICES):
+            v_offset = v * VOICE_REG_SIZE
+            for reg, bits in ((v_offset, 0), ((v_offset + 2), 4), ((v_offset + 5), 0)):
+                df = self._combine_reg(df, reg=reg, bits=bits)
+        df = self._combine_reg(df, 21, bits=2)
+        return df
+
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
         parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
         if parquet_glob:
@@ -446,12 +456,8 @@ class RegLogParser:
         df = self._read_df(name)
         df = self._squeeze_changes(df)
         df = self._simplify_ctrl(df)
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):
-                df = self._combine_reg(df, reg=reg, bits=bits)
+        df = self._combine_regs(df)
         df = self._quantize_freq_to_cents(df)
-        df = self._combine_reg(df, 21, bits=2)
         df = self._squeeze_changes(df)
         if df.empty:
             return
@@ -478,7 +484,6 @@ class RegLogParser:
             ctrl_df = self._last_reg_val_frame(xdf, 4)
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
             xdf = self._add_voice_reg(xdf)
-            xdf = self._combine_voice_freq(xdf, ctrl_df, freq_df)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
