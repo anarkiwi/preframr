@@ -25,15 +25,39 @@ class TestSidwav(unittest.TestCase):
             data = np.round(data, 2)
             self.assertTrue(abs(data.sum()))
 
+    def test_null_delay(self):
+        def _test_samples(decay_val, sustain_val):
+            sid = SoundInterfaceDevice(sampling_frequency=8e3)
+            sec = timedelta(seconds=1)
+            sid.write_register(24, 15)
+            sid.write_register(5, decay_val)
+            sid.write_register(6, sustain_val)
+            sid.write_register(0, 8)
+            sid.write_register(1, 8)
+            sid.clock(sec)
+            sid.write_register(4, 33)
+            samples = sid.clock(sec)
+            return np.array(samples)
+
+        # max sustain, decay has no effect
+        a = _test_samples(0b00010001, 0b11110000)
+        b = _test_samples(0b00010100, 0b11110000)
+        assert np.allclose(a, b, rtol=2, atol=2)
+
+        # not max sustain, decay effect
+        a = _test_samples(0b00010001, 0b00110000)
+        b = _test_samples(0b00010100, 0b00110000)
+        assert not np.allclose(a, b, rtol=2, atol=2)
+
     def test_ring_effects(self):
         def _test_samples(ctrl_val):
             sid = SoundInterfaceDevice(sampling_frequency=8e3)
             sec = timedelta(seconds=1)
             sid.write_register(24, 15)
-            sid.write_register(6, 240)
+            sid.write_register(6, 0b11110000)
             sid.write_register(0, 8)
             sid.write_register(1, 8)
-            sid.write_register(20, 240)
+            sid.write_register(20, 0b11110000)
             sid.write_register(14, 4)
             sid.write_register(15, 4)
             sid.clock(sec)
