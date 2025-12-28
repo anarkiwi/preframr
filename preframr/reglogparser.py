@@ -438,7 +438,7 @@ class RegLogParser:
             v_df.loc[m, "p"] = 1
             m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0)
             v_df.loc[m, "p"] = 0
-            v_df["p"] = v_df["p"].ffill().astype(pd.UInt8Dtype())
+            v_df["p"] = v_df["p"].astype(pd.UInt8Dtype()).ffill()
             # drop all PCM sets where pulse not enabled
             v_df = v_df[~((v_df["reg"] == pcm_reg) & (v_df["p"] == 0))]
             # add PCM set when pulse enabled.
