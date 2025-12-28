@@ -1,6 +1,7 @@
 import glob
 import itertools
 import logging
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from pyarrow.parquet import ParquetFile
@@ -31,6 +32,8 @@ FRAME_DTYPES = {
     "diff": DIFF_PDTYPE,
     "irq": IRQ_PDTYPE,
 }
+
+PY_MTIME = Path(__file__).resolve().stat().st_mtime
 
 
 def wrapbits(x, reglen):
@@ -454,6 +457,9 @@ class RegLogParser:
         parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
         if parquet_glob:
             for parquet_name in sorted(parquet_glob):
+                assert (
+                    Path(parquet_name).stat().st_mtime > PY_MTIME
+                ), f"pre-parsed {parquet_name} out of date"
                 pf = ParquetFile(parquet_name)
                 sample_rows = next(pf.iter_batches(batch_size=1))
                 df = pa.Table.from_batches([sample_rows]).to_pandas()
