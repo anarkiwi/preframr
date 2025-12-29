@@ -431,7 +431,7 @@ class RegLogParser:
             v_df["pcm"] = pd.NA
             m = v_df["reg"] == pcm_reg
             v_df.loc[m, "pcm"] = v_df[m]["val"]
-            v_df["pcm"] = v_df["pcm"].ffill()
+            v_df["pcm"] = v_df["pcm"].astype(MODEL_PDTYPE).ffill()
             # set p flag for when pulse enabled.
             v_df["p"] = pd.NA
             m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0b01000000)
@@ -446,8 +446,8 @@ class RegLogParser:
             p_df = v_df[
                 (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0b01000000)
             ].copy()
-            p_df.loc[:, "reg"] = pcm_reg
-            p_df.loc[:, "val"] = p_df["pcm"]
+            p_df["reg"] = pcm_reg
+            p_df["val"] = p_df["pcm"]
             p_df["n"] = p_df["n"] - 1
             v_df = pd.concat([v_df, p_df])
             dfs.append(v_df)

@@ -30,7 +30,9 @@ def main():
             args.reglogs, args.max_files, args.min_dump_size, require_pq=False
         ):
             futures.append(executor.submit(write_df, args, name))
-        for future in tqdm(concurrent.futures.as_completed(futures)):
+        for future in tqdm(
+            concurrent.futures.as_completed(futures), total=len(futures), maxinterval=1
+        ):
             assert not future.exception(), future.exception()
 
 
