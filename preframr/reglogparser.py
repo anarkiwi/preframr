@@ -148,8 +148,8 @@ class RegLogParser:
             reg_df[str(i)] = reg_df[reg_df["reg"] == (reg + i)]["val"]
             reg_df[str(i)] = reg_df[str(i)].ffill().fillna(0)
             reg_df[str(i)] = np.left_shift(reg_df[str(i)].values, int(8 * i))
-        reg_df.loc[:, "val"] = 0
-        reg_df.loc[:, "reg"] = reg
+        reg_df["val"] = 0
+        reg_df["reg"] = reg
         for i in range(reg_range):
             reg_df["val"] = reg_df["val"].astype(dtype) + reg_df[str(i)]
         return reg_df[origcols]
@@ -185,6 +185,8 @@ class RegLogParser:
         return df
 
     def _rotate_voice_augment(self, orig_df, max_perm):
+        if orig_df.empty:
+            return
         if not max_perm:
             yield orig_df
             return
@@ -324,17 +326,30 @@ class RegLogParser:
         df = df.sort_values(["f", "v", "reg", "n"])
         ordregs = ["cd", "fd"]
 
-        # control diff reg value first
+        # control reg value first
         xdf = ctrl_df.copy()
         xdf["cd"] = xdf["val"]
-        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
 
-        # freq diff reg value first
+        # freq reg value first
         xdf = freq_df.copy()
         xdf["fd"] = xdf["val"]
-        xdf["f"] += 1
         df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
+
+        # ctrl reg always gets freq update
+        non_f_df = df[~self._freq_match(df)].copy()
+        af_df = df[self._freq_match(df)].copy()
+        rf_df = df[self._ctrl_match(df)].copy()
+        rf_df["n"] -= 1
+        rf_df["reg"] -= 4
+        rf_df["val"] = rf_df["fd"]
+
+        f_df = (
+            pd.concat([af_df, rf_df])
+            .sort_values(["f", "reg"])
+            .drop_duplicates(["f", "reg"], keep="last")
+        )
+        df = pd.concat([non_f_df, f_df])
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
         df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
@@ -409,11 +424,10 @@ class RegLogParser:
         df = orig_df.copy()
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            ctrl_reg = v_offset + 5
+            adsr_reg = v_offset + 5
             # max sustain, disable decay
-            df.loc[
-                (df["reg"] == ctrl_reg) & (df["val"] & 0b11110000 == 0b11110000), "val"
-            ] = (df["val"] & 0b1111000011111111)
+            m = (df["reg"] == adsr_reg) & (df["val"] & 0b11110000 == 0b11110000)
+            df.loc[m, "val"] = df[m]["val"][m] & 0b1111000011111111
         return df
 
     def _simplify_pcm(self, orig_df):
@@ -514,7 +528,7 @@ class RegLogParser:
         df = self._combine_regs(df)
         df = self._quantize_freq_to_cents(df)
         df = self._simplify_ctrl(df)
-        df = self._simplify_adsr(df)
+        # df = self._simplify_adsr(df)
         df = self._simplify_pcm(df)
         df = self._squeeze_changes(df)
         if df.empty:
@@ -526,18 +540,17 @@ class RegLogParser:
             assert delay_max < 256, delay_max
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
+        df["irq"] = irq
+        while not df.empty and self._frame_reg(df.iloc[-1]):
+            df = df.head(len(df) - 1)
+        while not df.empty and (
+            self._frame_reg(df.iloc[0])
+            or (df.iloc[0]["reg"] == MODE_VOL_REG and df.iloc[0]["val"] == 15)
+        ):
+            df = df.tail(len(df) - 1)
+
         for xdf in self._rotate_voice_augment(df, max_perm):
-            xdf["irq"] = irq
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            while not xdf.empty and self._frame_reg(xdf.iloc[-1]):
-                xdf = xdf.head(len(xdf) - 1)
-            while not xdf.empty and (
-                self._frame_reg(xdf.iloc[0])
-                or (xdf.iloc[0]["reg"] == MODE_VOL_REG and xdf.iloc[0]["val"] == 15)
-            ):
-                xdf = xdf.tail(len(xdf) - 1)
-            if xdf.empty:
-                continue
             freq_df = self._last_reg_val_frame(xdf, 0)
             ctrl_df = self._last_reg_val_frame(xdf, 4)
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
