@@ -271,7 +271,8 @@ class RegLogParser:
             .sort_values("f")
         ).reset_index(drop=True)
         norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
-        return norm_df.fillna(0).astype(MODEL_PDTYPE)
+        norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE)
+        return norm_df
 
     def _reduce_val_res(self, df, reg, bits):
         m = df["reg"] == reg
@@ -349,7 +350,7 @@ class RegLogParser:
             .sort_values(["f", "reg"])
             .drop_duplicates(["f", "reg"], keep="last")
         )
-        df = pd.concat([non_f_df, f_df])
+        df = pd.concat([non_f_df, f_df]).fillna(0)
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
         df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
