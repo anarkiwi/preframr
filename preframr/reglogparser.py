@@ -434,15 +434,18 @@ class RegLogParser:
             v_df["pcm"] = v_df["pcm"].ffill()
             # set p flag for when pulse enabled.
             v_df["p"] = pd.NA
-            m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000)
+            m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0b01000000)
             v_df.loc[m, "p"] = 1
             m = (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0)
             v_df.loc[m, "p"] = 0
             v_df["p"] = v_df["p"].astype(pd.UInt8Dtype()).ffill()
-            # drop all PCM sets where pulse not enabled
-            v_df = v_df[~((v_df["reg"] == pcm_reg) & (v_df["p"] == 0))]
+            # set PCM set, to 0 where pulse not enabled
+            # forces PCM to be reset when pulse waveform selected.
+            v_df.loc[((v_df["reg"] == pcm_reg) & (v_df["p"] == 0)), "val"] = 0
             # add PCM set when pulse enabled.
-            p_df = v_df[(v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000)].copy()
+            p_df = v_df[
+                (v_df["reg"] == ctrl_reg) & (v_df["val"] & 0b01000000 == 0b01000000)
+            ].copy()
             p_df.loc[:, "reg"] = pcm_reg
             p_df.loc[:, "val"] = p_df["pcm"]
             p_df["n"] = p_df["n"] - 1
