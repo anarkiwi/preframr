@@ -70,6 +70,6 @@ class TestRegTokenizer(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        loader.accumulate_tokens(test_df)
+        loader.accumulate_tokens(test_df, "test")
         result_df = loader.make_tokens().astype(MODEL_PDTYPE)
         self.assertTrue(tokens_df.equals(result_df), result_df)

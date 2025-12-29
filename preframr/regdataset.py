@@ -119,13 +119,16 @@ class RegDataset(torch.utils.data.Dataset):
                     yield dump_file, df, seq, irq
 
     def make_tokens(self, reglogs):
-        for _df_file, df, _seq, _irq in self.load_dfs(
+        for df_file, df, _seq, _irq in self.load_dfs(
             reglogs, max_perm=self.args.max_perm
         ):
-            self.tokenizer.accumulate_tokens(df)
-        self.tokenizer.tokens = self.tokenizer.make_tokens()
-        assert self.tokenizer.tokens[self.tokenizer.tokens["val"].isna()].empty
-        assert self.tokenizer.tokens[self.tokenizer.tokens["val"] < 0].empty
+            self.tokenizer.accumulate_tokens(df, df_file)
+        tokens = self.tokenizer.make_tokens()
+        self.tokenizer.tokens = tokens
+        assert self.tokenizer.tokens[tokens["val"].isna()].empty, tokens[
+            tokens["val"].isna()
+        ]
+        assert self.tokenizer.tokens[tokens["val"] < 0].empty
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None:

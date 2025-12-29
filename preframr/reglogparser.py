@@ -558,4 +558,6 @@ class RegLogParser:
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
+            empty_val = xdf[xdf["val"].isna()]
+            assert empty_val.empty, (name, empty_val)
             yield xdf

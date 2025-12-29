@@ -70,25 +70,30 @@ class RegTokenizer:
             self.args.tkvocab,
         )
 
-    def accumulate_tokens(self, df):
-        self.frame_tokens.append(
-            df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
-        )
+    def crunch_tokens(self):
+        self.frame_tokens = [
+            pd.concat(self.frame_tokens)
+            .drop_duplicates()
+            .sort_values(TOKEN_KEYS)
+            .copy()
+            .reset_index(drop=True)
+        ]
+
+    def accumulate_tokens(self, df, df_file):
+        frame_tokens = df[TOKEN_KEYS].drop_duplicates().copy().reset_index(drop=True)
+        assert frame_tokens["reg"].max() < 256, df_file
+        self.frame_tokens.append(frame_tokens)
         if len(self.frame_tokens) > 64:
-            self.frame_tokens = [
-                pd.concat(self.frame_tokens)
-                .drop_duplicates()
-                .copy()
-                .reset_index(drop=True)
-            ]
+            self.crunch_tokens()
 
     def make_tokens(self):
         self.logger.info("making tokens")
-        tokens = pd.concat(self.frame_tokens, copy=False)
-        tokens = tokens.drop_duplicates().sort_values(TOKEN_KEYS).reset_index(drop=True)
+        self.crunch_tokens()
+        tokens = self.frame_tokens[0]
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype({"val": VAL_PDTYPE, "n": TOKEN_PDTYPE})
+        assert tokens["reg"].max() < 256
         return tokens
 
     def _merged_and_missing(self, tokens, df):
