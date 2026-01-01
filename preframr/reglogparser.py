@@ -360,32 +360,6 @@ class RegLogParser:
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
-    def _combine_voice_freq(self, orig_df, ctrl_df, freq_df):
-        norm_df = self._norm_df(orig_df.copy())
-
-        # noise bit from control register
-        ctrl_xdf = ctrl_df.copy()
-        ctrl_xdf["hctrl"] = np.left_shift(ctrl_xdf["val"] & 0b10000000, 1)
-        ctrl_xdf = ctrl_xdf.drop(["val"], axis=1)
-        ctrl_xdf = ctrl_xdf.rename(columns={"v": "val"})
-
-        # high 7 bits from frequency register
-        freq_xdf = freq_df.copy()
-        freq_xdf["hfreq"] = np.left_shift(np.right_shift(freq_xdf["val"], 9), 9)
-        freq_xdf = freq_xdf.drop(["val"], axis=1)
-        freq_xdf = freq_xdf.rename(columns={"v": "val"})
-
-        xdf = ctrl_xdf.merge(freq_xdf, how="left", on=["f", "val"])
-        xdf["salt"] = xdf["hfreq"] + xdf["hctrl"]
-
-        norm_df = norm_df.merge(xdf[["f", "val", "salt"]], how="left", on=["f", "val"])
-        m = norm_df["reg"].isin({FRAME_REG, VOICE_REG})
-        norm_df.loc[m, "val"] = norm_df[m]["salt"].fillna(0) + norm_df[m]["val"].fillna(
-            0
-        )
-        df = norm_df[orig_df.columns].reset_index(drop=True)
-        return df
-
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
         m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
@@ -502,7 +476,7 @@ class RegLogParser:
     def _combine_regs(self, df):
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
-            for reg, bits in ((v_offset, 0), ((v_offset + 2), 4), ((v_offset + 5), 0)):
+            for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):
                 df = self._combine_reg(df, reg=reg, bits=bits)
         df = self._combine_reg(df, 21, bits=2)
         return df
