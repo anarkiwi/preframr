@@ -42,6 +42,10 @@ class Predictor:
         return output.squeeze(0)[-n:]
 
 
+def describe_cycles(cycles):
+    return f"{int(cycles)} cycles {cycles*sidq():.2f} seconds"
+
+
 def generate_sequence(args, logger, dataset, predictor):
     irq, n, prompt, prompt_compare, reg_start = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
@@ -52,9 +56,8 @@ def generate_sequence(args, logger, dataset, predictor):
     )
     prompt_cycles = prompt_df_audio["diff"].sum()
     logger.info(
-        "prompt lasts %u cycles %.2f seconds %u tokens (%u decoded tokens), predicting %u tokens",
-        prompt_cycles,
-        prompt_cycles * sidq(),
+        "prompt lasts %s %u tokens (%u decoded tokens), predicting %u tokens",
+        describe_cycles(prompt_cycles),
         args.prompt_seq_len,
         len(decoded_prompt),
         n,
@@ -91,12 +94,10 @@ def generate_sequence(args, logger, dataset, predictor):
     total_cycles = df["diff"].sum()
     generated_cycles = total_cycles - prompt_cycles
     logger.info(
-        "generated %9.u cycles %6.2f seconds accuracy %s, finalized %9.u total cycles %6.2f total seconds",
-        generated_cycles,
-        generated_cycles * sidq(),
+        "generated %s accuracy %s, total %s",
+        describe_cycles(generated_cycles),
         f_acc,
-        total_cycles,
-        total_cycles * sidq(),
+        describe_cycles(total_cycles),
     )
     write_samples(
         df,

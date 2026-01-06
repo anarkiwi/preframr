@@ -181,26 +181,25 @@ def write_samples(
 ):
     if sid is None:
         sid = default_sid()
+    if reg_start is None:
+        reg_start = {}
+        for v in range(VOICES):
+            offset = v * VOICE_REG_SIZE
+            # max sustain all voices
+            reg_start[6 + offset] = 240
+            # 50% pwm
+            reg_start[3 + offset] = 16
+
+    reg_start[MODE_VOL_REG] = reg_start.get(MODE_VOL_REG, 15)
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
-        if reg_start is None:
-            reg_start = {}
-            for v in range(VOICES):
-                offset = v * VOICE_REG_SIZE
-                # max sustain all voices
-                reg_start[6 + offset] = 240
-                # 50% pwm
-                reg_start[3 + offset] = 16
-
-        reg_start[MODE_VOL_REG] = reg_start.get(MODE_VOL_REG, 15)
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
 
-        total_secs = df["delay"].sum() + 1
-
-        raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
-        sp = 0
         sid_df = df[["reg", "val", "delay"]]
+        total_secs = df["delay"].sum() + 1
+        sp = 0
+        raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
 
         for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
             delay = row.delay
