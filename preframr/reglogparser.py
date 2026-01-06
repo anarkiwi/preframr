@@ -100,6 +100,12 @@ def reset_diffs(orig_df, irq, sidq):
     return df
 
 
+def prepare_df_for_audio(orig_df, reg_widths, irq, sidq):
+    df, reg_widths = remove_voice_reg(orig_df, reg_widths)
+    df = reset_diffs(df, irq, sidq)
+    return df, reg_widths
+
+
 class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args

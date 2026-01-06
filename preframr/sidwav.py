@@ -8,7 +8,7 @@ from pyresidfp.sound_interface_device import ChipModel
 import pandas as pd
 import mido
 import numpy as np
-from preframr.reglogparser import reset_diffs, remove_voice_reg
+from preframr.reglogparser import prepare_df_for_audio
 from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
@@ -172,7 +172,7 @@ def write_reg(sid, reg, val, reg_widths):
 
 
 def write_samples(
-    orig_df,
+    df,
     name,
     reg_widths,
     reg_start=None,
@@ -185,9 +185,7 @@ def write_samples(
         sid = default_sid()
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
-        df = orig_df.copy()
-        df, reg_widths = remove_voice_reg(df, reg_widths)
-        df = reset_diffs(df, irq, sidq(sid))
+        df, reg_widths = prepare_df_for_audio(df, reg_widths, irq, sidq(sid))
 
         if reg_start is None:
             reg_start = {}
