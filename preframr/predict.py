@@ -74,18 +74,6 @@ def generate_sequence(args, logger, dataset, predictor):
             dataset.n_vocab,
         )
         f_acc = "%3.3f" % acc
-    df, reg_widths = prepare_df_for_audio(df, dataset.reg_widths, irq, sidq())
-    cycles = df["diff"].sum() - prompt_cycles
-    logger.info(
-        "generated %9.u cycles %6.2f seconds accuracy %s",
-        cycles,
-        cycles * sidq(),
-        f_acc,
-    )
-    cycles = df["diff"].sum()
-    logger.info(
-        "finalized %9.u total cycles %6.2f total seconds", cycles, cycles * sidq()
-    )
     if args.csv:
         out_df = df.join(
             state_df(dataset.decode(prompt_compare.numpy()), dataset, irq),
@@ -94,6 +82,22 @@ def generate_sequence(args, logger, dataset, predictor):
         )
         out_df["p_n"] = out_df["n"] == out_df["n_p"]
         out_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
+    if args.min_acc:
+        if acc is pd.NA or acc < args.min_acc:
+            logger.error(f"{acc} below min_acc {args.min_acc}")
+        sys.exit(-1)
+
+    df, reg_widths = prepare_df_for_audio(df, dataset.reg_widths, irq, sidq())
+    total_cycles = df["diff"].sum()
+    generated_cycles = total_cycles - prompt_cycles
+    logger.info(
+        "generated %9.u cycles %6.2f seconds accuracy %s, finalized %9.u total cycles %6.2f total seconds",
+        generated_cycles,
+        generated_cycles * sidq(),
+        f_acc,
+        total_cycles,
+        total_cycles * sidq(),
+    )
     write_samples(
         df,
         args.wav,
@@ -102,10 +106,6 @@ def generate_sequence(args, logger, dataset, predictor):
         asid=args.asid,
         sysex_delay=args.sysex_delay,
     )
-    if args.min_acc:
-        if acc is pd.NA or acc < args.min_acc:
-            logger.error(f"{acc} below min_acc {args.min_acc}")
-        sys.exit(-1)
 
 
 def get_ckpt(ckpt, tb_logs):
