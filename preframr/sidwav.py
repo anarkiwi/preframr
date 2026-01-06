@@ -8,7 +8,7 @@ from pyresidfp.sound_interface_device import ChipModel
 import pandas as pd
 import mido
 import numpy as np
-from preframr.reglogparser import remove_voice_reg
+from preframr.reglogparser import reset_diffs, remove_voice_reg
 from preframr.stfconstants import (
     CTRL_REG,
     DELAY_REG,
@@ -181,23 +181,13 @@ def write_samples(
     asid=None,
     sysex_delay=0.002,
 ):
-    df = orig_df.copy()
     if sid is None:
         sid = default_sid()
 
     with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
+        df = orig_df.copy()
         df, reg_widths = remove_voice_reg(df, reg_widths)
-
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            f_reg = v_offset
-            if reg_widths.get(f_reg, 0) <= 2:
-                continue
-            reg_widths[f_reg] -= 1
-            m = df["reg"] == f_reg
-            df.loc[m, "val"] = np.right_shift(df[m]["val"], 8)
-            if f_reg in reg_start:
-                reg_start[f_reg] >>= 8
+        df = reset_diffs(df, irq, sidq(sid))
 
         if reg_start is None:
             reg_start = {}
@@ -212,23 +202,6 @@ def write_samples(
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
 
-        df = df.reset_index(drop=True)
-        frame_cond = df["reg"] == FRAME_REG
-
-        if irq is None:
-            irq = df[frame_cond]["diff"].iat[0]
-
-        df.loc[df["reg"] == DELAY_REG, "diff"] = df["val"] * irq
-        df["delay"] = df["diff"] * sidq(sid)
-
-        df["f"] = (frame_cond).cumsum()
-        df["fd"] = df["diff"]
-        df.loc[df["reg"] < 0, "fd"] = pd.NA
-
-        df["fd"] = df.groupby(["f"])["fd"].transform("sum") * sidq(sid)
-        df.loc[frame_cond, "delay"] = df[frame_cond]["delay"] - df[frame_cond][
-            "fd"
-        ].shift().fillna(0)
         total_secs = df["delay"].sum() + 1
 
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)

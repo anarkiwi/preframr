@@ -79,6 +79,27 @@ def remove_voice_reg(orig_df, reg_widths):
     return orig_df, reg_widths
 
 
+def reset_diffs(orig_df, irq, sidq):
+    df = orig_df.copy().reset_index(drop=True)
+    frame_cond = df["reg"] == FRAME_REG
+
+    if irq is None:
+        irq = df[frame_cond]["diff"].iat[0]
+
+    df.loc[df["reg"] == DELAY_REG, "diff"] = df["val"] * irq
+    df["delay"] = df["diff"] * sidq
+
+    df["f"] = (frame_cond).cumsum()
+    df["fd"] = df["diff"]
+    df.loc[df["reg"] < 0, "fd"] = pd.NA
+
+    df["fd"] = df.groupby(["f"])["fd"].transform("sum") * sidq
+    df.loc[frame_cond, "delay"] = df[frame_cond]["delay"] - df[frame_cond][
+        "fd"
+    ].shift().fillna(0)
+    return df
+
+
 class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args
