@@ -3,10 +3,10 @@
 import argparse
 from torchtune.utils import get_logger
 from regdataset import RegDataset, get_prompt
-from reglogparser import state_df
+from reglogparser import state_df, prepare_df_for_audio
 from args import add_args
 from preframr.stfconstants import MODEL_PDTYPE
-from sidwav import write_samples
+from sidwav import default_sid, sidq, write_samples
 
 
 def main():
@@ -23,10 +23,13 @@ def main():
     prompt_df = state_df(dataset.tokenizer.decode(states), dataset, irq)
     if args.csv:
         prompt_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
+    prompt_df, reg_widths = prepare_df_for_audio(
+        prompt_df, dataset.reg_widths, irq, sidq()
+    )
     write_samples(
         prompt_df,
         args.wav,
-        dataset.reg_widths,
+        reg_widths=reg_widths,
         asid=args.asid,
         sysex_delay=args.sysex_delay,
         reg_start=reg_start,

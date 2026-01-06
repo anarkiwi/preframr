@@ -14,7 +14,7 @@ import torchmetrics
 from args import add_args, MODEL_PRECISION
 from model import get_device, Model
 from regdataset import RegDataset, get_prompt
-from reglogparser import state_df
+from reglogparser import state_df, prepare_df_for_audio
 from sidwav import write_samples, sidq
 from preframr.stfconstants import MODEL_PDTYPE, PAD_ID
 
@@ -47,7 +47,10 @@ def generate_sequence(args, logger, dataset, predictor):
     states = prompt.squeeze(0).tolist()
     decoded_prompt = dataset.tokenizer.decode(states)
     prompt_df = state_df(decoded_prompt, dataset, irq)
-    prompt_cycles = prompt_df["diff"].sum()
+    prompt_df_audio, _reg_widths = prepare_df_for_audio(
+        prompt_df, dataset.reg_widths, irq, sidq()
+    )
+    prompt_cycles = prompt_df_audio["diff"].sum()
     logger.info(
         "prompt lasts %u cycles %.2f seconds %u tokens (%u decoded tokens), predicting %u tokens",
         prompt_cycles,
@@ -71,6 +74,7 @@ def generate_sequence(args, logger, dataset, predictor):
             dataset.n_vocab,
         )
         f_acc = "%3.3f" % acc
+    df, reg_widths = prepare_df_for_audio(df, dataset.reg_widths, irq, sidq())
     cycles = df["diff"].sum() - prompt_cycles
     logger.info(
         "generated %9.u cycles %6.2f seconds accuracy %s",
@@ -93,7 +97,7 @@ def generate_sequence(args, logger, dataset, predictor):
     write_samples(
         df,
         args.wav,
-        dataset.reg_widths,
+        reg_widths,
         reg_start=reg_start,
         asid=args.asid,
         sysex_delay=args.sysex_delay,

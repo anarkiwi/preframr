@@ -8,7 +8,7 @@ import pandas as pd
 import scipy
 
 from pyresidfp import SoundInterfaceDevice
-from preframr.sidwav import write_samples, default_sid
+from preframr.sidwav import default_sid, sidq, write_samples
 
 
 class TestSidwav(unittest.TestCase):
@@ -19,7 +19,8 @@ class TestSidwav(unittest.TestCase):
                 [(1, 24, 0), (1024, 24, 15), (2048, 24, 0)],
                 columns=["diff", "reg", "val"],
             )
-            write_samples(test_df, test_wav_name, {}, irq=1)
+            test_df["delay"] = test_df["diff"] * sidq()
+            write_samples(test_df, test_wav_name, reg_widths={})
             rate, data = scipy.io.wavfile.read(test_wav_name)
             self.assertEqual(rate, 48000)
             data = np.round(data, 2)
