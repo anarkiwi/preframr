@@ -111,11 +111,17 @@ class RegLogParser:
         self.args = args
         self.logger = logger
 
-    def _ctrl_match(self, df):
-        return (df["reg"] == 4) | (df["reg"] == 11) | (df["reg"] == 18)
+    def _vreg_match(self, vreg):
+        return {(v * VOICE_REG_SIZE) + vreg for v in range(VOICES)}
 
     def _freq_match(self, df):
-        return (df["reg"] == 0) | (df["reg"] == 7) | (df["reg"] == 14)
+        return df["reg"].isin(self._vreg_match(0))
+
+    def _ctrl_match(self, df):
+        return df["reg"].isin(self._vreg_match(4))
+
+    def _adsr_match(self, df):
+        return df["reg"].isin(self._vreg_match(5) | self._vreg_match(6))
 
     def _frame_match(self, df):
         return (df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)
