@@ -79,7 +79,7 @@ def generate_sequence(args, logger, dataset, predictor):
         f_acc = "%3.3f" % acc
     if args.csv:
         out_df = df.join(
-            state_df(dataset.decode(prompt_compare.numpy()), dataset, irq),
+            state_df(dataset.tokenizer.decode(prompt_compare.numpy()), dataset, irq),
             how="left",
             rsuffix="_p",
         )
