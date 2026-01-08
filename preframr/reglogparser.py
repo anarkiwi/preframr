@@ -354,15 +354,10 @@ class RegLogParser:
         df = df.sort_values(["f", "v", "reg", "n"])
         ordregs = ["cd", "fd"]
 
-        # control reg value first
-        xdf = ctrl_df.copy()
-        xdf["cd"] = xdf["val"]
-        df = df.merge(xdf[["f", "v", "cd"]], how="left", on=["f", "v"])
-
-        # freq reg value first
-        xdf = freq_df.copy()
-        xdf["fd"] = xdf["val"]
-        df = df.merge(xdf[["f", "v", "fd"]], how="left", on=["f", "v"])
+        for orig_xdf, ordreg in zip([ctrl_df, freq_df], ordregs):
+            xdf = orig_xdf.copy()
+            xdf[ordreg] = xdf["val"]
+            df = df.merge(xdf[["f", "v", ordreg]], how="left", on=["f", "v"])
 
         # ctrl reg always gets freq update
         non_f_df = df[~self._freq_match(df)].copy()
