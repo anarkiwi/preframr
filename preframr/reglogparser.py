@@ -308,7 +308,12 @@ class RegLogParser:
                 .sort_values("f")
             ).reset_index(drop=True)
             norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
-            norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE)
+            diff_df = norm_df.copy()
+            diff_df["f"] -= 1
+            diff_df["nval"] = diff_df["val"]
+            diff_df = diff_df[["nval", "v", "f"]]
+            norm_df = norm_df.merge(diff_df, how="left", on=["v", "f"])
+            norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE).sort_values(["f", "v"])
             yield norm_df
 
     def _reduce_val_res(self, df, reg, bits):
