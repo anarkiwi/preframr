@@ -128,7 +128,7 @@ class RegDataset(torch.utils.data.Dataset):
         assert self.tokenizer.tokens[tokens["val"].isna()].empty, tokens[
             tokens["val"].isna()
         ]
-        assert self.tokenizer.tokens[tokens["val"] < 0].empty
+        # assert self.tokenizer.tokens[tokens["val"] < 0].empty
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None:

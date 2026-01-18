@@ -205,7 +205,8 @@ def write_samples(
                 if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
                 else:
-                    assert False, f"unknown reg {row.reg}"
+                    # assert False, f"unknown reg {row.reg}"
+                    continue
             else:
                 reg = row.reg
                 write_reg(proxy, reg, row.val, reg_widths)

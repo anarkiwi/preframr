@@ -117,6 +117,9 @@ class RegLogParser:
     def _freq_match(self, df):
         return df["reg"].isin(self._vreg_match(0))
 
+    def _pcm_match(self, df):
+        return df["reg"].isin(self._vreg_match(2))
+
     def _ctrl_match(self, df):
         return df["reg"].isin(self._vreg_match(4))
 
@@ -357,7 +360,7 @@ class RegLogParser:
     def _norm_df(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = self._frame_reg(norm_df)
-        norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int)
+        norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int).abs()
         norm_df["n"] = norm_df.index * 10
         norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
@@ -467,6 +470,23 @@ class RegLogParser:
         df = pd.concat(dfs).sort_values("n")
         return df[orig_df.columns].reset_index(drop=True)
 
+    def _add_change_regs(self, orig_df):
+        df = self._norm_df(orig_df)
+        pcm_df = list(self._last_reg_val_frame(orig_df, [2]))[0]
+        pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
+        pcm_df = pcm_df[["reg", "f", "nval"]]
+        pcm_df["f"] -= 1
+        df = df.merge(pcm_df, how="left", on=["f", "reg"])
+        pcm_df = df[self._pcm_match(df)].copy()
+        pcm_df["reg"] = -pcm_df["reg"]
+        pcm_df["val"] -= pcm_df["nval"]
+        cols = ["reg", "val"]
+        pcm_df = pcm_df.sort_values(["reg", "n", "val"])
+        pcm_df[cols].loc[(pcm_df[cols].shift() != pcm_df[cols]).any(axis=1)]
+        df = pd.concat([df, pcm_df]).sort_values(["n"]).reset_index(drop=True)
+        df = df[orig_df.columns].reset_index(drop=True)
+        return df
+
     def _filter_irq(self, df, name):
         try:
             irq = df["irq"].iloc[0]
@@ -532,6 +552,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
+        # df = self._add_change_regs(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
@@ -549,7 +570,7 @@ class RegLogParser:
 
         for xdf in self._rotate_voice_augment(df, max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            freq_df, pcm_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 2, 4])
+            freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)

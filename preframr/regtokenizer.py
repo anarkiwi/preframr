@@ -11,7 +11,7 @@ from preframr.stfconstants import (
 )
 
 DIFF_PDTYPE = pd.UInt16Dtype()
-VAL_PDTYPE = pd.UInt32Dtype()
+VAL_PDTYPE = pd.Int32Dtype()
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
