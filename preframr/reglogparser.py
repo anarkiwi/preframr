@@ -371,7 +371,8 @@ class RegLogParser:
     def _norm_pr_order(self, orig_df, ctrl_df, freq_df):
         norm_df = self._norm_df(orig_df)
         df = norm_df.copy()
-        df = df.sort_values(["f", "v", "reg", "n"])
+        df["areg"] = df["reg"].abs()
+        df = df.sort_values(["f", "v", "areg", "n"])
         ordregs = ["cd", "fd"]
 
         for orig_xdf, ordreg in zip([ctrl_df, freq_df], ordregs):
@@ -383,9 +384,9 @@ class RegLogParser:
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
         df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
         m = self._frame_match(df)
-        df.loc[m, ordregs] = df[m]["reg"]
+        df.loc[m, ordregs] = df[m]["areg"]
 
-        df = df.sort_values(["f"] + ordregs + ["v", "reg", "n"])
+        df = df.sort_values(["f"] + ordregs + ["v", "areg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -485,8 +486,8 @@ class RegLogParser:
         pcm_df["val"] -= pcm_df["nval"]
         pcm_df["n"] += 1
         cols = ["reg", "val"]
-        pcm_df = pcm_df.sort_values(["reg", "n", "val"])
-        pcm_df[cols].loc[(pcm_df[cols].shift() != pcm_df[cols]).any(axis=1)]
+        # pcm_df = pcm_df.sort_values(["reg", "n", "val"])
+        # pcm_df = pcm_df[pcm_df[cols].shift() != pcm_df[cols]]
         df = pd.concat([df, pcm_df]).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
         return df
@@ -556,7 +557,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
-        # df = self._add_change_regs(df)
+        df = self._add_change_regs(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
