@@ -537,6 +537,8 @@ class RegLogParser:
             or (df.iloc[0]["reg"] == MODE_VOL_REG and df.iloc[0]["val"] == 15)
         ):
             df = df.tail(len(df) - 1)
+        if not self._filter(xdf, name):
+            return
 
         for xdf in self._rotate_voice_augment(df, max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
@@ -545,8 +547,6 @@ class RegLogParser:
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
-            if not self._filter(xdf, name):
-                break
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
             yield xdf
