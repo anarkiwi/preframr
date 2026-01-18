@@ -284,28 +284,32 @@ class RegLogParser:
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
-    def _last_reg_val_frame(self, orig_df, reg):
+    def _last_reg_val_frame(self, orig_df, regs):
         assert not len(orig_df[orig_df["reg"] == VOICE_REG])
-        norm_df = self._norm_df(orig_df.copy())
-        norm_df = (
-            norm_df.pivot(columns="reg", values="val", index=["f", "n", "v"])
+        pivot_df = self._norm_df(orig_df.copy())
+        pivot_df = (
+            pivot_df.pivot(columns="reg", values="val", index=["f", "n", "v"])
             .astype(MODEL_PDTYPE)
             .ffill()
             .fillna(0)
         )
-        regs = [v * VOICE_REG_SIZE + reg for v in range(VOICES)]
-        regs = [reg for reg in regs if reg in norm_df.columns]
-        norm_df = (
-            norm_df[regs].reset_index()[["f"] + regs].drop_duplicates("f", keep="last")
-        )
-        norm_df = (
-            pd.melt(norm_df, id_vars=["f"], var_name="v", value_name="val")
-            .astype(MODEL_PDTYPE)
-            .sort_values("f")
-        ).reset_index(drop=True)
-        norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
-        norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE)
-        return norm_df
+        for reg in regs:
+            norm_df = pivot_df.copy()
+            vregs = [v * VOICE_REG_SIZE + reg for v in range(VOICES)]
+            vregs = [vreg for vreg in vregs if vreg in norm_df.columns]
+            norm_df = (
+                norm_df[vregs]
+                .reset_index()[["f"] + vregs]
+                .drop_duplicates("f", keep="last")
+            )
+            norm_df = (
+                pd.melt(norm_df, id_vars=["f"], var_name="v", value_name="val")
+                .astype(MODEL_PDTYPE)
+                .sort_values("f")
+            ).reset_index(drop=True)
+            norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
+            norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE)
+            yield norm_df
 
     def _reduce_val_res(self, df, reg, bits):
         m = df["reg"] == reg
@@ -540,8 +544,7 @@ class RegLogParser:
 
         for xdf in self._rotate_voice_augment(df, max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            freq_df = self._last_reg_val_frame(xdf, 0)
-            ctrl_df = self._last_reg_val_frame(xdf, 4)
+            freq_df, pcm_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 2, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
