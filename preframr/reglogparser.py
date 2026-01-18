@@ -50,8 +50,8 @@ FILTER_SHIFT_DF = pd.DataFrame(
 
 def state_df(states, dataset, irq):
     tokens = dataset.tokenizer.tokens.copy()
-    tokens.loc[tokens["reg"] >= 0, "diff"] = MIN_DIFF
-    tokens.loc[tokens["reg"] < 0, "diff"] = 0
+    tokens["diff"] = MIN_DIFF
+    tokens.loc[tokens["reg"] < -MAX_REG, "diff"] = 0
     tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
     df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
     return df
@@ -314,9 +314,9 @@ class RegLogParser:
             ).reset_index(drop=True)
             norm_df["v"] = norm_df["v"].floordiv(VOICE_REG_SIZE)
             diff_df = norm_df.copy()
-            diff_df["f"] -= 1
-            diff_df["nval"] = diff_df["val"]
-            diff_df = diff_df[["nval", "v", "f"]]
+            diff_df["pval"] = diff_df["val"]
+            diff_df["f"] += 1
+            diff_df = diff_df[["pval", "v", "f"]]
             norm_df = norm_df.merge(diff_df, how="left", on=["v", "f"])
             norm_df = norm_df.fillna(0).astype(MODEL_PDTYPE).sort_values(["f", "v"])
             yield norm_df
@@ -392,9 +392,14 @@ class RegLogParser:
 
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
-        m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
+        m = (norm_df["reg"] >= -MAX_REG) & norm_df["v"].isin(set(range(VOICES)))
 
-        norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
+        norm_df.loc[m & (norm_df["reg"] >= 0), "reg"] = (
+            norm_df[m & (norm_df["reg"] >= 0)]["reg"] % VOICE_REG_SIZE
+        )
+        norm_df.loc[m & (norm_df["reg"] < 0), "reg"] = (
+            norm_df[m & (norm_df["reg"] < 0)]["reg"] % -VOICE_REG_SIZE
+        )
 
         df = norm_df[(norm_df["vd"] != 0) & m].copy()
         df["n"] -= 1
@@ -478,20 +483,22 @@ class RegLogParser:
         df = self._norm_df(orig_df)
         pcm_df = list(self._last_reg_val_frame(orig_df, [2]))[0]
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
-        pcm_df = pcm_df[["reg", "f", "nval"]]
-        pcm_df["f"] -= 1
+        pcm_df = pcm_df[["reg", "f", "pval"]]
         df = df.merge(pcm_df, how="left", on=["f", "reg"])
         pcm_df = df[self._pcm_match(df)].copy()
         pcm_df["reg"] = -pcm_df["reg"]
-        pcm_df["val"] -= pcm_df["nval"]
+        pcm_df["val"] -= pcm_df["pval"]
         pcm_df["n"] += 1
         pcm_dfs = []
         for reg in pcm_df["reg"].unique():
             v_df = pcm_df[pcm_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
-            v_df = v_df[v_df["val"].shift() != v_df["val"]]
+            v_df = v_df[v_df["val"].shift() == v_df["val"]]
+            df = df[~df["n"].isin(v_df["n"] - 1)]
             pcm_dfs.append(v_df)
-        df = pd.concat([df] + pcm_dfs).sort_values(["n"]).reset_index(drop=True)
+        pcm_df = pd.concat(pcm_dfs)
+        df = pd.concat([df, pcm_df]).sort_values(["n"]).reset_index(drop=True)
+        df.to_csv("/scratch/tmp/bb.csv")
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -576,10 +583,11 @@ class RegLogParser:
         ):
             df = df.tail(len(df) - 1)
 
-        for xdf in self._rotate_voice_augment(df, max_perm):
+        for xdf in self._rotate_voice_augment(df, max_perm=0):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
+            xdf.to_csv("/scratch/tmp/b.csv")
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
