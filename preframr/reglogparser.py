@@ -380,7 +380,8 @@ class RegLogParser:
 
         df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
         df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
-        df.loc[df["reg"] < 0, ordregs] = df[df["reg"] < 0]["reg"]
+        m = self._frame_match(df)
+        df.loc[m, ordregs] = df[m]["reg"]
 
         df = df.sort_values(["f"] + ordregs + ["v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
