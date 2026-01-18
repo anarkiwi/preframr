@@ -1,26 +1,25 @@
 import pandas as pd
 
-CTRL_REG = -2
-DELAY_REG = -1
-DIFF_PDTYPE = pd.UInt16Dtype()
+
+FRAME_REG = -128
+DELAY_REG = -127
+VOICE_REG = -126
 FC_LO_REG = 21
 FILTER_REG = 23
-FRAME_REG = -99
+
+DIFF_PDTYPE = pd.UInt16Dtype()
 IMPLIED_FRAME_REG = False
 MAX_REG = 24
 MIN_DIFF = 32
 MODE_VOL_REG = 24
 MODEL_PDTYPE = pd.Int32Dtype()
-NOOP_REG = -4
 PAD_ID = -999
 REG_PDTYPE = pd.Int8Dtype()
-RESET_REG = -3
 TOKEN_KEYS = ["reg", "val"]
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 UNICODE_BASE = 0x300
 VAL_PDTYPE = pd.Int32Dtype()
 VOICES = 3
-VOICE_REG = -5
 VOICE_REG_SIZE = 7
 
 PAL_CLOCK = 17734475

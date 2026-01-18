@@ -9,12 +9,10 @@ import pandas as pd
 import mido
 import numpy as np
 from preframr.stfconstants import (
-    CTRL_REG,
     DELAY_REG,
     FRAME_REG,
     MAX_REG,
     MODE_VOL_REG,
-    RESET_REG,
     VOICES,
     VOICE_REG_SIZE,
 )
@@ -204,10 +202,7 @@ def write_samples(
         for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
             delay = row.delay
             if row.reg < 0:
-                if row.reg == RESET_REG:
-                    for reg in range(MAX_REG + 1):
-                        proxy.write_register(reg, 0)
-                elif row.reg == FRAME_REG or row.reg == DELAY_REG:
+                if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
                 else:
                     assert False, f"unknown reg {row.reg}"

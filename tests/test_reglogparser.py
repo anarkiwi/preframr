@@ -199,7 +199,7 @@ class TestRegLogParser(unittest.TestCase):
             [
                 {"reg": 0, "val": 1, "diff": 32},
                 {"reg": 4, "val": 1, "diff": 32},
-                {"reg": -99, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
                 {"reg": 11, "val": 2, "diff": 32},
                 {"reg": 23, "val": 5, "diff": 32},
                 {"reg": 7, "val": 2, "diff": 32},
