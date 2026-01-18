@@ -228,10 +228,12 @@ class RegLogParser:
             return
         for r in range(min(VOICES, max_perm)):
             df = orig_df.copy()
-            m = (df["reg"] < VOICE_REG_SIZE * VOICES) & (df["reg"] >= 0)
-            df.loc[m, "reg"] = (df[m]["reg"] + (VOICE_REG_SIZE * r)).mod(
+            m = df["reg"].abs() < VOICE_REG_SIZE * VOICES
+            df["rreg"] = (df[m]["reg"].abs() + (VOICE_REG_SIZE * r)).mod(
                 VOICE_REG_SIZE * VOICES
             )
+            df.loc[m & (df["reg"] >= 0), "reg"] = df["rreg"]
+            df.loc[m & (df["reg"] < 0), "reg"] = -df["rreg"]
             df = self._rotate_filter(df, r)
             df = df[orig_df.columns]
             yield df
@@ -360,7 +362,7 @@ class RegLogParser:
     def _norm_df(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = self._frame_reg(norm_df)
-        norm_df["v"] = norm_df["reg"].floordiv(VOICE_REG_SIZE).astype(int).abs()
+        norm_df["v"] = norm_df["reg"].abs().floordiv(VOICE_REG_SIZE).astype(int)
         norm_df["n"] = norm_df.index * 10
         norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
@@ -481,6 +483,7 @@ class RegLogParser:
         pcm_df = df[self._pcm_match(df)].copy()
         pcm_df["reg"] = -pcm_df["reg"]
         pcm_df["val"] -= pcm_df["nval"]
+        pcm_df["n"] += 1
         cols = ["reg", "val"]
         pcm_df = pcm_df.sort_values(["reg", "n", "val"])
         pcm_df[cols].loc[(pcm_df[cols].shift() != pcm_df[cols]).any(axis=1)]
