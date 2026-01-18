@@ -485,10 +485,13 @@ class RegLogParser:
         pcm_df["reg"] = -pcm_df["reg"]
         pcm_df["val"] -= pcm_df["nval"]
         pcm_df["n"] += 1
-        cols = ["reg", "val"]
-        # pcm_df = pcm_df.sort_values(["reg", "n", "val"])
-        # pcm_df = pcm_df[pcm_df[cols].shift() != pcm_df[cols]]
-        df = pd.concat([df, pcm_df]).sort_values(["n"]).reset_index(drop=True)
+        pcm_dfs = []
+        for reg in pcm_df["reg"].unique():
+            v_df = pcm_df[pcm_df["reg"] == reg].copy()
+            v_df = v_df.sort_values(["n", "val"])
+            v_df = v_df[v_df["val"].shift() != v_df["val"]]
+            pcm_dfs.append(v_df)
+        df = pd.concat([df] + pcm_dfs).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
