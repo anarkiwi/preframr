@@ -489,6 +489,7 @@ class RegLogParser:
         change_dfs = []
         change_df["reg"] = -change_df["reg"]
         change_df["val"] -= change_df["pval"]
+        change_df = change_df.drop("pval", axis=1)
         change_df["n"] += 1
         for reg in change_df["reg"].unique():
             v_df = change_df[change_df["reg"] == reg].copy()
@@ -496,6 +497,7 @@ class RegLogParser:
             v_df = v_df[v_df["val"].shift(-1) == v_df["val"]]
             df = df[~df["n"].isin(v_df["n"] - 1)]
             change_dfs.append(v_df)
+        df = df.drop("pval", axis=1)
         return df, change_dfs
 
     def _add_change_regs(self, orig_df):
@@ -505,17 +507,19 @@ class RegLogParser:
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
         filter_df["reg"] = FILTER_REG
 
-        for change_df in (pcm_df,):
-            change_df = change_df[["reg", "f", "pval"]]
-            df = df.merge(change_df, how="left", on=["f", "reg"])
+        all_change_dfs = []
 
+        df = df.merge(pcm_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
         pcm_df = df[self._pcm_match(df)].copy()
+        df, change_dfs = self._add_change_reg(df, pcm_df)
+        all_change_dfs.extend(change_dfs)
+
+        df = df.merge(filter_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
         filter_df = df[self._filter_match(df)].copy()
+        df, change_dfs = self._add_change_reg(df, filter_df)
+        all_change_dfs.extend(change_dfs)
 
-        for change_df in (pcm_df,):
-            df, change_dfs = self._add_change_reg(df, change_df)
-            df = pd.concat([df] + change_dfs).sort_values(["n"]).reset_index(drop=True)
-
+        df = pd.concat([df] + all_change_dfs).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 

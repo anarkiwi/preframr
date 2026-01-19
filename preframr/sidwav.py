@@ -198,7 +198,7 @@ def write_samples(
         total_secs = df["delay"].sum() + 1
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
-        last_val = {}
+        last_val = defaultdict(int)
 
         for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
             delay = row.delay
