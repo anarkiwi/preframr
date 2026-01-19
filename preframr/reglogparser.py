@@ -126,6 +126,9 @@ class RegLogParser:
     def _adsr_match(self, df):
         return df["reg"].isin(self._vreg_match(5) | self._vreg_match(6))
 
+    def _filter_match(self, df):
+        return df["reg"] == FILTER_REG
+
     def _frame_match(self, df):
         return (df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)
 
@@ -300,7 +303,10 @@ class RegLogParser:
         )
         for reg in regs:
             norm_df = pivot_df.copy()
-            vregs = [v * VOICE_REG_SIZE + reg for v in range(VOICES)]
+            if reg < VOICE_REG_SIZE:
+                vregs = [v * VOICE_REG_SIZE + reg for v in range(VOICES)]
+            else:
+                vregs = [reg]
             vregs = [vreg for vreg in vregs if vreg in norm_df.columns]
             norm_df = (
                 norm_df[vregs]
