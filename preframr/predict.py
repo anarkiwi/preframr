@@ -76,6 +76,7 @@ def generate_sequence(args, logger, dataset, predictor):
             predicted_compare.to("cpu"),
             dataset.n_vocab,
         )
+        acc = acc.item()
         f_acc = "%3.3f" % acc
     if args.csv:
         out_df = df.join(
@@ -88,8 +89,7 @@ def generate_sequence(args, logger, dataset, predictor):
     if args.min_acc:
         if acc is pd.NA or acc < args.min_acc:
             logger.error(f"{acc} below min_acc {args.min_acc}")
-        sys.exit(-1)
-
+            sys.exit(-1)
     df, reg_widths = prepare_df_for_audio(df, dataset.reg_widths, irq, sidq())
     total_cycles = df["diff"].sum()
     generated_cycles = total_cycles - prompt_cycles
