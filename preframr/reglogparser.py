@@ -485,7 +485,7 @@ class RegLogParser:
         df = pd.concat(dfs).sort_values("n")
         return df[orig_df.columns].reset_index(drop=True)
 
-    def _add_change_reg(self, df, change_df):
+    def _add_change_reg(self, df, change_df, minchange=256):
         change_dfs = []
         change_df["reg"] = -change_df["reg"]
         change_df["val"] -= change_df["pval"]
@@ -494,7 +494,13 @@ class RegLogParser:
         for reg in change_df["reg"].unique():
             v_df = change_df[change_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
-            v_df = v_df[v_df["val"].shift(-1) == v_df["val"]]
+            v_df = v_df[
+                (v_df["val"].shift(-1) == v_df["val"])
+                | (
+                    (v_df["val"].abs().shift(-1) == v_df["val"].abs())
+                    & (v_df["val"].abs() <= minchange)
+                )
+            ]
             df = df[~df["n"].isin(v_df["n"] - 1)]
             change_dfs.append(v_df)
         df = df.drop("pval", axis=1)
@@ -604,7 +610,7 @@ class RegLogParser:
         ):
             df = df.tail(len(df) - 1)
 
-        for xdf in self._rotate_voice_augment(df, max_perm=0):
+        for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
