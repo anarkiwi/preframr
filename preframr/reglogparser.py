@@ -9,6 +9,7 @@ import pyarrow as pa
 from preframr.stfconstants import (
     DELAY_REG,
     DIFF_PDTYPE,
+    FC_LO_REG,
     FILTER_REG,
     FRAME_REG,
     MAX_REG,
@@ -127,7 +128,7 @@ class RegLogParser:
         return df["reg"].isin(self._vreg_match(5) | self._vreg_match(6))
 
     def _filter_match(self, df):
-        return df["reg"] == FILTER_REG
+        return df["reg"] == FC_LO_REG
 
     def _frame_match(self, df):
         return (df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)
@@ -509,9 +510,9 @@ class RegLogParser:
     def _add_change_regs(self, orig_df):
         df = self._norm_df(orig_df)
 
-        pcm_df, filter_df = self._last_reg_val_frame(orig_df, [2, FILTER_REG])
+        pcm_df, filter_df = self._last_reg_val_frame(orig_df, [2, FC_LO_REG])
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
-        filter_df["reg"] = FILTER_REG
+        filter_df["reg"] = FC_LO_REG
 
         all_change_dfs = []
 
@@ -521,6 +522,7 @@ class RegLogParser:
         all_change_dfs.extend(change_dfs)
 
         df = df.merge(filter_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
+        filter_df.to_csv("/scratch/tmp/f.csv")
         filter_df = df[self._filter_match(df)].copy()
         df, change_dfs = self._add_change_reg(df, filter_df)
         all_change_dfs.extend(change_dfs)
@@ -563,7 +565,7 @@ class RegLogParser:
             v_offset = v * VOICE_REG_SIZE
             for reg, bits in ((v_offset, 0), ((v_offset + 2), 4)):
                 df = self._combine_reg(df, reg=reg, bits=bits)
-        df = self._combine_reg(df, 21, bits=2)
+        df = self._combine_reg(df, FC_LO_REG, bits=2)
         return df
 
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
