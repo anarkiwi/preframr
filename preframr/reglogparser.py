@@ -495,15 +495,20 @@ class RegLogParser:
     def _add_change_regs(self, orig_df):
         df = self._norm_df(orig_df)
 
-        pcm_df = list(self._last_reg_val_frame(orig_df, [2]))[0]
+        pcm_df, filter_df = self._last_reg_val_frame(orig_df, [2, FILTER_REG])
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
-        pcm_df = pcm_df[["reg", "f", "pval"]]
-        df = df.merge(pcm_df, how="left", on=["f", "reg"])
+        filter_df["reg"] = FILTER_REG
+
+        for change_df in (pcm_df,):
+            change_df = change_df[["reg", "f", "pval"]]
+            df = df.merge(change_df, how="left", on=["f", "reg"])
+
         pcm_df = df[self._pcm_match(df)].copy()
 
-        df, change_dfs = self._add_change_reg(df, pcm_df)
+        for change_df in (pcm_df,):
+            df, change_dfs = self._add_change_reg(df, pcm_df)
+            df = pd.concat([df] + change_dfs).sort_values(["n"]).reset_index(drop=True)
 
-        df = pd.concat([df] + change_dfs).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
