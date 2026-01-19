@@ -522,7 +522,6 @@ class RegLogParser:
         all_change_dfs.extend(change_dfs)
 
         df = df.merge(filter_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
-        filter_df.to_csv("/scratch/tmp/f.csv")
         filter_df = df[self._filter_match(df)].copy()
         df, change_dfs = self._add_change_reg(df, filter_df)
         all_change_dfs.extend(change_dfs)
