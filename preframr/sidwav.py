@@ -205,7 +205,7 @@ def write_samples(
             if row.reg < 0:
                 if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
-                elif row.reg in (-2, -9, -16):
+                elif row.reg >= -MAX_REG:
                     reg = abs(row.reg)
                     last_val[reg] += row.val
                     write_reg(
