@@ -481,6 +481,8 @@ class RegLogParser:
 
     def _add_change_regs(self, orig_df):
         df = self._norm_df(orig_df)
+        change_dfs = []
+
         pcm_df = list(self._last_reg_val_frame(orig_df, [2]))[0]
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
         pcm_df = pcm_df[["reg", "f", "pval"]]
@@ -489,15 +491,14 @@ class RegLogParser:
         pcm_df["reg"] = -pcm_df["reg"]
         pcm_df["val"] -= pcm_df["pval"]
         pcm_df["n"] += 1
-        pcm_dfs = []
         for reg in pcm_df["reg"].unique():
             v_df = pcm_df[pcm_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
             v_df = v_df[v_df["val"].shift(-1) == v_df["val"]]
             df = df[~df["n"].isin(v_df["n"] - 1)]
-            pcm_dfs.append(v_df)
-        pcm_df = pd.concat(pcm_dfs)
-        df = pd.concat([df, pcm_df]).sort_values(["n"]).reset_index(drop=True)
+            change_dfs.append(v_df)
+
+        df = pd.concat([df] + change_dfs).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
