@@ -510,9 +510,10 @@ class RegLogParser:
             df = df.merge(change_df, how="left", on=["f", "reg"])
 
         pcm_df = df[self._pcm_match(df)].copy()
+        filter_df = df[self._filter_match(df)].copy()
 
         for change_df in (pcm_df,):
-            df, change_dfs = self._add_change_reg(df, pcm_df)
+            df, change_dfs = self._add_change_reg(df, change_df)
             df = pd.concat([df] + change_dfs).sort_values(["n"]).reset_index(drop=True)
 
         df = df[orig_df.columns].reset_index(drop=True)
