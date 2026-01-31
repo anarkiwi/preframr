@@ -1,4 +1,4 @@
-FROM anarkiwi/jetson-pytorch:v2.9.1
+FROM anarkiwi/jetson-pytorch:v2.10.0
 RUN apt-get -yq update && apt-get install -yq git python3-pip python$(python -V|grep -Eo '\b[0-9]+\.[0-9]+')-dev libasound2-dev alsa-utils
 WORKDIR /
 ARG PIP_OPTS=""
