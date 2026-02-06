@@ -13,4 +13,4 @@ if [[ ! -z "${NVGPUS}" ]] ; then
 fi
 
 docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile . -t anarkiwi/preframr
-# docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.xpu . -t anarkiwi/preframr-xpu
+docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.xpu . -t anarkiwi/preframr-xpu
