@@ -1,7 +1,8 @@
-FROM anarkiwi/preframr-xpu-base:latest
+FROM intel/oneapi-runtime:2025.3.1-0-devel-ubuntu24.04
+COPY --from=anarkiwi/preframr-xpu-base:latest /usr/local /usr/local
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
-RUN apt-get -y update libasound2-dev alsa-utils
+RUN apt-get -y update && apt-get install --no-install-recommends -qy libasound2-dev alsa-utils python3-pip python3-dev
 COPY requirements.txt test-requirements.txt /root
 RUN pip install $PIP_OPTS --break-system-packages -r /root/requirements.txt -r /root/test-requirements.txt
 WORKDIR /
