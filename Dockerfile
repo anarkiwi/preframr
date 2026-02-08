@@ -1,4 +1,5 @@
-FROM pytorch/pytorch:2.10.0-cuda13.0-cudnn9-runtime
+ARG BASE="pytorch/pytorch:2.10.0-cuda13.0-cudnn9-runtime"
+FROM ${BASE}
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
 WORKDIR /
