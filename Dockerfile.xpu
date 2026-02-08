@@ -1,4 +1,4 @@
-FROM anarkiwi/xpu-pytorch:v3.10.0
+FROM anarkiwi/pytorch-xpu:v3.10.0
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
 RUN apt-get -y update && apt-get install --no-install-recommends -qy libasound2-dev alsa-utils python3-pip python3-dev
