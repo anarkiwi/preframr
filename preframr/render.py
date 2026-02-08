@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
-from torchtune.utils import get_logger
-from regdataset import RegDataset, get_prompt
-from reglogparser import state_df, prepare_df_for_audio
-from args import add_args
+from preframr.args import add_args
+from preframr.regdataset import RegDataset, get_prompt
+from preframr.reglogparser import state_df, prepare_df_for_audio
 from preframr.stfconstants import MODEL_PDTYPE
-from sidwav import default_sid, sidq, write_samples
+from preframr.sidwav import default_sid, sidq, write_samples
+from preframr.utils import get_logger
 
 
 def main():

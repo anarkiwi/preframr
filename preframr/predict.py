@@ -6,17 +6,17 @@ import os
 import sys
 
 import pandas as pd
-from torchtune.utils import get_logger
 from torchtune.generation import generate
 import torch
 import torchmetrics
 
-from args import add_args, MODEL_PRECISION
-from model import get_device, Model
-from regdataset import RegDataset, get_prompt
-from reglogparser import state_df, prepare_df_for_audio
-from sidwav import write_samples, sidq
+from preframr.args import add_args, MODEL_PRECISION
+from preframr.model import get_device, Model
+from preframr.regdataset import RegDataset, get_prompt
+from preframr.reglogparser import state_df, prepare_df_for_audio
+from preframr.sidwav import write_samples, sidq
 from preframr.stfconstants import MODEL_PDTYPE, PAD_ID
+from preframr.utils import get_logger
 
 
 class Predictor:

@@ -3,12 +3,12 @@
 import argparse
 import concurrent.futures
 import multiprocessing
-from torchtune.utils import get_logger
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from preframr.args import add_args
 from preframr.regdataset import glob_dumps
 from preframr.reglogparser import RegLogParser
+from preframr.utils import get_logger
 
 
 def write_df(args, name):
