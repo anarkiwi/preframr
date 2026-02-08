@@ -32,7 +32,7 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
-            BASE=anarkiwi/pytorch-xpu:v3.10.0
+            BASE=anarkiwi/pytorch-xpu:v2.10.0
   docker-jetson-test:
     runs-on: ubuntu-24.04-arm
     steps:
