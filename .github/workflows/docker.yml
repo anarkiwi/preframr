@@ -44,9 +44,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.jetson
+          file: Dockerfile
           platforms: linux/arm64
           push: false
           tags: anarkiwi/preframr-jetson
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+              BASE=anarkiwi/jetson-pytorch:v2.10.0 |
+              REQ=jetson-requirements.txt
