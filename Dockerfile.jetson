@@ -1,12 +1,30 @@
-FROM anarkiwi/jetson-pytorch:v2.10.0
-RUN apt-get -yq update && apt-get install -yq git python3-pip python$(python -V|grep -Eo '\b[0-9]+\.[0-9]+')-dev libasound2-dev alsa-utils
+FROM anarkiwi/jetson-pytorch:v2.10.0 AS builder
 WORKDIR /
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
-COPY jetson-requirements.txt test-requirements.txt /root
-RUN pip install $PIP_OPTS -U pip && pip install $PIP_OPTS -r /root/jetson-requirements.txt -r /root/test-requirements.txt
+RUN apt-get -yq update && apt-get install -yq --no-install-recommends python3-pip python$(python -V|grep -Eo '\b[0-9]+\.[0-9]+')-dev libasound2-dev 
+COPY jetson-requirements.txt /root
+RUN pip install $PIP_OPTS -U pip && pip install $PIP_OPTS -r /root/jetson-requirements.txt
 COPY preframr /preframr
+
+FROM builder AS tester
+ARG PIP_OPTS=""
+ENV PIP_OPTS=$PIP_OPTS
+COPY test-requirements.txt /root
+RUN pip install $PIP_OPTS --user --break-system-packages -r /root/test-requirements.txt
+WORKDIR /
+ENV PYTHONPATH=/
+ENV PATH="$PATH:/root/.local/bin"
 COPY tests /tests
 COPY run_tests.sh .
-ENV PYTHONPATH=/
 RUN ./run_tests.sh
+
+FROM anarkiwi/jetson-pytorch:v2.10.0
+ARG PIP_OPTS=""
+ENV PIP_OPTS=$PIP_OPTS
+ENV PYTHONPATH=/
+ENV PATH="$PATH:/root/.local/bin"
+COPY --from=builder /preframr /preframr
+COPY --from=builder /root /root
+RUN apt-get -yq update && apt-get install --no-install-recommends -yq alsa-utils python3
+RUN /preframr/render.py --help && /preframr/predict.py --help && /preframr/train.py --help
