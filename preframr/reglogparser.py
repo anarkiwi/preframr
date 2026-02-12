@@ -138,27 +138,16 @@ class RegLogParser:
 
     def _read_df(self, name):
         try:
-            df = pd.read_csv(
-                name,
-                sep=" ",
-                names=["clock", "irq_diff", "nmi_diff", "chipno", "reg", "val"],
-                dtype={
-                    "clock": MODEL_PDTYPE,
-                    "irq_diff": MODEL_PDTYPE,
-                    "nmi_diff": MODEL_PDTYPE,
-                    "chipno": REG_PDTYPE,
-                    "reg": REG_PDTYPE,
-                    "val": VAL_PDTYPE,
-                },
-            )
+            df = pd.read_parquet(name)
         except Exception as e:
             raise ValueError(f"cannot read {name}: {e}")
+
         # assert df["reg"].min() >= 0
-        df["irq"] = df["clock"].astype(MODEL_PDTYPE) - df["irq_diff"]
         # keep only chipno 0
         df = df[df["chipno"] == 0]
         df = df[df["reg"] <= MAX_REG]
         df = df[["clock", "irq", "reg", "val"]]
+        df["val"] = df["val"].astype(VAL_PDTYPE)
         return df
 
     def _maskreg(self, df, reg, valmask):
@@ -568,7 +557,7 @@ class RegLogParser:
         return df
 
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
-        parquet_glob = glob.glob(name.replace(".dump.zst", ".*parquet"))
+        parquet_glob = glob.glob(name.replace(".dump.parquet", ".[0-9]+.parquet"))
         if parquet_glob:
             for parquet_name in sorted(parquet_glob):
                 # assert (
