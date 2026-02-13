@@ -502,16 +502,14 @@ class RegLogParser:
         filter_df["reg"] = FC_LO_REG
 
         all_change_dfs = []
-
-        df = df.merge(pcm_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
-        pcm_df = df[self._pcm_match(df)].copy()
-        df, change_dfs = self._add_change_reg(df, pcm_df)
-        all_change_dfs.extend(change_dfs)
-
-        df = df.merge(filter_df[["reg", "f", "pval"]], how="left", on=["f", "reg"])
-        filter_df = df[self._filter_match(df)].copy()
-        df, change_dfs = self._add_change_reg(df, filter_df)
-        all_change_dfs.extend(change_dfs)
+        for xdf, matcher in (
+            (pcm_df, self._pcm_match),
+            (filter_df, self._filter_match),
+        ):
+            df = df.merge(xdf[["reg", "f", "pval"]], how="left", on=["f", "reg"])
+            xdf = df[matcher(df)].copy()
+            df, change_dfs = self._add_change_reg(df, xdf)
+            all_change_dfs.extend(change_dfs)
 
         df = pd.concat([df] + all_change_dfs).sort_values(["n"]).reset_index(drop=True)
         df = df[orig_df.columns].reset_index(drop=True)
