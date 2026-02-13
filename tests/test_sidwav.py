@@ -16,8 +16,8 @@ class TestSidwav(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             test_wav_name = os.path.join(tmpdir, "test.wav")
             test_df = pd.DataFrame(
-                [(1, 24, 0), (1024, 24, 15), (2048, 24, 0)],
-                columns=["diff", "reg", "val"],
+                [(0, 1, 24, 0), (0, 1024, 24, 15), (0, 2048, 24, 0)],
+                columns=["op", "diff", "reg", "val"],
             )
             test_df["delay"] = test_df["diff"] * sidq()
             write_samples(test_df, test_wav_name, reg_widths={})

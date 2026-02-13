@@ -10,9 +10,11 @@ import mido
 import numpy as np
 from preframr.stfconstants import (
     DELAY_REG,
+    DIFF_OP,
     FRAME_REG,
     MAX_REG,
     MODE_VOL_REG,
+    SET_OP,
     VOICES,
     VOICE_REG_SIZE,
 )
@@ -194,19 +196,26 @@ def write_samples(
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
 
-        sid_df = df[["reg", "val", "delay"]]
+        sid_df = df[["op", "reg", "val", "delay"]]
         total_secs = df["delay"].sum() + 1
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
         last_val = defaultdict(int)
 
-        for row in tqdm(sid_df.itertuples(), total=len(sid_df), ascii=True):
+        for row in tqdm(sid_df.itertuples(), total=len(sid_df)):
             delay = row.delay
             if row.reg < 0:
                 if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
-                elif row.reg >= -MAX_REG:
-                    reg = abs(row.reg)
+                else:
+                    assert False, f"unknown reg {row.reg}, {row}"
+            else:
+                if row.op == SET_OP:
+                    reg = row.reg
+                    write_reg(proxy, reg, row.val, reg_widths)
+                    last_val[reg] = row.val
+                elif row.op == DIFF_OP:
+                    reg = row.reg
                     last_val[reg] += row.val
                     write_reg(
                         proxy,
@@ -215,11 +224,7 @@ def write_samples(
                         reg_widths,
                     )
                 else:
-                    assert False, f"unknown reg {row.reg}"
-            else:
-                reg = row.reg
-                write_reg(proxy, reg, row.val, reg_widths)
-                last_val[reg] = row.val
+                    assert False, f"unknown op {row.op}, {row}"
 
             samples = proxy.clock(timedelta(seconds=delay))
             raw_samples[sp : sp + len(samples)] = samples

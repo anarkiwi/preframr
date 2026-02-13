@@ -8,6 +8,7 @@ from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 from preframr.stfconstants import (
     DELAY_REG,
+    DIFF_OP,
     DIFF_PDTYPE,
     FC_LO_REG,
     FILTER_REG,
@@ -19,6 +20,7 @@ from preframr.stfconstants import (
     MODEL_PDTYPE,
     PAL_CLOCK,
     REG_PDTYPE,
+    SET_OP,
     VAL_PDTYPE,
     VOICES,
     VOICE_REG,
@@ -610,5 +612,7 @@ class RegLogParser:
                 break
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
-            xdf["op"] = 0
+            xdf["op"] = SET_OP
+            xdf.loc[(xdf["reg"] < 0) & (xdf["reg"] >= -MAX_REG), "op"] = DIFF_OP
+            xdf.loc[xdf["op"] == DIFF_OP, "reg"] = xdf["reg"].abs()
             yield xdf
