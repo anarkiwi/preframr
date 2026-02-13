@@ -610,4 +610,5 @@ class RegLogParser:
                 break
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
+            xdf["op"] = 0
             yield xdf

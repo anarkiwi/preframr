@@ -57,16 +57,16 @@ class TestRegTokenizer(unittest.TestCase):
         loader = RegTokenizer(FakeArgs(), tokens=None)
         test_df = pd.DataFrame(
             [
-                {"reg": 1, "val": 1},
-                {"reg": 1, "val": 1},
-                {"reg": 1, "val": 2},
+                {"op": 0, "reg": 1, "val": 1},
+                {"op": 0, "reg": 1, "val": 1},
+                {"op": 0, "reg": 1, "val": 2},
             ],
             dtype=MODEL_PDTYPE,
         )
         tokens_df = pd.DataFrame(
             [
-                {"reg": 1, "val": 1, "n": 0},
-                {"reg": 1, "val": 2, "n": 1},
+                {"op": 0, "reg": 1, "val": 1, "n": 0},
+                {"op": 0, "reg": 1, "val": 2, "n": 1},
             ],
             dtype=MODEL_PDTYPE,
         )
