@@ -390,19 +390,14 @@ class RegLogParser:
 
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
-        m = (norm_df["reg"] >= -MAX_REG) & norm_df["v"].isin(set(range(VOICES)))
+        m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
 
-        norm_df.loc[m & (norm_df["reg"] >= 0), "reg"] = (
-            norm_df[m & (norm_df["reg"] >= 0)]["reg"] % VOICE_REG_SIZE
-        )
-        norm_df.loc[m & (norm_df["reg"] < 0), "reg"] = (
-            norm_df[m & (norm_df["reg"] < 0)]["reg"] % -VOICE_REG_SIZE
-        )
-
+        norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
         df = norm_df[(norm_df["vd"] != 0) & m].copy()
         df["n"] -= 1
         df["val"] = df["v"]
         df["reg"] = VOICE_REG
+        df["op"] = SET_OP
 
         df = pd.concat([norm_df, df]).sort_values(["n"]).reset_index(drop=True)
         df["nr"] = df["reg"].shift(-1)
@@ -606,13 +601,13 @@ class RegLogParser:
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
+            xdf["op"] = SET_OP
+            xdf.loc[(xdf["reg"] < 0) & (xdf["reg"] >= -MAX_REG), "op"] = DIFF_OP
+            xdf.loc[xdf["op"] == DIFF_OP, "reg"] = xdf["reg"].abs()
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
-            xdf["op"] = SET_OP
-            xdf.loc[(xdf["reg"] < 0) & (xdf["reg"] >= -MAX_REG), "op"] = DIFF_OP
-            xdf.loc[xdf["op"] == DIFF_OP, "reg"] = xdf["reg"].abs()
             yield xdf
