@@ -27,6 +27,7 @@ from preframr.stfconstants import (
     VOICE_REG_SIZE,
 )
 
+OP_PDTYPE = pd.UInt8Dtype()
 REG_PDTYPE = pd.Int8Dtype()
 IRQ_PDTYPE = pd.UInt16Dtype()
 FRAME_DTYPES = {
@@ -608,6 +609,7 @@ class RegLogParser:
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
+            xdf["op"] = xdf["op"].astype(OP_PDTYPE)
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
             yield xdf
