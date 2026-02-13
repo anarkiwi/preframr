@@ -198,9 +198,7 @@ class RegLogParser:
         )
         if bits:
             reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
-        df = pd.concat([non_reg_df, reg_df], copy=False).sort_values(
-            ["clock"], ascending=True
-        )
+        df = pd.concat([non_reg_df, reg_df]).sort_values(["clock"], ascending=True)
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
@@ -259,7 +257,7 @@ class RegLogParser:
         irq_df["diff"] = irq
         irq_df.loc[irq_df["reg"] == DELAY_REG, "diff"] = 0
         df = (
-            pd.concat([df, irq_df], copy=False)
+            pd.concat([df, irq_df])
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .astype(MODEL_PDTYPE)
             .reset_index(drop=True)
