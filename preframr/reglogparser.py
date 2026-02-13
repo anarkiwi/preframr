@@ -35,6 +35,7 @@ FRAME_DTYPES = {
     "val": VAL_PDTYPE,
     "diff": DIFF_PDTYPE,
     "irq": IRQ_PDTYPE,
+    "op": OP_PDTYPE,
 }
 
 PY_MTIME = Path(__file__).resolve().stat().st_mtime
@@ -600,18 +601,18 @@ class RegLogParser:
         ):
             df = df.tail(len(df) - 1)
 
+        df["op"] = SET_OP
+        df.loc[(df["reg"] < 0) & (df["reg"] >= -MAX_REG), "op"] = DIFF_OP
+        df.loc[df["op"] == DIFF_OP, "reg"] = df["reg"].abs()
+
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
             xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
-            xdf["op"] = SET_OP
-            xdf.loc[(xdf["reg"] < 0) & (xdf["reg"] >= -MAX_REG), "op"] = DIFF_OP
-            xdf.loc[xdf["op"] == DIFF_OP, "reg"] = xdf["reg"].abs()
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
-            xdf["op"] = xdf["op"].astype(OP_PDTYPE)
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
             yield xdf
