@@ -58,7 +58,10 @@ class FreqMapper:
         f = MIDI_N_TO_F[0]
         sid_clock = (18 * 2**24) / clock
         max_sid_f = 65535 / sid_clock
-        rq_map = {i: 0 for i in range(65536)}
+        self.rq_map = {i: 0 for i in range(65536)}
+        self.fi_map = {i: 0 for i in range(65536)}
+        self.if_map = {}
+        n = 0
 
         while True:
             l = f * (2 ** ((-cents / 2) / 1200))
@@ -66,13 +69,14 @@ class FreqMapper:
             lr = round(sid_clock * l)
             lh = round(sid_clock * h)
             r = round(sid_clock * f)
+            self.if_map[n] = r
             for i in range(lh - lr):
-                rq_map[i + lr] = r
+                self.rq_map[i + lr] = r
+                self.fi_map[i + lr] = n
             f *= 2 ** (cents / 1200)
+            n += 1
             if f > max_sid_f:
                 break
-
-        self.rq_map = rq_map
 
 
 def state_df(states, dataset, irq):
@@ -96,6 +100,7 @@ def remove_voice_reg(orig_df, reg_widths):
         df["vr"] = df["vr"].astype(pd.Int64Dtype()) * VOICE_REG_SIZE
         df.loc[df["reg"] >= VOICE_REG_SIZE, "vr"] = 0
         df.loc[df["reg"] >= 0, "reg"] += df["vr"]
+
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
@@ -128,7 +133,8 @@ def reset_diffs(orig_df, irq, sidq):
 
 
 def prepare_df_for_audio(orig_df, reg_widths, irq, sidq):
-    df, reg_widths = remove_voice_reg(orig_df, reg_widths)
+    df = orig_df.copy()
+    df, reg_widths = remove_voice_reg(df, reg_widths)
     df = reset_diffs(df, irq, sidq)
     return df, reg_widths
 
@@ -352,7 +358,6 @@ class RegLogParser:
             v_offset = v * VOICE_REG_SIZE
             cond = df["reg"] == v_offset
             df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.rq_map)
-
         return df
 
     def _squeeze_frames(self, orig_df):
