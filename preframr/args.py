@@ -4,14 +4,14 @@ from preframr.model import MODEL_GETTERS, MODEL_PRECISION
 
 def add_args(parser):
     parser.add_argument(
+        "reglog",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
         "--reglogs",
         type=str,
         default="/scratch/preframr/training-dumps/**/*dump.zst",
-    )
-    parser.add_argument(
-        "--reglog",
-        type=str,
-        default="",
     )
     parser.add_argument(
         "--model-state",

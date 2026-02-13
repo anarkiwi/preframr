@@ -476,7 +476,7 @@ class RegLogParser:
 
     def _add_change_reg(self, df, change_df, minchange=256):
         change_dfs = []
-        change_df["reg"] = -change_df["reg"]
+        change_df["op"] = DIFF_OP
         change_df["val"] -= change_df["pval"]
         change_df = change_df.drop("pval", axis=1)
         change_df["n"] += 1
@@ -497,6 +497,7 @@ class RegLogParser:
 
     def _add_change_regs(self, orig_df):
         df = self._norm_df(orig_df)
+        df["op"] = SET_OP
 
         pcm_df, ctrl_df, filter_df = self._last_reg_val_frame(
             orig_df, [2, 4, FC_LO_REG]
@@ -517,7 +518,7 @@ class RegLogParser:
             all_change_dfs.extend(change_dfs)
 
         df = pd.concat([df] + all_change_dfs).sort_values(["n"]).reset_index(drop=True)
-        df = df[orig_df.columns].reset_index(drop=True)
+        df = df[list(orig_df.columns) + ["op"]].reset_index(drop=True)
         return df
 
     def _filter_irq(self, df, name):
@@ -600,10 +601,6 @@ class RegLogParser:
             or (df.iloc[0]["reg"] == MODE_VOL_REG and df.iloc[0]["val"] == 15)
         ):
             df = df.tail(len(df) - 1)
-
-        df["op"] = SET_OP
-        df.loc[(df["reg"] < 0) & (df["reg"] >= -MAX_REG), "op"] = DIFF_OP
-        df.loc[df["op"] == DIFF_OP, "reg"] = df["reg"].abs()
 
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
