@@ -53,6 +53,28 @@ FILTER_SHIFT_DF = pd.DataFrame(
 )
 
 
+class FreqMapper:
+    def __init__(self, cents=50, clock=PAL_CLOCK):
+        f = MIDI_N_TO_F[0]
+        sid_clock = (18 * 2**24) / clock
+        max_sid_f = 65535 / sid_clock
+        rq_map = {i: 0 for i in range(65536)}
+
+        while True:
+            l = f * (2 ** ((-cents / 2) / 1200))
+            h = f * (2 ** ((cents / 2) / 1200))
+            lr = round(sid_clock * l)
+            lh = round(sid_clock * h)
+            r = round(sid_clock * f)
+            for i in range(lh - lr):
+                rq_map[i + lr] = r
+            f *= 2 ** (cents / 1200)
+            if f > max_sid_f:
+                break
+
+        self.rq_map = rq_map
+
+
 def state_df(states, dataset, irq):
     tokens = dataset.tokenizer.tokens.copy()
     tokens["diff"] = MIN_DIFF
@@ -115,6 +137,7 @@ class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args
         self.logger = logger
+        self.freq_mapper = FreqMapper()
 
     def _vreg_match(self, vreg):
         return {(v * VOICE_REG_SIZE) + vreg for v in range(VOICES)}
@@ -324,28 +347,11 @@ class RegLogParser:
         df.loc[m, "val"] = np.left_shift(np.right_shift(df[m]["val"], bits), bits)
         return df
 
-    def _quantize_freq_to_cents(self, df, cents=50, clock=PAL_CLOCK):
-        f = MIDI_N_TO_F[0]
-        sid_clock = (18 * 2**24) / clock
-        max_sid_f = 65535 / sid_clock
-        rq_map = {i: 0 for i in range(65536)}
-
-        while True:
-            l = f * (2 ** ((-cents / 2) / 1200))
-            h = f * (2 ** ((cents / 2) / 1200))
-            lr = round(sid_clock * l)
-            lh = round(sid_clock * h)
-            r = round(sid_clock * f)
-            for i in range(lh - lr):
-                rq_map[i + lr] = r
-            f *= 2 ** (cents / 1200)
-            if f > max_sid_f:
-                break
-
+    def _quantize_freq_to_cents(self, df):
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
             cond = df["reg"] == v_offset
-            df.loc[cond, "val"] = df[cond]["val"].map(rq_map)
+            df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.rq_map)
 
         return df
 
