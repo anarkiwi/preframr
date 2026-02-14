@@ -330,7 +330,7 @@ class RegLogParser:
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
             cond = df["reg"] == v_offset
-            df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.rq_map)
+            df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.fi_map)
         return df
 
     def _squeeze_frames(self, orig_df):
@@ -481,15 +481,17 @@ class RegLogParser:
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
-        pcm_df, ctrl_df, filter_df = self._last_reg_val_frame(
-            orig_df, [2, 4, FC_LO_REG]
+        freq_df, pcm_df, ctrl_df, filter_df = self._last_reg_val_frame(
+            orig_df, [0, 2, 4, FC_LO_REG]
         )
+        freq_df["reg"] = freq_df["v"] * VOICE_REG_SIZE
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
         ctrl_df["reg"] = ctrl_df["v"] * VOICE_REG_SIZE + 4
         filter_df["reg"] = FC_LO_REG
 
         all_change_dfs = []
         for xdf, matcher, minchange in (
+            (freq_df, self._freq_match, 14 * 2),
             (pcm_df, self._pcm_match, 256),
             (ctrl_df, self._ctrl_match, 1),
             (filter_df, self._filter_match, 256),

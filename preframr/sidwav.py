@@ -8,6 +8,7 @@ from pyresidfp.sound_interface_device import ChipModel
 import pandas as pd
 import mido
 import numpy as np
+from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
     DIFF_OP,
@@ -66,6 +67,7 @@ class AsidProxy:
         self.sysex_delay = sysex_delay
         self.pending_frame = False
         self._resetreg()
+        self.freq_mapper = FreqMapper()
         if self.asid is not None:
             output_names = set(mido.get_output_names())  # pylint: disable=no-member
             if self.asid not in output_names:
@@ -165,6 +167,9 @@ def sidq(sid=None):
 
 def write_reg(sid, reg, val, reg_widths):
     width = reg_widths.get(reg, 1)
+    if reg in (0, 7, 14):
+        width = 2
+        val = sid.freq_mapper.if_map[val]
     for i in range(width):
         sid.write_register(reg + i, val & 255)
         val >>= 8
