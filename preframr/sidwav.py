@@ -170,6 +170,12 @@ def write_reg(sid, reg, val, reg_widths):
     if reg in (0, 7, 14):
         width = 2
         val = sid.freq_mapper.if_map[val]
+    elif reg in (2, 9, 16):
+        width = 2
+        val = val << 4
+    elif reg == 21:
+        width = 2
+        val = val << 2
     for i in range(width):
         sid.write_register(reg + i, val & 255)
         val >>= 8

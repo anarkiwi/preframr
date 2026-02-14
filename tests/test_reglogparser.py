@@ -133,8 +133,8 @@ class TestRegLogParser(unittest.TestCase):
         combine_df = pd.DataFrame(
             [
                 {"reg": 1, "val": 0, "diff": 8, "clock": 8},
-                {"reg": 1, "val": 256, "diff": 8, "clock": 24},
-                {"reg": 1, "val": 514, "diff": 8, "clock": 40},
+                {"reg": 1, "val": 128, "diff": 8, "clock": 24},
+                {"reg": 1, "val": 257, "diff": 8, "clock": 40},
             ],
             dtype=MODEL_PDTYPE,
         )

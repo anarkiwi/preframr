@@ -199,7 +199,7 @@ class RegLogParser:
             ["dclock"], keep="last"
         )
         if bits:
-            reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
+            reg_df["val"] = np.right_shift(reg_df["val"], bits)
         df = pd.concat([non_reg_df, reg_df]).sort_values(["clock"], ascending=True)
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
