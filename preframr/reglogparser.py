@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from pyarrow.parquet import ParquetFile
 import pyarrow as pa
+from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
     DIFF_OP,
@@ -15,10 +16,8 @@ from preframr.stfconstants import (
     FRAME_REG,
     MAX_REG,
     MIN_DIFF,
-    MIDI_N_TO_F,
     MODE_VOL_REG,
     MODEL_PDTYPE,
-    PAL_CLOCK,
     REG_PDTYPE,
     SET_OP,
     VAL_PDTYPE,
@@ -51,32 +50,6 @@ FILTER_SHIFT_DF = pd.DataFrame(
     [{"reg": FILTER_REG, "val": i, "y": wrapbits(i, 3)} for i in range(2**3)],
     dtype=MODEL_PDTYPE,
 )
-
-
-class FreqMapper:
-    def __init__(self, cents=50, clock=PAL_CLOCK):
-        f = MIDI_N_TO_F[0]
-        sid_clock = (18 * 2**24) / clock
-        max_sid_f = 65535 / sid_clock
-        self.rq_map = {i: 0 for i in range(65536)}
-        self.fi_map = {i: 0 for i in range(65536)}
-        self.if_map = {}
-        n = 0
-
-        while True:
-            l = f * (2 ** ((-cents / 2) / 1200))
-            h = f * (2 ** ((cents / 2) / 1200))
-            lr = round(sid_clock * l)
-            lh = round(sid_clock * h)
-            r = round(sid_clock * f)
-            self.if_map[n] = r
-            for i in range(lh - lr):
-                self.rq_map[i + lr] = r
-                self.fi_map[i + lr] = n
-            f *= 2 ** (cents / 1200)
-            n += 1
-            if f > max_sid_f:
-                break
 
 
 def state_df(states, dataset, irq):
