@@ -133,6 +133,12 @@ class RegLogParser:
     def _adsr_match(self, df):
         return df["reg"].isin(self._vreg_match(5) | self._vreg_match(6))
 
+    def _ad_match(self, df):
+        return df["reg"].isin(self._vreg_match(5))
+
+    def _sr_match(self, df):
+        return df["reg"].isin(self._vreg_match(6))
+
     def _filter_match(self, df):
         return df["reg"] == FC_LO_REG
 
@@ -407,16 +413,6 @@ class RegLogParser:
             )
         return df
 
-    def _simplify_adsr(self, orig_df):
-        df = orig_df.copy()
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            adsr_reg = v_offset + 5
-            # max sustain, disable decay
-            m = (df["reg"] == adsr_reg) & (df["val"] & 0b11110000 == 0b11110000)
-            df.loc[m, "val"] = df[m]["val"][m] & 0b1111000011111111
-        return df
-
     def _simplify_pcm(self, orig_df):
         df = orig_df.copy()
         df["n"] = df.index * 10
@@ -492,9 +488,9 @@ class RegLogParser:
         all_change_dfs = []
         for xdf, matcher, minchange in (
             (freq_df, self._freq_match, 14 * 2),
-            (pcm_df, self._pcm_match, 256),
+            (pcm_df, self._pcm_match, 64),
             (ctrl_df, self._ctrl_match, 1),
-            (filter_df, self._filter_match, 256),
+            (filter_df, self._filter_match, 64),
         ):
             df = df.merge(xdf[["reg", "f", "pval"]], how="left", on=["f", "reg"])
             xdf = df[matcher(df)].copy()
@@ -564,7 +560,6 @@ class RegLogParser:
         df = self._combine_regs(df)
         df = self._quantize_freq_to_cents(df)
         df = self._simplify_ctrl(df)
-        # df = self._simplify_adsr(df)
         df = self._simplify_pcm(df)
         df = self._squeeze_changes(df)
         if df.empty:
