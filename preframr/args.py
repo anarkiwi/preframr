@@ -7,6 +7,7 @@ def add_args(parser):
         "reglog",
         type=str,
         default="",
+        nargs="?",
     )
     parser.add_argument(
         "--reglogs",
