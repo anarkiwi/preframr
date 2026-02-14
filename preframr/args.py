@@ -12,7 +12,7 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        default="/scratch/preframr/training-dumps/**/*dump.zst",
+        default="/scratch/preframr/training-dumps/**/*dump.parquet",
     )
     parser.add_argument(
         "--model-state",
@@ -39,7 +39,7 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--shuffle", type=float, default=0.01)
-    parser.add_argument("--max-files", type=int, default=2048)
+    parser.add_argument("--max-files", type=int, default=256)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
@@ -86,7 +86,7 @@ def add_args(parser):
     parser.add_argument("--focal-gamma", type=float, default=0)
     parser.add_argument("--label-smoothing", type=float, default=0)
     parser.add_argument(
-        "--require-pq", action=argparse.BooleanOptionalAction, default=True
+        "--require-pq", action=argparse.BooleanOptionalAction, default=False
     )
     parser.add_argument(
         "--tie-word-embeddings", action=argparse.BooleanOptionalAction, default=False

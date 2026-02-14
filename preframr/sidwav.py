@@ -169,7 +169,14 @@ def write_reg(sid, reg, val, reg_widths):
     width = reg_widths.get(reg, 1)
     if reg in (0, 7, 14):
         width = 2
-        val = sid.freq_mapper.if_map[val]
+        try:
+            val = sid.freq_mapper.if_map[val]
+        except KeyError:
+            if val < 0:
+                val = 0
+            else:
+                val = max(sid.freq_mapper.if_map.keys())
+            val = sid.freq_mapper.if_map[val]
     elif reg in (2, 9, 16):
         width = 2
         val = val << 4
