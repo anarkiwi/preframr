@@ -210,3 +210,57 @@ class TestRegLogParser(unittest.TestCase):
         irq, result_df = loader._add_frame_reg(test_df, 512)
         self.assertEqual(irq, 19000)
         self.assertTrue(frame_df.equals(result_df))
+
+    def test_last_reg_val_frame(self):
+        loader = RegLogParser(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": 7, "val": 2, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": 7, "val": 4, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        last_df = pd.DataFrame(
+            [
+                {"f": 1, "v": 1, "val": 2, "pval": 0},
+                {"f": 2, "v": 1, "val": 4, "pval": 2},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = list(loader._last_reg_val_frame(test_df, [0]))[0]
+        self.assertTrue(last_df.equals(result_df))
+
+    def test_add_change_regs(self):
+        loader = RegLogParser(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 2, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 65, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        change_df = pd.DataFrame(
+            [
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 1, "diff": 32, "op": 0},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 1, "diff": 32, "op": 1},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 1, "diff": 32, "op": 1},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 65, "diff": 32, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._add_change_regs(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(change_df.equals(result_df))
