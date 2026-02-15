@@ -228,21 +228,19 @@ def write_samples(
                 else:
                     assert False, f"unknown reg {row.reg}, {row}"
             else:
+                reg = row.reg
                 if row.op == SET_OP:
-                    reg = row.reg
-                    write_reg(proxy, reg, row.val, reg_widths)
                     last_val[reg] = row.val
                 elif row.op == DIFF_OP:
-                    reg = row.reg
                     last_val[reg] += row.val
-                    write_reg(
-                        proxy,
-                        reg,
-                        last_val[reg],
-                        reg_widths,
-                    )
                 else:
                     assert False, f"unknown op {row.op}, {row}"
+                write_reg(
+                    proxy,
+                    reg,
+                    last_val[reg],
+                    reg_widths,
+                )
 
             samples = proxy.clock(timedelta(seconds=delay))
             raw_samples[sp : sp + len(samples)] = samples
