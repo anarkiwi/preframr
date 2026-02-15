@@ -465,6 +465,7 @@ class RegLogParser:
             v_df["op"] = DIFF_OP
             v_df["n"] += 1
             change_dfs.append(v_df)
+            # TODO: other opcodes for repeated changes, mask changes, etc.
         df = df.drop("pval", axis=1)
         return df, change_dfs
 
