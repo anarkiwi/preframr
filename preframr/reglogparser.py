@@ -341,7 +341,7 @@ class RegLogParser:
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
         df["f"] = self._frame_reg(df)
-        cm = self._ctrl_match(df).astype(int)
+        cm = self._ctrl_match(df).astype(MODEL.PDTYPE)
         df["c"] = cm * cm.cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
@@ -349,7 +349,9 @@ class RegLogParser:
     def _norm_df(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = self._frame_reg(norm_df)
-        norm_df["v"] = norm_df["reg"].abs().floordiv(VOICE_REG_SIZE).astype(int)
+        norm_df["v"] = (
+            norm_df["reg"].abs().floordiv(VOICE_REG_SIZE).astype(MODEL_PDTYPE)
+        )
         norm_df["n"] = norm_df.index * 10
         norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
