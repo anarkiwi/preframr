@@ -352,7 +352,7 @@ class RegLogParser:
         norm_df["v"] = (
             norm_df["reg"].abs().floordiv(VOICE_REG_SIZE).astype(MODEL_PDTYPE)
         )
-        norm_df["n"] = norm_df.index * 10
+        norm_df["n"] = (norm_df.index + 1) * 10
         norm_df.loc[norm_df["f"].diff() != 0, "v"] = 0
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
         return norm_df
@@ -368,9 +368,9 @@ class RegLogParser:
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
         m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
-
+        first_v = norm_df[m].iloc[0]
         norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
-        df = norm_df[(norm_df["vd"] != 0) & m].copy()
+        df = norm_df[((norm_df["vd"] != 0) | (norm_df["n"] == first_v["n"])) & m].copy()
         df["n"] -= 1
         df["val"] = df["v"]
         df["reg"] = VOICE_REG
@@ -381,7 +381,7 @@ class RegLogParser:
         df["nval"] = df["val"].shift(-1)
         df["pr"] = df["reg"].shift(1)
         df.loc[((df["reg"] == FRAME_REG) & (df["nr"] == VOICE_REG)), "val"] = df["nval"]
-        df = df[~((df["reg"] == VOICE_REG) & (df["pr"] == FRAME_REG))]
+        df = df[~((df["reg"] == VOICE_REG) & (df["pr"].fillna(VOICE_REG) == FRAME_REG))]
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
