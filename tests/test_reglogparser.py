@@ -264,3 +264,30 @@ class TestRegLogParser(unittest.TestCase):
         )
         result_df = loader._add_change_regs(test_df).astype(MODEL_PDTYPE)
         self.assertTrue(change_df.equals(result_df))
+
+    def test_norm_pr_order(self):
+        loader = RegLogParser(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": 7, "val": 1, "diff": 32, "op": 0},
+                {"reg": 0, "val": 2, "diff": 32, "op": 1},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 2, "diff": 32, "op": 1},
+                {"reg": 14, "val": 3, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        order_df = pd.DataFrame(
+            [
+                {"reg": 0, "val": 2, "diff": 32, "op": 1},
+                {"reg": 7, "val": 1, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 2, "diff": 32, "op": 1},
+                {"reg": 14, "val": 3, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._norm_pr_order(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(order_df.equals(result_df))
