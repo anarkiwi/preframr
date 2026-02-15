@@ -462,9 +462,9 @@ class RegLogParser:
             v_df = change_df[change_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
             v_df = v_df[
-                (v_df["val"].shift(-1) == v_df["val"])
+                (v_df["val"].shift(1) == v_df["val"])
                 | (
-                    (v_df["val"].abs().shift(-1) == v_df["val"].abs())
+                    (v_df["val"].abs().shift(1) == v_df["val"].abs())
                     & (v_df["val"].abs() <= minchange)
                 )
             ]
