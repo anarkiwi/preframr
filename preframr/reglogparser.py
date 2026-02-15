@@ -355,25 +355,11 @@ class RegLogParser:
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
         return norm_df
 
-    def _norm_pr_order(self, orig_df, ctrl_df, freq_df):
+    def _norm_pr_order(self, orig_df):
         norm_df = self._norm_df(orig_df)
         df = norm_df.copy()
         df["areg"] = df["reg"].abs()
         df = df.sort_values(["f", "v", "areg", "n"])
-        ordregs = ["cd", "fd"]
-
-        for orig_xdf, ordreg in zip([ctrl_df, freq_df], ordregs):
-            xdf = orig_xdf.copy()
-            xdf[ordreg] = xdf["val"]
-            xdf["f"] += 1
-            df = df.merge(xdf[["f", "v", ordreg]], how="left", on=["f", "v"])
-
-        df[ordregs] = df[ordregs].astype(MODEL_PDTYPE)
-        df.loc[~df["v"].isin(set(range(VOICES))), ordregs] = pd.NA
-        m = self._frame_match(df)
-        df.loc[m, ordregs] = df[m]["areg"]
-
-        df = df.sort_values(["f"] + ordregs + ["v", "areg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -579,8 +565,7 @@ class RegLogParser:
 
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            freq_df, ctrl_df = self._last_reg_val_frame(xdf, [0, 4])
-            xdf = self._norm_pr_order(xdf, ctrl_df, freq_df)
+            xdf = self._norm_pr_order(xdf)
             xdf = self._add_voice_reg(xdf)
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
