@@ -252,7 +252,7 @@ class TestRegLogParser(unittest.TestCase):
         change_df = pd.DataFrame(
             [
                 {"reg": -128, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 1, "diff": 32, "op": 0},
+                {"reg": 7, "val": 1, "diff": 32, "op": 1},
                 {"reg": -128, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 1, "diff": 32, "op": 1},
                 {"reg": -128, "val": 0, "diff": 19000, "op": 0},
