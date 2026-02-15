@@ -235,8 +235,7 @@ class RegLogParser:
             df["rreg"] = (df[m]["reg"].abs() + (VOICE_REG_SIZE * r)).mod(
                 VOICE_REG_SIZE * VOICES
             )
-            df.loc[m & (df["reg"] >= 0), "reg"] = df["rreg"]
-            df.loc[m & (df["reg"] < 0), "reg"] = -df["rreg"]
+            df.loc[m, "reg"] = df["rreg"]
             df = self._rotate_filter(df, r)
             df = df[orig_df.columns]
             yield df
@@ -454,10 +453,8 @@ class RegLogParser:
 
     def _add_change_reg(self, df, change_df, minchange=256):
         change_dfs = []
-        change_df["op"] = DIFF_OP
         change_df["val"] -= change_df["pval"]
         change_df = change_df.drop("pval", axis=1)
-        change_df["n"] += 1
         for reg in change_df["reg"].unique():
             v_df = change_df[change_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
@@ -468,7 +465,9 @@ class RegLogParser:
                     & (v_df["val"].abs() <= minchange)
                 )
             ]
-            df = df[~df["n"].isin(v_df["n"] - 1)]
+            df = df[~df["n"].isin(v_df["n"])]
+            v_df["op"] = DIFF_OP
+            v_df["n"] += 1
             change_dfs.append(v_df)
         df = df.drop("pval", axis=1)
         return df, change_dfs
