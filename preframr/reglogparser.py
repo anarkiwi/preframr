@@ -341,7 +341,7 @@ class RegLogParser:
     def _squeeze_frames(self, orig_df):
         df = orig_df.copy()
         df["f"] = self._frame_reg(df)
-        cm = self._ctrl_match(df).astype(MODEL.PDTYPE)
+        cm = self._ctrl_match(df).astype(MODEL_PDTYPE)
         df["c"] = cm * cm.cumsum()
         df = df.drop_duplicates(["f", "c", "reg"], keep="last")
         return df[orig_df.columns].reset_index(drop=True)
