@@ -13,12 +13,14 @@ from preframr.stfconstants import (
     DIFF_PDTYPE,
     FC_LO_REG,
     FILTER_REG,
+    FLIP_OP,
     FRAME_REG,
     MAX_REG,
     MIN_DIFF,
     MODE_VOL_REG,
     MODEL_PDTYPE,
     REG_PDTYPE,
+    REPEAT_OP,
     SET_OP,
     VAL_PDTYPE,
     VOICES,
@@ -450,10 +452,45 @@ class RegLogParser:
                 (v_df["val"].abs() <= minchange) | (v_df["val"].shift(1) == v_df["val"])
             ]
             df = df[~df["n"].isin(v_df["n"])]
-            v_df["op"] = DIFF_OP
-            v_df["n"] += 1
-            change_dfs.append(v_df)
-            # TODO: other opcodes for repeated changes, mask changes, etc.
+            v_df["c"] = (v_df["f"] == v_df["f"].shift(1) + 1).astype(pd.UInt8Dtype())
+            v_df["aval"] = v_df["val"].abs()
+            r_cond = (v_df[["reg", "val"]] == v_df[["reg", "val"]].shift(1)).all(axis=1)
+            v_df["repeat"] = ((r_cond) & (v_df["c"] != 0)).astype(pd.UInt8Dtype())
+            v_df["flip"] = (
+                ~r_cond
+                & (v_df[["reg", "aval"]] == v_df[["reg", "aval"]].shift(1)).all(axis=1)
+                & (v_df["c"] != 0)
+            ).astype(pd.UInt8Dtype())
+            v_df["begin"] = (
+                ((v_df["repeat"] == 1) & (v_df["repeat"].shift(1) == 0))
+                | ((v_df["flip"] == 1) & (v_df["flip"].shift(1) == 0))
+            ).astype(pd.UInt8Dtype())
+            v_df["end"] = (
+                ((v_df["repeat"] == 1) & (v_df["repeat"].shift(-1) == 0))
+                | ((v_df["flip"] == 1) & (v_df["flip"].shift(-1) == 0))
+            ).astype(pd.UInt8Dtype())
+            v_df.loc[
+                (v_df["begin"] == 1) & (v_df["end"] == 1),
+                ["begin", "end", "flip", "repeat"],
+            ] = 0
+
+            # d_df = v_df[(v_df["repeat"] == 0) & (v_df["flip"] == 0)].copy()
+            # d_df = v_df[(v_df["repeat"] == 0)].copy()
+            d_df = v_df.copy()
+            d_df["op"] = DIFF_OP
+            change_dfs.append(d_df)
+            break
+
+            for f, op in (("repeat", REPEAT_OP),):  # , ("flip", FLIP_OP)):
+                d_df = v_df[
+                    (v_df[f] == 1) & ((v_df["begin"] == 1) | (v_df["end"] == 1))
+                ].copy()
+                if not d_df.empty:
+                    d_df.loc[d_df["end"] == 1, "val"] = 0
+                    d_df["op"] = op
+                    change_dfs.append(d_df.copy())
+                    print(d_df)
+
         df = df.drop("pval", axis=1)
         return df, change_dfs
 

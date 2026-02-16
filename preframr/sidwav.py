@@ -12,9 +12,11 @@ from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
     DIFF_OP,
+    FLIP_OP,
     FRAME_REG,
     MAX_REG,
     MODE_VOL_REG,
+    REPEAT_OP,
     SET_OP,
     VOICES,
     VOICE_REG_SIZE,
@@ -219,12 +221,26 @@ def write_samples(
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
         last_val = defaultdict(int)
+        repeat_val = defaultdict(int)
+        flip_val = defaultdict(int)
 
         for row in tqdm(sid_df.itertuples(), total=len(sid_df)):
             delay = row.delay
             if row.reg < 0:
                 if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
+                    for reg, val in repeat_val.items():
+                        last_val[reg] += val
+                    for reg, val in list(flip_val.items()):
+                        last_val[reg] += val
+                        flip_val[reg] = -val
+                    for reg in sorted(set(repeat_val.keys()).union(flip_val.keys())):
+                        write_reg(
+                            proxy,
+                            reg,
+                            last_val[reg],
+                            reg_widths,
+                        )
                 else:
                     assert False, f"unknown reg {row.reg}, {row}"
             else:
@@ -233,6 +249,20 @@ def write_samples(
                     last_val[reg] = row.val
                 elif row.op == DIFF_OP:
                     last_val[reg] += row.val
+                elif row.op == REPEAT_OP:
+                    if row.val != 0:
+                        last_val[reg] += row.val
+                        repeat_val[reg] = row.val
+                    else:
+                        last_val[reg] += repeat_val[reg]
+                        del repeat_val[reg]
+                elif row.op == FLIP_OP:
+                    if row.val != 0:
+                        last_val[reg] += row.val
+                        flip_val[reg] = -row.val
+                    else:
+                        last_val[reg] += flip_val[reg]
+                        del flip_val[reg]
                 else:
                     assert False, f"unknown op {row.op}, {row}"
                 write_reg(
