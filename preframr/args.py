@@ -86,7 +86,7 @@ def add_args(parser):
     parser.add_argument("--focal-gamma", type=float, default=0)
     parser.add_argument("--label-smoothing", type=float, default=0)
     parser.add_argument(
-        "--require-pq", action=argparse.BooleanOptionalAction, default=False
+        "--require-pq", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
         "--tie-word-embeddings", action=argparse.BooleanOptionalAction, default=False
