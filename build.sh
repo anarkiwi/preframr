@@ -9,6 +9,7 @@ NVGPUS=$(nvidia-smi --query-gpu name --format=csv,noheader 2>/dev/null|head -1|c
 if [[ ! -z "${NVGPUS}" ]] ; then
     if [[ "${NVGPUS}" == "Orin" ]] ; then
         docker build --build-arg PIP_OPTS="$PIP_OPTS" -f Dockerfile.jetson . -t anarkiwi/preframr-jetson
+        wait $B0
         exit 0
     fi
 fi
