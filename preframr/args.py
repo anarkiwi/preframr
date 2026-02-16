@@ -25,7 +25,7 @@ def add_args(parser):
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--tkvocab", type=int, default=0)
+    parser.add_argument("--tkvocab", type=int, default=4096)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
     parser.add_argument(
@@ -39,7 +39,7 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--shuffle", type=float, default=0.01)
-    parser.add_argument("--max-files", type=int, default=256)
+    parser.add_argument("--max-files", type=int, default=1024)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
