@@ -2,6 +2,9 @@ import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from schedulefree import AdamWScheduleFree
+import pyarrow
+
+pyarrow.PyExtensionType = pyarrow.ExtensionType
 from torchtune.models.gemma._component_builders import gemma
 from torchtune.models.llama2._component_builders import llama2
 from torchtune.models.llama3_2._component_builders import llama3_2

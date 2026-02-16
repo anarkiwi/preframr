@@ -6,6 +6,9 @@ import os
 import sys
 
 import pandas as pd
+import pyarrow
+
+pyarrow.PyExtensionType = pyarrow.ExtensionType
 from torchtune.generation import generate
 import torch
 import torchmetrics

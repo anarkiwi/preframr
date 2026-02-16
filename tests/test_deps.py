@@ -1,4 +1,7 @@
 import unittest
+import pyarrow
+
+pyarrow.PyExtensionType = pyarrow.ExtensionType
 import torchtune
 
 
