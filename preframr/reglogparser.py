@@ -450,8 +450,14 @@ class RegLogParser:
         for reg in change_df["reg"].unique():
             v_df = change_df[change_df["reg"] == reg].copy()
             v_df = v_df.sort_values(["n", "val"])
+            # Only one change per reg per frame.
+            v_df["cpf"] = v_df.groupby("f").transform("size")
             v_df = v_df[
-                (v_df["val"].abs() <= minchange) | (v_df["val"].shift(1) == v_df["val"])
+                (
+                    (v_df["val"].abs() <= minchange)
+                    | (v_df["val"].shift(1) == v_df["val"])
+                )
+                & (v_df["cpf"] == 1)
             ]
             df = df[~df["n"].isin(v_df["n"])]
             v_df["aval"] = v_df["val"].abs()
@@ -490,6 +496,9 @@ class RegLogParser:
             #    ["repeat", "flip", "begin", "end"],
             # ] = 0
             assert not len(v_df[(v_df["repeat"] != 0) & (v_df["flip"] != 0)])
+            v_df.loc[
+                (v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", "flip"]
+            ] = 0
 
             for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
                 if op in opcodes:
@@ -606,7 +615,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
-        df = self._add_change_regs(df, opcodes=[DIFF_OP])
+        df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
