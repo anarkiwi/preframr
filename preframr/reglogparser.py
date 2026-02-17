@@ -489,12 +489,12 @@ class RegLogParser:
                 change_dfs.append(v_df)
                 continue
 
-            d_df = v_df[(v_df["repeat"] == 0)].copy() & (v_df["flip"] == 0)].copy()
+            d_df = v_df[(v_df["repeat"] == 0) & (v_df["flip"] == 0)].copy()
             if not d_df.empty:
                 d_df["op"] = DIFF_OP
                 change_dfs.append(d_df)
 
-            for f, op in (("repeat", REPEAT_OP), "flip", FLIP_OP)):
+            for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
                 d_df = v_df[v_df[f] != 0].copy()
                 if d_df.empty:
                     continue
@@ -508,7 +508,7 @@ class RegLogParser:
         df = df.drop("pval", axis=1)
         return df, change_dfs
 
-    def _add_change_regs(self, orig_df):
+    def _add_change_regs(self, orig_df, diffonly=True):
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
@@ -529,7 +529,9 @@ class RegLogParser:
         ):
             df = df.merge(xdf[["reg", "f", "pval"]], how="left", on=["f", "reg"])
             xdf = df[matcher(df)].copy()
-            df, change_dfs = self._add_change_reg(df, xdf, minchange=minchange)
+            df, change_dfs = self._add_change_reg(
+                df, xdf, minchange=minchange, diffonly=diffonly
+            )
             all_change_dfs.extend(change_dfs)
 
         df = pd.concat([df] + all_change_dfs).sort_values(["n"]).reset_index(drop=True)

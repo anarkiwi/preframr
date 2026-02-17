@@ -269,7 +269,9 @@ class TestRegLogParser(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._add_change_regs(test_df).astype(MODEL_PDTYPE)
+        result_df = loader._add_change_regs(test_df, diffonly=False).astype(
+            MODEL_PDTYPE
+        )
         self.assertTrue(change_df.equals(result_df))
 
         test_df = pd.DataFrame(
@@ -297,7 +299,9 @@ class TestRegLogParser(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._add_change_regs(test_df).astype(MODEL_PDTYPE)
+        result_df = loader._add_change_regs(test_df, diffonly=False).astype(
+            MODEL_PDTYPE
+        )
         self.assertTrue(change_df.equals(result_df))
 
     def test_norm_pr_order(self):
