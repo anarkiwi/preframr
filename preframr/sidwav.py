@@ -221,28 +221,31 @@ def write_samples(
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
         last_val = defaultdict(int)
-        repeat_val = defaultdict(int)
-        flip_val = defaultdict(int)
 
-        for row in tqdm(sid_df.itertuples(), total=len(sid_df)):
-            delay = row.delay
+        sid_writes = []
+        for row in sid_df.itertuples():
             if row.reg < 0:
-                if row.reg == FRAME_REG or row.reg == DELAY_REG:
-                    proxy.cue_frame()
-                else:
+                if row.reg not in {FRAME_REG, DELAY_REG}:
                     assert False, f"unknown reg {row.reg}, {row}"
+                sid_writes.append((row.reg, row.val, row.delay))
             else:
-                reg = row.reg
                 if row.op == SET_OP:
-                    last_val[reg] = row.val
+                    last_val[row.reg] = row.val
                 elif row.op == DIFF_OP:
-                    last_val[reg] += row.val
+                    last_val[row.reg] += row.val
                 else:
                     assert False, f"unknown op {row.op}, {row}"
+                sid_writes.append((row.reg, last_val[row.reg], row.delay))
+
+        for reg, val, delay in tqdm(sid_writes):
+            if reg < 0:
+                if reg == FRAME_REG or reg == DELAY_REG:
+                    proxy.cue_frame()
+            else:
                 write_reg(
                     proxy,
                     reg,
-                    last_val[reg],
+                    val,
                     reg_widths,
                 )
 
