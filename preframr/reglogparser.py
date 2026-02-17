@@ -472,43 +472,45 @@ class RegLogParser:
                 ] = (
                     v_df["cf"] * v_df[c]
                 )
-            for f in ("repeat", "flip"):
-                m = v_df[f] != 0
-                v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
-                v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
-                v_df.loc[
-                    (v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", f]
-                ] = 0
+            f = "repeat"
+            m = v_df[f] != 0
+            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
+            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
+            v_df.loc[(v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", f]] = 0
             v_df.loc[v_df["repeat"] != 0, "flip"] = 0
             f = "flip"
             m = v_df[f] != 0
             v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
             v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
-            if diffonly:
-                v_df["op"] = DIFF_OP
-                change_dfs.append(v_df)
-                continue
+            # v_df.loc[
+            #    ((v_df["begin"] == 1) & (v_df["end"].shift(-1) == 1))
+            #    | ((v_df["end"] == 1) & (v_df["begin"].shift(1) == 1)),
+            #    ["repeat", "flip", "begin", "end"],
+            # ] = 0
+            assert not len(v_df[(v_df["repeat"] != 0) & (v_df["flip"] != 0)])
 
-            d_df = v_df[(v_df["repeat"] == 0) & (v_df["flip"] == 0)].copy()
-            if not d_df.empty:
-                d_df["op"] = DIFF_OP
-                change_dfs.append(d_df)
+            if not diffonly:
+                for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
+                    d_df = v_df[v_df[f] != 0].copy()
+                    v_df = v_df[v_df[f] == 0]
+                    if d_df.empty:
+                        continue
+                    d_df = d_df[(d_df["begin"] == 1) | (d_df["end"] == 1)]
+                    if d_df.empty:
+                        continue
+                    assert d_df["begin"].iloc[0] == 1, d_df
+                    assert d_df["end"].iloc[-1] == 1, d_df
+                    d_df.loc[d_df["end"] == 1, "val"] = 0
+                    d_df["op"] = op
+                    change_dfs.append(d_df.copy())
 
-            for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
-                d_df = v_df[v_df[f] != 0].copy()
-                if d_df.empty:
-                    continue
-                d_df = d_df[(d_df["begin"] == 1) | (d_df["end"] == 1)]
-                if d_df.empty:
-                    continue
-                d_df.loc[d_df["end"] == 1, "val"] = 0
-                d_df["op"] = op
-                change_dfs.append(d_df.copy())
+            v_df["op"] = DIFF_OP
+            change_dfs.append(v_df)
 
         df = df.drop("pval", axis=1)
         return df, change_dfs
 
-    def _add_change_regs(self, orig_df, diffonly=True):
+    def _add_change_regs(self, orig_df, diffonly=False):
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
@@ -602,8 +604,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
-        df = self._add_change_regs(df)
-        df.to_csv("/scratch/tmp/changes.csv")
+        df = self._add_change_regs(df, diffonly=True)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
