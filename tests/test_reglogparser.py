@@ -6,7 +6,15 @@ import numpy as np
 import pandas as pd
 
 from preframr.reglogparser import RegLogParser
-from preframr.stfconstants import FRAME_REG, MODEL_PDTYPE, VOICES, VOICE_REG
+from preframr.stfconstants import (
+    FRAME_REG,
+    MODEL_PDTYPE,
+    VOICES,
+    VOICE_REG,
+    DIFF_OP,
+    FLIP_OP,
+    REPEAT_OP,
+)
 
 
 class FakeArgs:
@@ -251,12 +259,39 @@ class TestRegLogParser(unittest.TestCase):
         )
         change_df = pd.DataFrame(
             [
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 1, "diff": 32, "op": REPEAT_OP},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 0, "diff": 32, "op": REPEAT_OP},
+                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 65, "diff": 32, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._add_change_regs(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(change_df.equals(result_df))
+
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 0, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 65, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        change_df = pd.DataFrame(
+            [
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 1, "diff": 32, "op": 1},
+                {"reg": 7, "val": 1, "diff": 32, "op": FLIP_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 1, "diff": 32, "op": 1},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 1, "diff": 32, "op": 1},
+                {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 65, "diff": 32, "op": 0},
             ],

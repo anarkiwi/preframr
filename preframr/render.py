@@ -22,7 +22,7 @@ def main():
     states = prompt.squeeze(0).tolist()
     prompt_df = state_df(dataset.tokenizer.decode(states), dataset, irq)
     if args.csv:
-        prompt_df.astype(MODEL_PDTYPE).to_csv(args.csv, index=False)
+        prompt_df.astype(MODEL_PDTYPE).drop("n", axis=1).to_csv(args.csv, index=False)
     prompt_df, reg_widths = prepare_df_for_audio(
         prompt_df, dataset.reg_widths, irq, sidq()
     )

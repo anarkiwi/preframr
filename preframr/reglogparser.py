@@ -441,7 +441,7 @@ class RegLogParser:
         df = pd.concat(dfs).sort_values("n")
         return df[orig_df.columns].reset_index(drop=True)
 
-    def _add_change_reg(self, df, change_df, minchange=256):
+    def _add_change_reg(self, df, change_df, minchange=256, diffonly=True):
         change_dfs = []
         change_df["val"] -= change_df["pval"]
         change_df = change_df.drop("pval", axis=1)
@@ -452,44 +452,58 @@ class RegLogParser:
                 (v_df["val"].abs() <= minchange) | (v_df["val"].shift(1) == v_df["val"])
             ]
             df = df[~df["n"].isin(v_df["n"])]
-            v_df["c"] = (v_df["f"] == v_df["f"].shift(1) + 1).astype(pd.UInt8Dtype())
             v_df["aval"] = v_df["val"].abs()
-            r_cond = (v_df[["reg", "val"]] == v_df[["reg", "val"]].shift(1)).all(axis=1)
-            v_df["repeat"] = ((r_cond) & (v_df["c"] != 0)).astype(pd.UInt8Dtype())
-            v_df["flip"] = (
-                ~r_cond
-                & (v_df[["reg", "aval"]] == v_df[["reg", "aval"]].shift(1)).all(axis=1)
-                & (v_df["c"] != 0)
-            ).astype(pd.UInt8Dtype())
-            v_df["begin"] = (
-                ((v_df["repeat"] == 1) & (v_df["repeat"].shift(1) == 0))
-                | ((v_df["flip"] == 1) & (v_df["flip"].shift(1) == 0))
-            ).astype(pd.UInt8Dtype())
-            v_df["end"] = (
-                ((v_df["repeat"] == 1) & (v_df["repeat"].shift(-1) == 0))
-                | ((v_df["flip"] == 1) & (v_df["flip"].shift(-1) == 0))
-            ).astype(pd.UInt8Dtype())
-            v_df.loc[
-                (v_df["begin"] == 1) & (v_df["end"] == 1),
-                ["begin", "end", "flip", "repeat"],
-            ] = 0
+            v_df["cf"] = (
+                (
+                    (v_df["f"].diff().fillna(1) > 1)
+                    .astype(MODEL_PDTYPE)
+                    .cumsum()
+                    .astype(MODEL_PDTYPE)
+                )
+                * 255
+            ) + 1
+            v_df[["repeat", "flip", "begin", "end"]] = 0
+            for f, c in (("repeat", "val"), ("flip", "aval")):
+                cols = ["cf", c]
+                v_df.loc[
+                    (v_df[cols] == v_df[cols].shift(1)).all(axis=1)
+                    | (v_df[cols] == v_df[cols].shift(-1)).all(axis=1),
+                    f,
+                ] = (
+                    v_df["cf"] * v_df[c]
+                )
+            for f in ("repeat", "flip"):
+                m = v_df[f] != 0
+                v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
+                v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
+                v_df.loc[
+                    (v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", f]
+                ] = 0
+            v_df.loc[v_df["repeat"] != 0, "flip"] = 0
+            f = "flip"
+            m = v_df[f] != 0
+            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
+            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
+            if diffonly:
+                v_df["op"] = DIFF_OP
+                change_dfs.append(v_df)
+                continue
 
-            # d_df = v_df[(v_df["repeat"] == 0) & (v_df["flip"] == 0)].copy()
-            # d_df = v_df[(v_df["repeat"] == 0)].copy()
-            d_df = v_df.copy()
-            d_df["op"] = DIFF_OP
-            change_dfs.append(d_df)
-            break
+            d_df = v_df[(v_df["repeat"] == 0)].copy() & (v_df["flip"] == 0)].copy()
+            if not d_df.empty:
+                d_df["op"] = DIFF_OP
+                change_dfs.append(d_df)
 
-            for f, op in (("repeat", REPEAT_OP),):  # , ("flip", FLIP_OP)):
-                d_df = v_df[
-                    (v_df[f] == 1) & ((v_df["begin"] == 1) | (v_df["end"] == 1))
-                ].copy()
-                if not d_df.empty:
-                    d_df.loc[d_df["end"] == 1, "val"] = 0
-                    d_df["op"] = op
-                    change_dfs.append(d_df.copy())
-                    print(d_df)
+            for f, op in (("repeat", REPEAT_OP), "flip", FLIP_OP)):
+                d_df = v_df[v_df[f] != 0].copy()
+                if d_df.empty:
+                    continue
+                d_df = d_df[(d_df["begin"] == 1) | (d_df["end"] == 1)]
+                if d_df.empty:
+                    continue
+                d_df.loc[d_df["end"] == 1, "val"] = 0
+                d_df["op"] = op
+                change_dfs.append(d_df.copy())
 
         df = df.drop("pval", axis=1)
         return df, change_dfs
@@ -587,6 +601,7 @@ class RegLogParser:
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._add_change_regs(df)
+        df.to_csv("/scratch/tmp/changes.csv")
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
