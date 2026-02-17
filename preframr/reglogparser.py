@@ -441,7 +441,9 @@ class RegLogParser:
         df = pd.concat(dfs).sort_values("n")
         return df[orig_df.columns].reset_index(drop=True)
 
-    def _add_change_reg(self, df, change_df, minchange=256, diffonly=True):
+    def _add_change_reg(
+        self, df, change_df, minchange=256, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP]
+    ):
         change_dfs = []
         change_df["val"] -= change_df["pval"]
         change_df = change_df.drop("pval", axis=1)
@@ -489,8 +491,8 @@ class RegLogParser:
             # ] = 0
             assert not len(v_df[(v_df["repeat"] != 0) & (v_df["flip"] != 0)])
 
-            if not diffonly:
-                for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
+            for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
+                if op in opcodes:
                     d_df = v_df[v_df[f] != 0].copy()
                     v_df = v_df[v_df[f] == 0]
                     if d_df.empty:
@@ -510,7 +512,7 @@ class RegLogParser:
         df = df.drop("pval", axis=1)
         return df, change_dfs
 
-    def _add_change_regs(self, orig_df, diffonly=False):
+    def _add_change_regs(self, orig_df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP]):
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
@@ -532,7 +534,7 @@ class RegLogParser:
             df = df.merge(xdf[["reg", "f", "pval"]], how="left", on=["f", "reg"])
             xdf = df[matcher(df)].copy()
             df, change_dfs = self._add_change_reg(
-                df, xdf, minchange=minchange, diffonly=diffonly
+                df, xdf, minchange=minchange, opcodes=opcodes
             )
             all_change_dfs.extend(change_dfs)
 
@@ -604,7 +606,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
-        df = self._add_change_regs(df, diffonly=True)
+        df = self._add_change_regs(df, opcodes=[DIFF_OP])
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
