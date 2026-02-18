@@ -25,7 +25,7 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
         globbed = [
             f
             for f in glob.glob(r, recursive=True)
-            if (os.path.getsize(f) >= min_dump_size)
+            if os.path.getsize(f) >= min_dump_size
             and (not require_pq or glob.glob(f.replace(DUMP_SUFFIX, PARSED_SUFFIX)))
         ]
         random.shuffle(globbed)
