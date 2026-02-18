@@ -122,8 +122,6 @@ def expand_ops(orig_df):
 
     for row in df.itertuples():
         if row.reg < 0:
-            if row.reg not in {FRAME_REG, DELAY_REG}:
-                assert False, f"unknown reg {row.reg}, {row}"
             if row.reg == FRAME_REG:
                 if last_reg != FRAME_REG:
                     sid_writes.append((row.reg, row.val, row.diff))
@@ -139,8 +137,10 @@ def expand_ops(orig_df):
                 skip_write = set()
                 if last_reg == FRAME_REG:
                     sid_writes.append((row.reg, row.val, row.diff))
-            else:
+            elif row.reg == DELAY_REG:
                 sid_writes.append((row.reg, row.val, row.diff))
+            else:
+                assert False, f"unknown reg {row.reg}, {row}"
         else:
             if row.op == SET_OP:
                 last_val[row.reg] = row.val
