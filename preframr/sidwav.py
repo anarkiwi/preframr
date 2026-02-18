@@ -216,59 +216,22 @@ def write_samples(
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
 
-        sid_df = df[["op", "reg", "val", "delay"]]
         total_secs = df["delay"].sum() + 1
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)
-        last_val = defaultdict(int)
-        last_repeat = defaultdict(int)
-
-        sid_writes = []
-        skip_write = set()
-        repeat_delay = 0
-
-        for row in sid_df.itertuples():
+        for row in tqdm(df.itertuples(), total=len(df)):
             if row.reg < 0:
-                if row.reg not in {FRAME_REG, DELAY_REG}:
-                    assert False, f"unknown reg {row.reg}, {row}"
-                if row.reg == FRAME_REG:
-                    for reg, val in last_repeat.items():
-                        if reg not in skip_write:
-                            last_val[reg] += val
-                            sid_writes.append((reg, last_val[reg], repeat_delay))
-                    skip_write = set()
-                sid_writes.append((row.reg, row.val, row.delay))
-            else:
-                if row.op == SET_OP:
-                    last_val[row.reg] = row.val
-                elif row.op == DIFF_OP:
-                    last_val[row.reg] += row.val
-                elif row.op == REPEAT_OP:
-                    skip_write.add(row.reg)
-                    if row.val == 0:
-                        last_val[row.reg] += last_repeat[row.reg]
-                        del last_repeat[row.reg]
-                    else:
-                        last_repeat[row.reg] = row.val
-                        last_val[row.reg] += last_repeat[row.reg]
-                        repeat_delay = row.delay
-                else:
-                    assert False, f"unknown op {row.op}, {row}"
-                sid_writes.append((row.reg, last_val[row.reg], row.delay))
-
-        for reg, val, delay in tqdm(sid_writes):
-            if reg < 0:
-                if reg == FRAME_REG or reg == DELAY_REG:
+                if row.reg == FRAME_REG or row.reg == DELAY_REG:
                     proxy.cue_frame()
             else:
                 write_reg(
                     proxy,
-                    reg,
-                    val,
+                    row.reg,
+                    row.val,
                     reg_widths,
                 )
 
-            samples = proxy.clock(timedelta(seconds=delay))
+            samples = proxy.clock(timedelta(seconds=row.delay))
             raw_samples[sp : sp + len(samples)] = samples
             sp += len(samples)
         raw_samples = raw_samples[:sp]

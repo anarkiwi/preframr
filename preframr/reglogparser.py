@@ -1,5 +1,5 @@
+from collections import defaultdict
 import glob
-import itertools
 import logging
 from pathlib import Path
 import numpy as np
@@ -107,9 +107,76 @@ def reset_diffs(orig_df, irq, sidq):
     return df
 
 
+def expand_ops(orig_df):
+    df = orig_df.copy()
+    last_val = defaultdict(int)
+    last_repeat = defaultdict(int)
+    last_flip = defaultdict(int)
+
+    sid_writes = []
+    skip_write = set()
+    repeat_delay = 0
+    flip_delay = 0
+    last_reg = None
+
+    for row in df.itertuples():
+        if row.reg < 0:
+            if row.reg not in {FRAME_REG, DELAY_REG}:
+                assert False, f"unknown reg {row.reg}, {row}"
+            if row.reg == FRAME_REG:
+                if last_reg != FRAME_REG:
+                    sid_writes.append((row.reg, row.val, row.diff))
+                for reg, val in last_repeat.items():
+                    if reg not in skip_write:
+                        last_val[reg] += val
+                        sid_writes.append((reg, last_val[reg], repeat_delay))
+                for reg, val in list(last_flip.items()):
+                    if reg not in skip_write:
+                        last_val[reg] += val
+                        last_flip[reg] = -val
+                        sid_writes.append((reg, last_val[reg], flip_delay))
+                skip_write = set()
+                if last_reg == FRAME_REG:
+                    sid_writes.append((row.reg, row.val, row.diff))
+            else:
+                sid_writes.append((row.reg, row.val, row.diff))
+        else:
+            if row.op == SET_OP:
+                last_val[row.reg] = row.val
+                repeat_delay = row.diff
+                flip_delay = row.diff
+            elif row.op == DIFF_OP:
+                last_val[row.reg] += row.val
+            elif row.op == REPEAT_OP:
+                skip_write.add(row.reg)
+                if row.val == 0:
+                    last_val[row.reg] += last_repeat[row.reg]
+                    del last_repeat[row.reg]
+                else:
+                    last_repeat[row.reg] = row.val
+                    last_val[row.reg] += last_repeat[row.reg]
+            elif row.op == FLIP_OP:
+                skip_write.add(row.reg)
+                if row.val == 0:
+                    last_val[row.reg] += last_flip[row.reg]
+                    del last_flip[row.reg]
+                else:
+                    last_flip[row.reg] = row.val
+                    last_val[row.reg] += last_flip[row.reg]
+            else:
+                assert False, f"unknown op {row.op}, {row}"
+            sid_writes.append((row.reg, last_val[row.reg], row.diff))
+        last_reg = row.reg
+
+    df = pd.DataFrame(sid_writes, dtype=MODEL_PDTYPE)
+    df.columns = ["reg", "val", "diff"]
+    return df
+
+
 def prepare_df_for_audio(orig_df, reg_widths, irq, sidq):
     df = orig_df.copy()
     df, reg_widths = remove_voice_reg(df, reg_widths)
+    df = expand_ops(df)
     df = reset_diffs(df, irq, sidq)
     return df, reg_widths
 
@@ -442,7 +509,7 @@ class RegLogParser:
         return df[orig_df.columns].reset_index(drop=True)
 
     def _add_change_reg(
-        self, df, change_df, minchange=256, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP]
+        self, df, change_df, minchange=256, opcodes=[DIFF_OP, REPEAT_OP]
     ):
         change_dfs = []
         change_df["val"] -= change_df["pval"]
@@ -615,7 +682,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
-        df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
+        df = self._add_change_regs(df, opcodes=[DIFF_OP, REPEAT_OP])
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
