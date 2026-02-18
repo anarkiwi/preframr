@@ -15,9 +15,12 @@ def write_df(args, name):
     logger = get_logger("INFO")
     log_parser = RegLogParser(args, logger)
     base_name = name.replace(".dump.parquet", "")
-    for i, df in enumerate(log_parser.parse(name, max_perm=99, require_pq=False)):
-        pq_name = base_name + f".{i}.parquet"
-        df.to_parquet(pq_name, engine="pyarrow", compression="zstd")
+    try:
+        for i, df in enumerate(log_parser.parse(name, max_perm=99, require_pq=False)):
+            pq_name = base_name + f".{i}.parquet"
+            df.to_parquet(pq_name, engine="pyarrow", compression="zstd")
+    except Exception as err:
+        raise ValueError(f"{name}: {err}")
 
 
 def main():

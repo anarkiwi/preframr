@@ -11,6 +11,7 @@ from preframr.stfconstants import (
     DELAY_REG,
     DIFF_OP,
     DIFF_PDTYPE,
+    DUMP_SUFFIX,
     FC_LO_REG,
     FILTER_REG,
     FLIP_OP,
@@ -19,6 +20,7 @@ from preframr.stfconstants import (
     MIN_DIFF,
     MODE_VOL_REG,
     MODEL_PDTYPE,
+    PARSED_SUFFIX,
     REG_PDTYPE,
     REPEAT_OP,
     SET_OP,
@@ -441,7 +443,10 @@ class RegLogParser:
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
         m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
-        first_v = norm_df[m].iloc[0]
+        first_v = norm_df[m]
+        if first_v.empty:
+            return orig_df
+        first_v = first_v.iloc[0]
         norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
         df = norm_df[((norm_df["vd"] != 0) | (norm_df["n"] == first_v["n"])) & m].copy()
         df["n"] -= 1
@@ -660,7 +665,7 @@ class RegLogParser:
         return df
 
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
-        parquet_glob = glob.glob(name.replace(".dump.parquet", ".[0-9]*.parquet"))
+        parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
         if parquet_glob:
             for parquet_name in sorted(parquet_glob):
                 # assert (

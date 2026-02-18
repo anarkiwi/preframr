@@ -29,3 +29,6 @@ VOICE_REG_SIZE = 7
 PAL_CLOCK = 17734475
 TUNING_REF_HZ = 440
 MIDI_N_TO_F = {n: (2 ** ((n - 69) / 12)) * TUNING_REF_HZ for n in range(128)}
+
+DUMP_SUFFIX = r"*.dump.parquet"
+PARSED_SUFFIX = r".[0-9]*.parquet"

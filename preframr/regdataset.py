@@ -12,6 +12,7 @@ import zstandard as zstd
 from preframr.reglogparser import RegLogParser, remove_voice_reg, state_df
 from preframr.regtokenizer import RegTokenizer
 from preframr.seq_mapper import SeqMapper, SeqMeta
+from preframr.stfconstants import DUMP_SUFFIX, PARSED_SUFFIX
 
 
 def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
@@ -24,8 +25,8 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
         globbed = [
             f
             for f in glob.glob(r, recursive=True)
-            if os.path.getsize(f) >= min_dump_size
-            and (not require_pq or glob.glob(f.replace(".dump.zst", ".*parquet")))
+            if (os.path.getsize(f) >= min_dump_size)
+            and (not require_pq or glob.glob(f.replace(DUMP_SUFFIX, PARSED_SUFFIX)))
         ]
         random.shuffle(globbed)
         dump_files.extend(globbed[:max_globbed])
