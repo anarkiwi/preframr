@@ -508,7 +508,7 @@ class RegLogParser:
         return df[orig_df.columns].reset_index(drop=True)
 
     def _add_change_reg(
-        self, df, change_df, minchange=256, opcodes=[DIFF_OP, REPEAT_OP]
+        self, df, change_df, minchange=256, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP]
     ):
         change_dfs = []
         change_df["val"] -= change_df["pval"]
