@@ -112,10 +112,13 @@ def expand_ops(orig_df):
     last_val = defaultdict(int)
     last_repeat = defaultdict(int)
     last_flip = defaultdict(int)
-    last_diff = {
-        reg: df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"].iloc[0]
-        for reg in df["reg"].unique()
-    }
+    last_diff = {}
+    for reg in df["reg"].unique():
+        reg_df = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
+        if len(reg_df):
+            last_diff[reg] = reg_df.iloc[0]
+        else:
+            last_diff[reg] = MIN_DIFF
 
     sid_writes = []
     skip_write = set()
@@ -152,6 +155,7 @@ def expand_ops(orig_df):
                     del last_repeat[row.reg]
                 else:
                     skip_write.add(row.reg)
+                    assert row.reg not in last_repeat
                     last_repeat[row.reg] = row.val
                     last_val[row.reg] += last_repeat[row.reg]
             elif row.op == FLIP_OP:
@@ -160,6 +164,7 @@ def expand_ops(orig_df):
                     del last_flip[row.reg]
                 else:
                     skip_write.add(row.reg)
+                    assert row.reg not in last_flip
                     last_val[row.reg] += row.val
                     last_flip[row.reg] = -row.val
             else:
