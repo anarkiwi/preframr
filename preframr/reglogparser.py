@@ -147,21 +147,21 @@ def expand_ops(orig_df):
             elif row.op == DIFF_OP:
                 last_val[row.reg] += row.val
             elif row.op == REPEAT_OP:
-                skip_write.add(row.reg)
                 if row.val == 0:
                     last_val[row.reg] += last_repeat[row.reg]
                     del last_repeat[row.reg]
                 else:
+                    skip_write.add(row.reg)
                     last_repeat[row.reg] = row.val
                     last_val[row.reg] += last_repeat[row.reg]
             elif row.op == FLIP_OP:
-                skip_write.add(row.reg)
                 if row.val == 0:
                     last_val[row.reg] += last_flip[row.reg]
                     del last_flip[row.reg]
                 else:
-                    last_flip[row.reg] = row.val
-                    last_val[row.reg] += last_flip[row.reg]
+                    skip_write.add(row.reg)
+                    last_val[row.reg] += row.val
+                    last_flip[row.reg] = -row.val
             else:
                 assert False, f"unknown op {row.op}, {row}"
             sid_writes.append((row.reg, last_val[row.reg], row.diff))
