@@ -126,56 +126,64 @@ def expand_ops(orig_df, strict):
     skip_write = set()
     last_reg = None
 
-    for row in df.itertuples():
-        if row.reg < 0:
-            if row.reg == FRAME_REG:
-                if last_reg != FRAME_REG:
+    df["f"] = (
+        df["reg"]
+        .isin({DELAY_REG, FRAME_REG})
+        .astype(MODEL_PDTYPE)
+        .cumsum()
+        .astype(MODEL_PDTYPE)
+    )
+    for f, f_df in df.groupby("f"):
+        for row in f_df.itertuples():
+            if row.reg < 0:
+                if row.reg == FRAME_REG:
+                    if last_reg != FRAME_REG:
+                        sid_writes.append((row.reg, row.val, row.diff))
+                    for reg, val in last_repeat.items():
+                        if reg not in skip_write:
+                            last_val[reg] += val
+                            sid_writes.append((reg, last_val[reg], last_diff[reg]))
+                    for reg, val in list(last_flip.items()):
+                        if reg not in skip_write:
+                            last_val[reg] += val
+                            last_flip[reg] = -val
+                            sid_writes.append((reg, last_val[reg], last_diff[reg]))
+                    skip_write = set()
+                    if last_reg == FRAME_REG:
+                        sid_writes.append((row.reg, row.val, row.diff))
+                elif row.reg == DELAY_REG:
                     sid_writes.append((row.reg, row.val, row.diff))
-                for reg, val in last_repeat.items():
-                    if reg not in skip_write:
-                        last_val[reg] += val
-                        sid_writes.append((reg, last_val[reg], last_diff[reg]))
-                for reg, val in list(last_flip.items()):
-                    if reg not in skip_write:
-                        last_val[reg] += val
-                        last_flip[reg] = -val
-                        sid_writes.append((reg, last_val[reg], last_diff[reg]))
-                skip_write = set()
-                if last_reg == FRAME_REG:
-                    sid_writes.append((row.reg, row.val, row.diff))
-            elif row.reg == DELAY_REG:
-                sid_writes.append((row.reg, row.val, row.diff))
+                else:
+                    assert False, f"unknown reg {row.reg}, {row}"
             else:
-                assert False, f"unknown reg {row.reg}, {row}"
-        else:
-            if row.op == SET_OP:
-                last_val[row.reg] = row.val
-            elif row.op == DIFF_OP:
-                last_val[row.reg] += row.val
-            elif row.op == REPEAT_OP:
-                if row.val == 0:
-                    last_val[row.reg] += last_repeat[row.reg]
-                    del last_repeat[row.reg]
-                else:
-                    skip_write.add(row.reg)
-                    if strict:
-                        assert row.reg not in last_repeat
-                    last_repeat[row.reg] = row.val
-                    last_val[row.reg] += last_repeat[row.reg]
-            elif row.op == FLIP_OP:
-                if row.val == 0:
-                    last_val[row.reg] += last_flip[row.reg]
-                    del last_flip[row.reg]
-                else:
-                    skip_write.add(row.reg)
-                    if strict:
-                        assert row.reg not in last_flip
+                if row.op == SET_OP:
+                    last_val[row.reg] = row.val
+                elif row.op == DIFF_OP:
                     last_val[row.reg] += row.val
-                    last_flip[row.reg] = -row.val
-            else:
-                assert False, f"unknown op {row.op}, {row}"
-            sid_writes.append((row.reg, last_val[row.reg], row.diff))
-        last_reg = row.reg
+                elif row.op == REPEAT_OP:
+                    if row.val == 0:
+                        last_val[row.reg] += last_repeat[row.reg]
+                        del last_repeat[row.reg]
+                    else:
+                        skip_write.add(row.reg)
+                        if strict:
+                            assert row.reg not in last_repeat
+                        last_repeat[row.reg] = row.val
+                        last_val[row.reg] += last_repeat[row.reg]
+                elif row.op == FLIP_OP:
+                    if row.val == 0:
+                        last_val[row.reg] += last_flip[row.reg]
+                        del last_flip[row.reg]
+                    else:
+                        skip_write.add(row.reg)
+                        if strict:
+                            assert row.reg not in last_flip
+                        last_val[row.reg] += row.val
+                        last_flip[row.reg] = -row.val
+                else:
+                    assert False, f"unknown op {row.op}, {row}"
+                sid_writes.append((row.reg, last_val[row.reg], row.diff))
+            last_reg = row.reg
 
     df = pd.DataFrame(sid_writes, dtype=MODEL_PDTYPE)
     df.columns = ["reg", "val", "diff"]
