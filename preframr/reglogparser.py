@@ -124,7 +124,6 @@ def expand_ops(orig_df, strict):
 
     sid_writes = []
     skip_write = set()
-    last_reg = None
 
     df["f"] = (
         df["reg"]
@@ -137,8 +136,7 @@ def expand_ops(orig_df, strict):
         for row in f_df.itertuples():
             if row.reg < 0:
                 if row.reg == FRAME_REG:
-                    if last_reg != FRAME_REG:
-                        sid_writes.append((row.reg, row.val, row.diff))
+                    sid_writes.append((row.reg, row.val, row.diff))
                     for reg, val in last_repeat.items():
                         if reg not in skip_write:
                             last_val[reg] += val
@@ -149,8 +147,6 @@ def expand_ops(orig_df, strict):
                             last_flip[reg] = -val
                             sid_writes.append((reg, last_val[reg], last_diff[reg]))
                     skip_write = set()
-                    if last_reg == FRAME_REG:
-                        sid_writes.append((row.reg, row.val, row.diff))
                 elif row.reg == DELAY_REG:
                     sid_writes.append((row.reg, row.val, row.diff))
                 else:
@@ -183,7 +179,6 @@ def expand_ops(orig_df, strict):
                 else:
                     assert False, f"unknown op {row.op}, {row}"
                 sid_writes.append((row.reg, last_val[row.reg], row.diff))
-            last_reg = row.reg
 
     df = pd.DataFrame(sid_writes, dtype=MODEL_PDTYPE)
     df.columns = ["reg", "val", "diff"]
