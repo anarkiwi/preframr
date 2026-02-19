@@ -123,7 +123,6 @@ def expand_ops(orig_df, strict):
             last_diff[reg] = MIN_DIFF
 
     sid_writes = []
-    skip_write = set()
 
     df["f"] = (
         df["reg"]
@@ -135,50 +134,45 @@ def expand_ops(orig_df, strict):
     for f, f_df in df.groupby("f"):
         for row in f_df.itertuples():
             if row.reg < 0:
-                if row.reg == FRAME_REG:
-                    sid_writes.append((row.reg, row.val, row.diff))
-                    for reg, val in last_repeat.items():
-                        if reg not in skip_write:
-                            last_val[reg] += val
-                            sid_writes.append((reg, last_val[reg], last_diff[reg]))
-                    for reg, val in list(last_flip.items()):
-                        if reg not in skip_write:
-                            last_val[reg] += val
-                            last_flip[reg] = -val
-                            sid_writes.append((reg, last_val[reg], last_diff[reg]))
-                    skip_write = set()
-                elif row.reg == DELAY_REG:
-                    sid_writes.append((row.reg, row.val, row.diff))
-                else:
+                if row.reg not in {DELAY_REG, FRAME_REG}:
                     assert False, f"unknown reg {row.reg}, {row}"
-            else:
-                if row.op == SET_OP:
-                    last_val[row.reg] = row.val
-                elif row.op == DIFF_OP:
-                    last_val[row.reg] += row.val
-                elif row.op == REPEAT_OP:
-                    if row.val == 0:
-                        last_val[row.reg] += last_repeat[row.reg]
-                        del last_repeat[row.reg]
-                    else:
-                        skip_write.add(row.reg)
-                        if strict:
-                            assert row.reg not in last_repeat
-                        last_repeat[row.reg] = row.val
-                        last_val[row.reg] += last_repeat[row.reg]
-                elif row.op == FLIP_OP:
-                    if row.val == 0:
-                        last_val[row.reg] += last_flip[row.reg]
-                        del last_flip[row.reg]
-                    else:
-                        skip_write.add(row.reg)
-                        if strict:
-                            assert row.reg not in last_flip
-                        last_val[row.reg] += row.val
-                        last_flip[row.reg] = -row.val
+                sid_writes.append((row.reg, row.val, row.diff))
+                continue
+
+            if row.op == SET_OP:
+                last_val[row.reg] = row.val
+            elif row.op == DIFF_OP:
+                last_val[row.reg] += row.val
+            elif row.op == REPEAT_OP:
+                if row.val == 0:
+                    last_val[row.reg] += last_repeat[row.reg]
+                    del last_repeat[row.reg]
                 else:
-                    assert False, f"unknown op {row.op}, {row}"
-                sid_writes.append((row.reg, last_val[row.reg], row.diff))
+                    if strict:
+                        assert row.reg not in last_repeat
+                    last_repeat[row.reg] = row.val
+                    continue
+            elif row.op == FLIP_OP:
+                if row.val == 0:
+                    last_val[row.reg] += last_flip[row.reg]
+                    del last_flip[row.reg]
+                else:
+                    if strict:
+                        assert row.reg not in last_flip
+                    last_flip[row.reg] = row.val
+                    continue
+            else:
+                assert False, f"unknown op {row.op}, {row}"
+
+            sid_writes.append((row.reg, last_val[row.reg], row.diff))
+
+        for reg, val in last_repeat.items():
+            last_val[reg] += val
+            sid_writes.append((reg, last_val[reg], last_diff[reg]))
+        for reg, val in list(last_flip.items()):
+            last_val[reg] += val
+            last_flip[reg] = -val
+            sid_writes.append((reg, last_val[reg], last_diff[reg]))
 
     df = pd.DataFrame(sid_writes, dtype=MODEL_PDTYPE)
     df.columns = ["reg", "val", "diff"]
