@@ -174,10 +174,11 @@ def expand_ops(orig_df, strict):
             last_val[reg] += val
             last_flip[reg] = -val
             f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
-        f_df = pd.DataFrame(
-            f_sid_writes, dtype=MODEL_PDTYPE, columns=["reg", "val", "diff"]
-        ).sort_values("reg")
-        sid_writes.append(f_df)
+        sid_writes.append(
+            pd.DataFrame(
+                f_sid_writes, dtype=MODEL_PDTYPE, columns=["reg", "val", "diff"]
+            ).sort_values("reg")
+        )
 
     df = pd.concat(sid_writes, ignore_index=True)
     return df
