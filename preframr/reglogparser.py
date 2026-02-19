@@ -132,11 +132,12 @@ def expand_ops(orig_df, strict):
         .astype(MODEL_PDTYPE)
     )
     for f, f_df in df.groupby("f"):
+        f_sid_writes = []
         for row in f_df.itertuples():
             if row.reg < 0:
                 if row.reg not in {DELAY_REG, FRAME_REG}:
                     assert False, f"unknown reg {row.reg}, {row}"
-                sid_writes.append((row.reg, row.val, row.diff))
+                f_sid_writes.append((row.reg, row.val, row.diff))
                 continue
 
             if row.op == SET_OP:
@@ -164,18 +165,21 @@ def expand_ops(orig_df, strict):
             else:
                 assert False, f"unknown op {row.op}, {row}"
 
-            sid_writes.append((row.reg, last_val[row.reg], row.diff))
+            f_sid_writes.append((row.reg, last_val[row.reg], row.diff))
 
         for reg, val in last_repeat.items():
             last_val[reg] += val
-            sid_writes.append((reg, last_val[reg], last_diff[reg]))
+            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
         for reg, val in list(last_flip.items()):
             last_val[reg] += val
             last_flip[reg] = -val
-            sid_writes.append((reg, last_val[reg], last_diff[reg]))
+            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
+        f_df = pd.DataFrame(
+            f_sid_writes, dtype=MODEL_PDTYPE, columns=["reg", "val", "diff"]
+        )
+        sid_writes.append(f_df)
 
-    df = pd.DataFrame(sid_writes, dtype=MODEL_PDTYPE)
-    df.columns = ["reg", "val", "diff"]
+    df = pd.concat(sid_writes, ignore_index=True)
     return df
 
 
