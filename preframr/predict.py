@@ -55,7 +55,7 @@ def generate_sequence(args, logger, dataset, predictor):
     decoded_prompt = dataset.tokenizer.decode(states)
     prompt_df = state_df(decoded_prompt, dataset, irq)
     prompt_df_audio, _reg_widths = prepare_df_for_audio(
-        prompt_df, dataset.reg_widths, irq, sidq()
+        prompt_df, dataset.reg_widths, irq, sidq(), strict=False
     )
     prompt_cycles = prompt_df_audio["diff"].sum()
     logger.info(

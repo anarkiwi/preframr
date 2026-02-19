@@ -24,7 +24,7 @@ def main():
     if args.csv:
         prompt_df.astype(MODEL_PDTYPE).drop("n", axis=1).to_csv(args.csv, index=False)
     prompt_df, reg_widths = prepare_df_for_audio(
-        prompt_df, dataset.reg_widths, irq, sidq()
+        prompt_df, dataset.reg_widths, irq, sidq(), strict=True
     )
     write_samples(
         prompt_df,

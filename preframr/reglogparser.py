@@ -109,7 +109,7 @@ def reset_diffs(orig_df, irq, sidq):
     return df
 
 
-def expand_ops(orig_df):
+def expand_ops(orig_df, strict):
     df = orig_df.copy()
     last_val = defaultdict(int)
     last_repeat = defaultdict(int)
@@ -124,6 +124,7 @@ def expand_ops(orig_df):
 
     sid_writes = []
     skip_write = set()
+    last_reg = None
 
     for row in df.itertuples():
         if row.reg < 0:
@@ -157,7 +158,8 @@ def expand_ops(orig_df):
                     del last_repeat[row.reg]
                 else:
                     skip_write.add(row.reg)
-                    assert row.reg not in last_repeat
+                    if strict:
+                        assert row.reg not in last_repeat
                     last_repeat[row.reg] = row.val
                     last_val[row.reg] += last_repeat[row.reg]
             elif row.op == FLIP_OP:
@@ -166,7 +168,8 @@ def expand_ops(orig_df):
                     del last_flip[row.reg]
                 else:
                     skip_write.add(row.reg)
-                    assert row.reg not in last_flip
+                    if strict:
+                        assert row.reg not in last_flip
                     last_val[row.reg] += row.val
                     last_flip[row.reg] = -row.val
             else:
@@ -179,10 +182,10 @@ def expand_ops(orig_df):
     return df
 
 
-def prepare_df_for_audio(orig_df, reg_widths, irq, sidq):
+def prepare_df_for_audio(orig_df, reg_widths, irq, sidq, strict=False):
     df = orig_df.copy()
     df, reg_widths = remove_voice_reg(df, reg_widths)
-    df = expand_ops(df)
+    df = expand_ops(df, strict)
     df = reset_diffs(df, irq, sidq)
     return df, reg_widths
 
