@@ -225,8 +225,12 @@ class RegLogParser:
     def _frame_match(self, df):
         return (df["reg"] == FRAME_REG) | (df["reg"] == DELAY_REG)
 
-    def _frame_reg(self, df):
-        return self._frame_match(df).cumsum()
+    def _frame_reg(self, orig_df):
+        df = orig_df[["reg", "val"]].copy()
+        df.loc[(df["reg"] == FRAME_REG), "val"] = 1
+        m = self._frame_match(df)
+        df.loc[~m, "val"] = 0
+        return df["val"].cumsum()
 
     def _read_df(self, name):
         try:
@@ -704,10 +708,10 @@ class RegLogParser:
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
         df = self._squeeze_frames(df)
         df["irq"] = irq
-        while not df.empty and self._frame_reg(df.iloc[-1]):
+        while not df.empty and self._frame_match(df.iloc[-1]):
             df = df.head(len(df) - 1)
         while not df.empty and (
-            self._frame_reg(df.iloc[0])
+            self._frame_match(df.iloc[0])
             or (df.iloc[0]["reg"] == MODE_VOL_REG and df.iloc[0]["val"] == 15)
         ):
             df = df.tail(len(df) - 1)
