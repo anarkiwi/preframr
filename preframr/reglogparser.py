@@ -696,7 +696,7 @@ class RegLogParser:
             & (df["reg"].shift(-1) != FRAME_REG)
             & (df["reg"].shift(1) == FRAME_REG)
         )
-        df.loc[m, "val"] = 0
+        df.loc[m, "val"] = 1
         df.loc[m, "reg"] = DELAY_REG
         while True:
             m = (df["reg"] == DELAY_REG) & (df["reg"].shift(1) == FRAME_REG)
