@@ -1,6 +1,7 @@
 from collections import defaultdict
 import glob
 import logging
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -152,17 +153,21 @@ def expand_ops(orig_df, strict):
 
     for _f, f_df in df.groupby("f"):
         f_sid_writes = []
-        for row in f_df.itertuples():
+        for i, row in enumerate(f_df.itertuples()):
             if row.reg < 0:
                 if row.reg == FRAME_REG:
                     f_sid_writes.append((row.reg, row.val, row.diff))
                 elif row.reg == DELAY_REG:
-                    for _i in range(row.val):
-                        delay_sid_writes = [(FRAME_REG, 0, frame_diff)]
-                        delay_sid_writes.extend(apply_ops())
-                        add_frame(delay_sid_writes)
+                    if last_repeat or last_flip:
+                        for _i in range(row.val):
+                            delay_sid_writes = [(FRAME_REG, 0, frame_diff)]
+                            delay_sid_writes.extend(apply_ops())
+                            add_frame(delay_sid_writes)
+                    else:
+                        f_sid_writes.append((row.reg, row.val, row.diff))
                 else:
                     assert False, f"unknown reg {row.reg}, {row}"
+                assert i == 0
                 continue
             if row.op == SET_OP:
                 last_val[row.reg] = row.val
@@ -707,6 +712,20 @@ class RegLogParser:
             df = df[~m]
         return df
 
+    def _squeeze_frame_regs(self, orig_df, regs=[0, 2, 21]):
+        df = self._norm_df(orig_df.copy())
+        df["dreg"] = pd.NA
+        for reg in regs:
+            if reg < VOICE_REG_SIZE:
+                for v in range(VOICES):
+                    dreg = v * VOICE_REG_SIZE + reg
+                    df.loc[df["reg"] == dreg, "dreg"] = int(dreg)
+            else:
+                df.loc[df["reg"] == reg, "dreg"] = df["reg"]
+        df = df[~df.duplicated(["f", "dreg"], keep="last") | df["dreg"].isna()]
+        df = df[orig_df.columns].reset_index(drop=True)
+        return df
+
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
         parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
         if parquet_glob:
@@ -734,6 +753,7 @@ class RegLogParser:
         if df.empty:
             return
         irq, df = self._add_frame_reg(df, diffmax)
+        df = self._squeeze_frame_regs(df)
         df = self._add_change_regs(df, opcodes=[DIFF_OP, REPEAT_OP])
         # df = self._consolidate_frames(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
