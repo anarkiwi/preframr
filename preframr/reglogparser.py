@@ -122,6 +122,7 @@ def expand_ops(orig_df, strict):
         else:
             last_diff[reg] = MIN_DIFF
 
+    frame_diff = df[df["reg"] == FRAME_REG]["diff"].iloc[0]
     sid_writes = []
 
     df["f"] = (
@@ -131,15 +132,38 @@ def expand_ops(orig_df, strict):
         .cumsum()
         .astype(MODEL_PDTYPE)
     )
-    for f, f_df in df.groupby("f"):
+
+    def apply_ops():
+        f_sid_writes = []
+        for reg, val in last_repeat.items():
+            last_val[reg] += val
+            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
+        for reg, val in list(last_flip.items()):
+            last_val[reg] += val
+            last_flip[reg] = -val
+        return f_sid_writes
+
+    def add_frame(writes):
+        sid_writes.append(
+            pd.DataFrame(
+                writes, dtype=MODEL_PDTYPE, columns=["reg", "val", "diff"]
+            ).sort_values("reg")
+        )
+
+    for _f, f_df in df.groupby("f"):
         f_sid_writes = []
         for row in f_df.itertuples():
             if row.reg < 0:
-                if row.reg not in {DELAY_REG, FRAME_REG}:
+                if row.reg == FRAME_REG:
+                    f_sid_writes.append((row.reg, row.val, row.diff))
+                elif row.reg == DELAY_REG:
+                    for _i in range(row.val):
+                        delay_sid_writes = [(FRAME_REG, 0, frame_diff)]
+                        delay_sid_writes.extend(apply_ops())
+                        add_frame(delay_sid_writes)
+                else:
                     assert False, f"unknown reg {row.reg}, {row}"
-                f_sid_writes.append((row.reg, row.val, row.diff))
                 continue
-
             if row.op == SET_OP:
                 last_val[row.reg] = row.val
             elif row.op == DIFF_OP:
@@ -167,18 +191,8 @@ def expand_ops(orig_df, strict):
 
             f_sid_writes.append((row.reg, last_val[row.reg], row.diff))
 
-        for reg, val in last_repeat.items():
-            last_val[reg] += val
-            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
-        for reg, val in list(last_flip.items()):
-            last_val[reg] += val
-            last_flip[reg] = -val
-            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
-        sid_writes.append(
-            pd.DataFrame(
-                f_sid_writes, dtype=MODEL_PDTYPE, columns=["reg", "val", "diff"]
-            ).sort_values("reg")
-        )
+        f_sid_writes.extend(apply_ops())
+        add_frame(f_sid_writes)
 
     df = pd.concat(sid_writes, ignore_index=True)
     return df
