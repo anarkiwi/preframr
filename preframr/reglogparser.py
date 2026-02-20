@@ -441,14 +441,6 @@ class RegLogParser:
             df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.fi_map)
         return df
 
-    def _squeeze_frames(self, orig_df):
-        df = orig_df.copy()
-        df["f"] = self._frame_reg(df)
-        cm = self._ctrl_match(df).astype(MODEL_PDTYPE)
-        df["c"] = cm * cm.cumsum()
-        df = df.drop_duplicates(["f", "c", "reg"], keep="last")
-        return df[orig_df.columns].reset_index(drop=True)
-
     def _norm_df(self, orig_df):
         norm_df = orig_df.copy().reset_index(drop=True)
         norm_df["f"] = self._frame_reg(norm_df)
@@ -761,7 +753,6 @@ class RegLogParser:
             delay_max = delay_val.max()
             assert delay_max < 256, delay_max
         irq = min(2 ** (IRQ_PDTYPE.itemsize * 8) - 1, irq)
-        df = self._squeeze_frames(df)
         df["irq"] = irq
         while not df.empty and self._frame_match(df.iloc[-1]):
             df = df.head(len(df) - 1)
