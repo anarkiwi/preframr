@@ -545,6 +545,10 @@ class RegLogParser:
                 & (v_df["cpf"] == 1)
             ]
             df = df[~df["n"].isin(v_df["n"])]
+            m_df = v_df[v_df["f"].diff().fillna(1) > 1].copy()
+            m_df["op"] = DIFF_OP
+            v_df = v_df[~v_df["n"].isin(m_df["n"])]
+            change_dfs.append(m_df)
             v_df["aval"] = v_df["val"].abs()
             v_df["cf"] = (
                 (
