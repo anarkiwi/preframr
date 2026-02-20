@@ -5,7 +5,7 @@ from preframr.stfconstants import (
 
 
 class FreqMapper:
-    def __init__(self, cents=50, clock=PAL_CLOCK):
+    def __init__(self, cents=10, clock=PAL_CLOCK):
         f = MIDI_N_TO_F[0]
         sid_clock = (18 * 2**24) / clock
         max_sid_f = 65535 / sid_clock
