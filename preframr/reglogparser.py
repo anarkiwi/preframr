@@ -456,8 +456,7 @@ class RegLogParser:
         return norm_df
 
     def _norm_pr_order(self, orig_df):
-        norm_df = self._norm_df(orig_df)
-        df = norm_df.copy()
+        df = self._norm_df(orig_df.copy())
         df["areg"] = df["reg"].abs()
         df = df.sort_values(["f", "v", "areg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
