@@ -690,6 +690,23 @@ class RegLogParser:
         df = self._combine_reg(df, FC_LO_REG, bits=2)
         return df
 
+    def _consolidate_frames(self, df):
+        m = (
+            (df["reg"] == FRAME_REG)
+            & (df["reg"].shift(-1) != FRAME_REG)
+            & (df["reg"].shift(1) == FRAME_REG)
+        )
+        df.loc[m, "val"] = 0
+        df.loc[m, "reg"] = DELAY_REG
+        while True:
+            m = (df["reg"] == DELAY_REG) & (df["reg"].shift(1) == FRAME_REG)
+            df.loc[m, "val"] += 1
+            m = (df["reg"] == FRAME_REG) & (df["reg"].shift(-1) == DELAY_REG)
+            if len(df[m]) == 0:
+                break
+            df = df[~m]
+        return df
+
     def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
         parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
         if parquet_glob:
@@ -718,6 +735,7 @@ class RegLogParser:
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._add_change_regs(df, opcodes=[DIFF_OP, REPEAT_OP])
+        # df = self._consolidate_frames(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
