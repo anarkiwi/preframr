@@ -9,6 +9,7 @@ from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
+    CENTS,
     DELAY_REG,
     DIFF_OP,
     DIFF_PDTYPE,
@@ -633,7 +634,7 @@ class RegLogParser:
 
         all_change_dfs = []
         for xdf, matcher, minchange in (
-            (freq_df, self._freq_match, 14 * 2),
+            (freq_df, self._freq_match, (4 * 7) * CENTS),
             (pcm_df, self._pcm_match, 64),
             (ctrl_df, self._ctrl_match, 1),
             (filter_df, self._filter_match, 64),
