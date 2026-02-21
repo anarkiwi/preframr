@@ -259,7 +259,7 @@ class RegLogParser:
 
         df = df[df["reg"] <= MAX_REG]
         df["val"] = df["val"].astype(VAL_PDTYPE)
-        chips = df["chipno"].nuniqe()
+        chips = df["chipno"].nunique()
         df = df[["clock", "irq", "reg", "val"]]
         if chips > 1:
             return df[df["clock"] < 0]
