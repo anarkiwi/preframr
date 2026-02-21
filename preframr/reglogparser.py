@@ -693,10 +693,18 @@ class RegLogParser:
         )
         df.loc[m, "val"] = 1
         df.loc[m, "reg"] = DELAY_REG
+        for i in (-1, 1):
+            while True:
+                m = (df["reg"] == DELAY_REG) & (df["reg"].shift(i) == FRAME_REG)
+                df.loc[m, "val"] += 1
+                m = (df["reg"] == FRAME_REG) & (df["reg"].shift(-i) == DELAY_REG)
+                if len(df[m]) == 0:
+                    break
+                df = df[~m]
         while True:
-            m = (df["reg"] == DELAY_REG) & (df["reg"].shift(1) == FRAME_REG)
-            df.loc[m, "val"] += 1
-            m = (df["reg"] == FRAME_REG) & (df["reg"].shift(-1) == DELAY_REG)
+            m = (df["reg"] == DELAY_REG) & (df["reg"].shift(1) == DELAY_REG)
+            df.loc[m, "val"] += df["val"].shift(1)
+            m = (df["reg"] == DELAY_REG) & (df["reg"].shift(-1) == DELAY_REG)
             if len(df[m]) == 0:
                 break
             df = df[~m]
