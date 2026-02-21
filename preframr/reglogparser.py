@@ -142,6 +142,7 @@ def expand_ops(orig_df, strict):
         for reg, val in list(last_flip.items()):
             last_val[reg] += val
             last_flip[reg] = -val
+            f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
         return f_sid_writes
 
     def add_frame(writes):
@@ -746,7 +747,7 @@ class RegLogParser:
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._squeeze_frame_regs(df)
-        df = self._add_change_regs(df, opcodes=[DIFF_OP, REPEAT_OP])
+        df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
         # df = self._consolidate_frames(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):

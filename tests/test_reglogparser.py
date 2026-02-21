@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from preframr.reglogparser import RegLogParser
+from preframr.reglogparser import RegLogParser, expand_ops
 from preframr.stfconstants import (
     FRAME_REG,
     MODEL_PDTYPE,
@@ -14,6 +14,7 @@ from preframr.stfconstants import (
     DIFF_OP,
     FLIP_OP,
     REPEAT_OP,
+    SET_OP,
 )
 
 
@@ -228,12 +229,12 @@ class TestRegLogParser(unittest.TestCase):
         )
         change_df = pd.DataFrame(
             [
-                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 1, "diff": 32, "op": REPEAT_OP},
-                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
-                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 0, "diff": 32, "op": REPEAT_OP},
-                {"reg": -128, "val": 0, "diff": 19000, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 65, "diff": 32, "op": 0},
             ],
             dtype=MODEL_PDTYPE,
@@ -327,3 +328,35 @@ class TestRegLogParser(unittest.TestCase):
         )
         result_df = loader._add_voice_reg(test_df).astype(MODEL_PDTYPE)
         self.assertTrue(voice_df.equals(result_df))
+
+    def test_expand_ops(self):
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32, "op": SET_OP},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 2, "diff": 32, "op": FLIP_OP},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        expand_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = expand_ops(test_df, strict=True).astype(MODEL_PDTYPE)
+        self.assertTrue(expand_df.equals(result_df))
