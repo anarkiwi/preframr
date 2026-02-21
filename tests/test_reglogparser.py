@@ -302,6 +302,23 @@ class TestRegLogParser(unittest.TestCase):
         result_df = loader._norm_pr_order(test_df).astype(MODEL_PDTYPE)
         self.assertTrue(order_df.equals(result_df))
 
+    def test_norm_pr_order(self):
+        loader = RegLogParser(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": 7, "val": 1, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 2, "diff": 32, "op": 0},
+                {"reg": DELAY_REG, "val": 2, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 3, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 7, "val": 4, "diff": 32, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._norm_pr_order(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(test_df.equals(result_df))
+
     def test_add_voice_reg(self):
         loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
