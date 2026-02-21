@@ -236,7 +236,7 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 0, "diff": 32, "op": REPEAT_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 65, "diff": 32, "op": 0},
+                {"reg": 7, "val": 62, "diff": 32, "op": DIFF_OP},
             ],
             dtype=MODEL_PDTYPE,
         )
@@ -266,7 +266,7 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 65, "diff": 32, "op": 0},
+                {"reg": 7, "val": 64, "diff": 32, "op": DIFF_OP},
             ],
             dtype=MODEL_PDTYPE,
         )
