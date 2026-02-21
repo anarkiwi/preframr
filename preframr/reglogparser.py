@@ -257,12 +257,12 @@ class RegLogParser:
         except Exception as e:
             raise ValueError(f"cannot read {name}: {e}")
 
-        # assert df["reg"].min() >= 0
-        # keep only chipno 0
-        df = df[df["chipno"] == 0]
         df = df[df["reg"] <= MAX_REG]
         df = df[["clock", "irq", "reg", "val"]]
         df["val"] = df["val"].astype(VAL_PDTYPE)
+        # if more than one chip, drop this tune.
+        if df["chipno"].max() > 0:
+            return df[df["chipno"] == 99]
         return df
 
     def _maskreg(self, df, reg, valmask):
