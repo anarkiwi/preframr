@@ -258,11 +258,11 @@ class RegLogParser:
             raise ValueError(f"cannot read {name}: {e}")
 
         df = df[df["reg"] <= MAX_REG]
-        df = df[["clock", "irq", "reg", "val"]]
         df["val"] = df["val"].astype(VAL_PDTYPE)
-        # if more than one chip, drop this tune.
-        if df["chipno"].max() > 0:
-            return df[df["chipno"] == 99]
+        chips = df["chipno"].nuniqe()
+        df = df[["clock", "irq", "reg", "val"]]
+        if chips > 1:
+            return df[df["clock"] < 0]
         return df
 
     def _maskreg(self, df, reg, valmask):
