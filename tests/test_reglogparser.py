@@ -416,3 +416,54 @@ class TestRegLogParser(unittest.TestCase):
         )
         result_df = expand_ops(test_df, strict=True).astype(MODEL_PDTYPE)
         self.assertTrue(expand_df.equals(result_df))
+
+    def test_consolidate_frames(self):
+        loader = RegLogParser(FakeArgs())
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        consolidate_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": DELAY_REG, "val": 4, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._consolidate_frames(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(consolidate_df.equals(result_df))
+
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": DELAY_REG, "val": 2, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        consolidate_df = pd.DataFrame(
+            [
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": DELAY_REG, "val": 3, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._consolidate_frames(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(consolidate_df.equals(result_df))

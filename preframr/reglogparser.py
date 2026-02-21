@@ -454,6 +454,7 @@ class RegLogParser:
 
     def _norm_pr_order(self, orig_df):
         df = self._norm_df(orig_df.copy())
+        df.loc[df["reg"] == DELAY_REG, "v"] = df["reg"]
         df = df.sort_values(["f", "v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
@@ -708,7 +709,7 @@ class RegLogParser:
             if len(df[m]) == 0:
                 break
             df = df[~m]
-        return df
+        return df.reset_index(drop=True)
 
     def _squeeze_frame_regs(self, orig_df, regs=[0, 2, 21]):
         df = self._norm_df(orig_df.copy())
