@@ -454,8 +454,7 @@ class RegLogParser:
 
     def _norm_pr_order(self, orig_df):
         df = self._norm_df(orig_df.copy())
-        df["areg"] = df["reg"].abs()
-        df = df.sort_values(["f", "v", "areg", "n"])
+        df = df.sort_values(["f", "v", "reg", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -601,11 +600,10 @@ class RegLogParser:
 
             for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
                 if op in opcodes:
-                    d_df = v_df[v_df[f] != 0].copy()
+                    d_df = v_df[
+                        (v_df[f] != 0) & ((v_df["begin"] == 1) | (v_df["end"] == 1))
+                    ].copy()
                     v_df = v_df[v_df[f] == 0]
-                    if d_df.empty:
-                        continue
-                    d_df = d_df[(d_df["begin"] == 1) | (d_df["end"] == 1)]
                     if d_df.empty:
                         continue
                     assert d_df["begin"].iloc[0] == 1, d_df
@@ -634,7 +632,7 @@ class RegLogParser:
 
         all_change_dfs = []
         for xdf, matcher, minchange in (
-            (freq_df, self._freq_match, (4 * 7) * CENTS),
+            (freq_df, self._freq_match, (2 * 7) * CENTS),
             (pcm_df, self._pcm_match, 64),
             (ctrl_df, self._ctrl_match, 1),
             (filter_df, self._filter_match, 64),
@@ -747,7 +745,7 @@ class RegLogParser:
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._squeeze_frame_regs(df)
         df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
-        # df = self._consolidate_frames(df)
+        df = self._consolidate_frames(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
