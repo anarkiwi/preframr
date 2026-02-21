@@ -358,14 +358,10 @@ class RegLogParser:
         irq_df["reg"] = FRAME_REG
         irq_df["diff"] = irq_df["irqdiff"]
         irq_df["val"] = (irq_df["diff"] / irq).astype(MODEL_PDTYPE)
-        irq_df.loc[irq_df["val"] > 1, "reg"] = DELAY_REG
-        irq_df.loc[(irq_df["reg"] == DELAY_REG) & (irq_df["val"] > 255), "val"] = 255
-        irq_df.loc[(irq_df["reg"] == DELAY_REG) & (irq_df["val"] > 50), "val"] = (
-            irq_df["val"] / 5
-        ).astype(MODEL_PDTYPE) * 5
-        irq_df.loc[irq_df["reg"] == FRAME_REG, "val"] = 0
         irq_df["diff"] = irq
+        irq_df.loc[irq_df["val"] > 1, "reg"] = DELAY_REG
         irq_df.loc[irq_df["reg"] == DELAY_REG, "diff"] = 0
+        irq_df.loc[irq_df["reg"] == FRAME_REG, "val"] = 0
         df = (
             pd.concat([df, irq_df])
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
@@ -373,6 +369,12 @@ class RegLogParser:
             .reset_index(drop=True)
         )
         return irq, df[["reg", "val", "diff"]]
+
+    def _cap_delay(self, df, q=5):
+        m = df["reg"] == DELAY_REG
+        df.loc[m & (df["val"] > 255), "val"] = 255
+        df.loc[m & (df["val"] > 50), "val"] = (df["val"] / q).astype(MODEL_PDTYPE) * q
+        return df
 
     def _split_reg(self, orig_df, reg):
         df = orig_df.copy().reset_index(drop=True)
@@ -755,6 +757,7 @@ class RegLogParser:
         df = self._squeeze_frame_regs(df)
         df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
         df = self._consolidate_frames(df)
+        df = self._cap_delay(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
         if len(delay_val):
             delay_max = delay_val.max()
