@@ -159,13 +159,11 @@ def expand_ops(orig_df, strict):
                 if row.reg == FRAME_REG:
                     f_sid_writes.append((row.reg, row.val, row.diff))
                 elif row.reg == DELAY_REG:
-                    if last_repeat or last_flip:
-                        for _i in range(row.val):
-                            delay_sid_writes = [(FRAME_REG, 0, frame_diff)]
-                            delay_sid_writes.extend(apply_ops())
-                            add_frame(delay_sid_writes)
-                    else:
-                        f_sid_writes.append((row.reg, row.val, row.diff))
+                    for _i in range(row.val - 1):
+                        delay_sid_writes = [(FRAME_REG, 0, frame_diff)]
+                        delay_sid_writes.extend(apply_ops())
+                        add_frame(delay_sid_writes)
+                    f_sid_writes.append((FRAME_REG, 0, frame_diff))
                 else:
                     assert False, f"unknown reg {row.reg}, {row}"
                 assert i == 0

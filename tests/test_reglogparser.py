@@ -7,6 +7,7 @@ import pandas as pd
 
 from preframr.reglogparser import RegLogParser, expand_ops
 from preframr.stfconstants import (
+    DELAY_REG,
     FRAME_REG,
     MODEL_PDTYPE,
     VOICES,
@@ -339,6 +340,34 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": FRAME_REG, "val": 0, "diff": 19000},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        expand_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 3, "diff": 32},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = expand_ops(test_df, strict=True).astype(MODEL_PDTYPE)
+        self.assertTrue(expand_df.equals(result_df))
+        test_df = pd.DataFrame(
+            [
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 1, "diff": 32, "op": SET_OP},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000},
+                {"reg": 7, "val": 2, "diff": 32, "op": FLIP_OP},
+                {"reg": DELAY_REG, "val": 3, "diff": 19000},
                 {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
             ],
             dtype=MODEL_PDTYPE,
