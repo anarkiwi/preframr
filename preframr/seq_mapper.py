@@ -7,6 +7,7 @@ import torch
 @dataclass
 class SeqMeta:
     irq: int
+    df_file: str
 
 
 class SeqMapper:

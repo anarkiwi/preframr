@@ -181,10 +181,10 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for _df_file, df, seq, irq in self.load_dfs(
+        for df_file, df, seq, irq in self.load_dfs(
             reglogs, max_perm=self.args.max_perm
         ):
-            seq_meta = SeqMeta(irq=irq)
+            seq_meta = SeqMeta(irq=irq, df_file=df_file)
             self.seq_mapper.add(seq, seq_meta)
             reg_max = self.tokenizer.get_reg_max(df, reg_max)
             self.n_words += seq.size
