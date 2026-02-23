@@ -148,7 +148,6 @@ class RegDataset(torch.utils.data.Dataset):
                 self.logger.info("writing dataset to %s", dataset_csv)
             else:
                 dataset_csv = "/dev/null"
-            df_map_csv = self.args.df_map_csv
             with zstd.open(dataset_csv, "w") as f:
                 for i, (df_file, df, _seq, _irq) in enumerate(
                     self.load_dfs(
@@ -159,10 +158,9 @@ class RegDataset(torch.utils.data.Dataset):
                     df["i"] = int(i)
                     df.to_csv(f, index=False, header=(i == 0))
                     yield df
+            df_map_csv = self.args.df_map_csv
             if df_map_csv:
-                with open(df_map_csv, "w") as f:
-                    f.write("dump_file\n")
-                    f.write("\n".join(df_files))
+                df_map = pd.DataFrame(df_files, columns=["dump_file"])
 
         if self.args.tkvocab:
             self.tokenizer.train_tokenizer(worker())

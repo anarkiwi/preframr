@@ -24,19 +24,17 @@ def add_args(parser):
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--tkvocab", type=int, default=0)
     parser.add_argument("--wav", type=str, default="/scratch/preframr/preframr.wav")
     parser.add_argument("--csv", type=str, default=None)
-    parser.add_argument(
-        "--dataset-csv", type=str, default="/scratch/preframr/dataset.csv.zst"
-    )
+    parser.add_argument("--dataset-csv", type=str, default=None)
     parser.add_argument("--token-csv", type=str, default="/scratch/preframr/token.csv")
     parser.add_argument("--tkmodel", type=str, default="/scratch/preframr/tkmodel.json")
     parser.add_argument(
         "--df-map-csv",
         type=str,
-        default="/scratch/preframr/dataset-map.csv.zst",
+        default="/scratch/preframr/dataset-map.csv",
     )
     parser.add_argument("--shuffle", type=float, default=0.01)
     parser.add_argument("--max-files", type=int, default=8192)
@@ -74,7 +72,7 @@ def add_args(parser):
         choices=list(MODEL_PRECISION.keys()),
     )
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--accumulate-grad-batches", type=int, default=2)
+    parser.add_argument("--accumulate-grad-batches", type=int, default=4)
     parser.add_argument("--log-every-n-steps", type=int, default=2)
     parser.add_argument("--max-perm", type=int, default=99)
     parser.add_argument("--ckpt-hours", type=int, default=12)
