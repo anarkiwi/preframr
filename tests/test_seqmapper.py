@@ -14,8 +14,8 @@ class TestSeqMapper(unittest.TestCase):
                 ([1, 2, 3, 4], [8, 9, 10, 11, 12, 13, 14], [99, 100, 101])
             ):
                 seq = np.array(seq, dtype=np.int16)
-                df_file = os.path.join(tmpdir, f"test{i}.parquet")
-                seq_meta = SeqMeta(irq=1, df_file=df_file)
+                df_file = os.path.join(tmpdir, f"test{i}.dump.parquet")
+                seq_meta = SeqMeta(irq=1, df_file=df_file, i=i)
                 s.add(seq, seq_meta)
             s.finalize()
             self.assertEqual(len(s), 8)
