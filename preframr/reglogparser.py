@@ -309,7 +309,9 @@ class RegLogParser:
         )
         if bits:
             reg_df["val"] = np.right_shift(reg_df["val"], bits)
-        df = pd.concat([non_reg_df, reg_df]).sort_values(["clock"], ascending=True)
+        df = pd.concat([non_reg_df, reg_df], ignore_index=True).sort_values(
+            ["clock"], ascending=True
+        )
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
         return df
 
@@ -363,7 +365,7 @@ class RegLogParser:
         irq_df.loc[irq_df["reg"] == DELAY_REG, "diff"] = 0
         irq_df.loc[irq_df["reg"] == FRAME_REG, "val"] = 0
         df = (
-            pd.concat([df, irq_df])
+            pd.concat([df, irq_df], ignore_index=True)
             .sort_values(["i"])[["reg", "val", "diff", "i"]]
             .astype(MODEL_PDTYPE)
             .reset_index(drop=True)
@@ -390,7 +392,7 @@ class RegLogParser:
         reg_df["val"] = reg_df["val"].floordiv(256)
         reg_df.loc[:, "reg"] += 1
         df.loc[m, "val"] -= reg_df["val"] * 256
-        df = pd.concat([df, reg_df], copy=False).sort_values(
+        df = pd.concat([df, reg_df], copy=False, ignore_index=True).sort_values(
             ["f", "reg_order"], ascending=True
         )
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
@@ -475,7 +477,11 @@ class RegLogParser:
         df["reg"] = VOICE_REG
         df["op"] = SET_OP
 
-        df = pd.concat([norm_df, df]).sort_values(["n"]).reset_index(drop=True)
+        df = (
+            pd.concat([norm_df, df], ignore_index=True)
+            .sort_values(["n"])
+            .reset_index(drop=True)
+        )
         df["nr"] = df["reg"].shift(-1)
         df["nval"] = df["val"].shift(-1)
         df["pr"] = df["reg"].shift(1)
@@ -532,10 +538,10 @@ class RegLogParser:
             p_df["reg"] = pcm_reg
             p_df["val"] = p_df["pcm"]
             p_df["n"] = p_df["n"] - 1
-            v_df = pd.concat([v_df, p_df])
+            v_df = pd.concat([v_df, p_df], ignore_index=True)
             dfs.append(v_df)
 
-        df = pd.concat(dfs).sort_values("n")
+        df = pd.concat(dfs, ignore_index=True).sort_values("n")
         return df[orig_df.columns].reset_index(drop=True)
 
     def _add_change_reg(
@@ -647,7 +653,11 @@ class RegLogParser:
             )
             all_change_dfs.extend(change_dfs)
 
-        df = pd.concat([df] + all_change_dfs).sort_values(["n"]).reset_index(drop=True)
+        df = (
+            pd.concat([df] + all_change_dfs, ignore_index=True)
+            .sort_values(["n"])
+            .reset_index(drop=True)
+        )
         df = df[list(orig_df.columns) + ["op"]].reset_index(drop=True)
         return df
 

@@ -72,10 +72,9 @@ class RegTokenizer:
 
     def crunch_tokens(self):
         self.frame_tokens = [
-            pd.concat(self.frame_tokens)
+            pd.concat(self.frame_tokens, ignore_index=True)
             .drop_duplicates()
             .sort_values(TOKEN_KEYS)
-            .copy()
             .reset_index(drop=True)
         ]
 
