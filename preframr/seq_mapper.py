@@ -24,7 +24,9 @@ class SeqMapper:
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int16
-        self.seqs.append((seq, seq_meta))
+        npy_path = seq_meta.df_file.replace(".parquet", ".npy")
+        np.save(npy_path, seq)
+        self.seqs.append((np.load(npy_path, mmap_mode="r"), seq_meta))
         self.finalized = False
 
     def finalize(self):
