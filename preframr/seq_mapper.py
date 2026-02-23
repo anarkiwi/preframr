@@ -3,11 +3,14 @@ import random
 import numpy as np
 import torch
 
+from preframr.stfconstants import DUMP_SUFFIX
+
 
 @dataclass
 class SeqMeta:
     irq: int
     df_file: str
+    i: int
 
 
 class SeqMapper:
@@ -24,7 +27,7 @@ class SeqMapper:
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int16
-        npy_path = seq_meta.df_file.replace(".parquet", ".npy")
+        npy_path = seq_meta.df_file.replace(DUMP_SUFFIX, f"{seq_meta.i}.npy")
         np.save(npy_path, seq)
         self.seqs.append((np.load(npy_path, mmap_mode="r"), seq_meta))
         self.finalized = False

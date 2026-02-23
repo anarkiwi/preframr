@@ -102,7 +102,7 @@ class RegDataset(torch.utils.data.Dataset):
                 concurrent.futures.as_completed(futures), total=len(futures)
             ):
                 dump_file, df_strs = future.result()
-                for df_str in df_strs:
+                for i, df_str in enumerate(df_strs):
                     df = pd.read_parquet(io.BytesIO(df_str))
                     seq = None
                     if self.tokenizer.tokens is not None:
@@ -119,10 +119,10 @@ class RegDataset(torch.utils.data.Dataset):
                                 )
                                 break
                     irq = df["irq"].iloc[0]
-                    yield dump_file, df, seq, irq
+                    yield dump_file, i, df, seq, irq
 
     def make_tokens(self, reglogs):
-        for df_file, df, _seq, _irq in self.load_dfs(
+        for df_file, _i, df, _seq, _irq in self.load_dfs(
             reglogs, max_perm=self.args.max_perm
         ):
             self.tokenizer.accumulate_tokens(df, df_file)
@@ -149,7 +149,7 @@ class RegDataset(torch.utils.data.Dataset):
             if dataset_csv:
                 self.logger.info("writing dataset to %s", dataset_csv)
                 with zstd.open(dataset_csv, "w") as f:
-                    for i, (df_file, df, _seq, _irq) in enumerate(
+                    for i, (df_file, _i, df, _seq, _irq) in enumerate(
                         self.load_dfs(
                             self.args.reglogs, max_perm=self.args.max_perm, encode=False
                         )
@@ -160,7 +160,7 @@ class RegDataset(torch.utils.data.Dataset):
                         yield df
             else:
                 self.logger.info("enumerating dataset")
-                for i, (df_file, df, _seq, _irq) in enumerate(
+                for i, (df_file, _i, df, _seq, _irq) in enumerate(
                     self.load_dfs(
                         self.args.reglogs, max_perm=self.args.max_perm, encode=False
                     )
@@ -190,10 +190,10 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for df_file, df, seq, irq in self.load_dfs(
+        for df_file, i, df, seq, irq in self.load_dfs(
             reglogs, max_perm=self.args.max_perm
         ):
-            seq_meta = SeqMeta(irq=irq, df_file=df_file)
+            seq_meta = SeqMeta(irq=irq, df_file=df_file, i=i)
             self.seq_mapper.add(seq, seq_meta)
             reg_max = self.tokenizer.get_reg_max(df, reg_max)
             self.n_words += seq.size
