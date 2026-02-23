@@ -20,7 +20,7 @@ def add_args(parser):
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=8192)
+    parser.add_argument("--seq-len", type=int, default=16384)
     parser.add_argument("--max-seq-len", type=int, default=32768)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--max-epochs", type=int, default=1000)
@@ -39,7 +39,7 @@ def add_args(parser):
         default="/scratch/preframr/dataset-map.csv.zst",
     )
     parser.add_argument("--shuffle", type=float, default=0.01)
-    parser.add_argument("--max-files", type=int, default=2048)
+    parser.add_argument("--max-files", type=int, default=8192)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
