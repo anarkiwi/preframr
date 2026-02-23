@@ -1,4 +1,5 @@
 import concurrent.futures
+import functools
 import logging
 import glob
 import io
@@ -15,6 +16,7 @@ from preframr.seq_mapper import SeqMapper, SeqMeta
 from preframr.stfconstants import DUMP_SUFFIX, PARSED_SUFFIX
 
 
+@functools.cache
 def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
     random.seed(seed)
     dump_files = []
@@ -146,17 +148,24 @@ class RegDataset(torch.utils.data.Dataset):
             dataset_csv = self.args.dataset_csv
             if dataset_csv:
                 self.logger.info("writing dataset to %s", dataset_csv)
+                with zstd.open(dataset_csv, "w") as f:
+                    for i, (df_file, df, _seq, _irq) in enumerate(
+                        self.load_dfs(
+                            self.args.reglogs, max_perm=self.args.max_perm, encode=False
+                        )
+                    ):
+                        df_files.append(df_file)
+                        df["i"] = int(i)
+                        df.to_csv(f, index=False, header=(i == 0))
+                        yield df
             else:
-                dataset_csv = "/dev/null"
-            with zstd.open(dataset_csv, "w") as f:
+                self.logger.info("enumerating dataset")
                 for i, (df_file, df, _seq, _irq) in enumerate(
                     self.load_dfs(
                         self.args.reglogs, max_perm=self.args.max_perm, encode=False
                     )
                 ):
                     df_files.append(df_file)
-                    df["i"] = int(i)
-                    df.to_csv(f, index=False, header=(i == 0))
                     yield df
             df_map_csv = self.args.df_map_csv
             if df_map_csv:
