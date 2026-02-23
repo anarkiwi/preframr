@@ -232,4 +232,5 @@ def get_loader(args, dataset):
         sampler=sampler,
         pin_memory=True,
         batch_size=args.batch_size,
+        num_workers=2,
     )
