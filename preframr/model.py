@@ -1,3 +1,4 @@
+import copy
 import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -250,7 +251,10 @@ def get_model(dataset, args, logger, args_override=None):
         for k, v in args_override.items():
             setattr(args, k, v)
     model = Model(
-        args, dataset.n_vocab, dataset.tokenizer.tokens, dataset.tokenizer.tkmodel
+        args,
+        dataset.n_vocab,
+        dataset.tokenizer.tokens.copy(),
+        copy.deepcopy(dataset.tokenizer.tkmodel),
     )
     _device, model_compiler = get_device(args, logger)
     return model_compiler(args, model)

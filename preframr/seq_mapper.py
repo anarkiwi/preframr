@@ -16,7 +16,7 @@ class SeqMeta:
 
 
 class SeqMapper(torch.utils.data.Dataset):
-    def __init__(self, seq_len, mmap=False):
+    def __init__(self, seq_len, mmap=True):
         self.seq_len = seq_len
         self.mmap = mmap
         self.seq_map = None
@@ -35,7 +35,7 @@ class SeqMapper(torch.utils.data.Dataset):
         assert seq.dtype == np.int16
         seq_meta.npy_path = seq_meta.df_file.replace(DUMP_SUFFIX, f"{seq_meta.i}.npy")
         seq_meta.l = len(seq)
-        np.save(seq_meta.npy_path, seq.astype(np.int64))
+        np.save(seq_meta.npy_path, seq)
         self.seq_metas.append(seq_meta)
         self.finalized = False
 
@@ -75,7 +75,7 @@ class SeqMapper(torch.utils.data.Dataset):
         return (seq, self.seq_metas[seq_i])
 
     def slice_n(self, seq, n):
-        return torch.from_numpy(seq[int(n) : int(n) + self.seq_len])
+        return torch.from_numpy(seq.astype(np.int64)[int(n) : int(n) + self.seq_len])
 
     def __getitem__(self, index):
         if index >= len(self):
