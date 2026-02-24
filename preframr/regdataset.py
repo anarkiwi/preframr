@@ -1,4 +1,5 @@
 import concurrent.futures
+import copy
 import functools
 import logging
 import glob
@@ -122,15 +123,18 @@ class RegDataset(torch.utils.data.Dataset):
                     yield dump_file, i, df, seq, irq
 
     def make_tokens(self, reglogs):
+        df_files = []
         for df_file, _i, df, _seq, _irq in self.load_dfs(
             reglogs, max_perm=self.args.max_perm
         ):
             self.tokenizer.accumulate_tokens(df, df_file)
+            df_files.append(df_file)
         tokens = self.tokenizer.make_tokens()
         self.tokenizer.tokens = tokens
         assert self.tokenizer.tokens[tokens["val"].isna()].empty, tokens[
             tokens["val"].isna()
         ]
+        return df_files
         # assert self.tokenizer.tokens[tokens["val"] < 0].empty
 
     def preload(self, tokens=None, tkmodel=None):
@@ -138,38 +142,41 @@ class RegDataset(torch.utils.data.Dataset):
             self.tokenizer.load(tkmodel, tokens)
             return
         self.logger.info("making tokens")
-        self.make_tokens(self.args.reglogs)
+        df_files = self.make_tokens(self.args.reglogs)
         if self.args.token_csv:
             self.logger.info("writing tokens to %s", self.args.token_csv)
             self.tokenizer.tokens.to_csv(self.args.token_csv, index=False)
+        dataset_csv = self.args.dataset_csv
+        df_map_csv = self.args.df_map_csv
+
+        if not self.args.tkvocab and not dataset_csv:
+            if df_map_csv:
+                df_map = pd.DataFrame(df_files, columns=["dump_file"])
+                df_map.to_csv(df_map_csv, index=False)
+            return
 
         def worker():
             df_files = []
             dataset_csv = self.args.dataset_csv
             if dataset_csv:
                 self.logger.info("writing dataset to %s", dataset_csv)
-                with zstd.open(dataset_csv, "w") as f:
-                    for i, (df_file, _i, df, _seq, _irq) in enumerate(
-                        self.load_dfs(
-                            self.args.reglogs, max_perm=self.args.max_perm, encode=False
-                        )
-                    ):
-                        df_files.append(df_file)
-                        df["i"] = int(i)
-                        df.to_csv(f, index=False, header=(i == 0))
-                        yield df
             else:
-                self.logger.info("enumerating dataset")
+                dataset = "/dev/null"
+
+            with zstd.open(dataset_csv, "w") as f:
                 for i, (df_file, _i, df, _seq, _irq) in enumerate(
                     self.load_dfs(
                         self.args.reglogs, max_perm=self.args.max_perm, encode=False
                     )
                 ):
                     df_files.append(df_file)
+                    df["i"] = int(i)
+                    df.to_csv(f, index=False, header=(i == 0))
                     yield df
-            df_map_csv = self.args.df_map_csv
+
             if df_map_csv:
                 df_map = pd.DataFrame(df_files, columns=["dump_file"])
+                df_map.to_csv(df_map_csv, index=False)
 
         if self.args.tkvocab:
             self.tokenizer.train_tokenizer(worker())
@@ -204,7 +211,6 @@ class RegDataset(torch.utils.data.Dataset):
         self.logger.info(
             f"n_vocab: {self.n_vocab}, n_words {n_words}, n_encoded_words {self.n_words}, reg widths {sorted(self.reg_widths.items())}, {n_seq} sequences"
         )
-        self.seq_mapper.shuffle()
 
     def __len__(self):
         return len(self.seq_mapper)
@@ -213,12 +219,11 @@ class RegDataset(torch.utils.data.Dataset):
         return self.seq_mapper[index]
 
     def getseq(self, i):
-        seq, seq_meta = self.seq_mapper.seqs[i]
+        seq, seq_meta = self.seq_mapper.getseq(i)
         return torch.from_numpy(seq), seq_meta
 
 
-def get_loader(args, dataset):
-    dataset.load()
+def _get_loader(args, dataset):
     if args.shuffle:
         length = args.shuffle / 1.0
         sampler = torch.utils.data.RandomSampler(
@@ -232,5 +237,11 @@ def get_loader(args, dataset):
         sampler=sampler,
         pin_memory=True,
         batch_size=args.batch_size,
-        num_workers=2,
     )
+
+
+def get_loader(args, dataset, seq_mapper=False):
+    dataset.load()
+    if seq_mapper:
+        return _get_loader(args, copy.deepcopy(dataset.seq_mapper))
+    return get_loader(args, dataset)

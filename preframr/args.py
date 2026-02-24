@@ -13,6 +13,7 @@ def add_args(parser):
         "--reglogs",
         type=str,
         default="/scratch/preframr/training-dumps/**/*dump.parquet",
+        # default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.parquet",
     )
     parser.add_argument(
         "--model-state",
