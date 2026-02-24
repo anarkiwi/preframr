@@ -223,10 +223,24 @@ class RegDataset(torch.utils.data.Dataset):
         return torch.from_numpy(seq), seq_meta
 
 
+class LowMemoryRandomSampler(torch.utils.data.Sampler):
+    def __init__(self, data_source, num_samples):
+        self.data_source = data_source
+        self.num_samples = num_samples
+
+    def __iter__(self):
+        for _ in range(self.num_samples):
+            yield torch.randint(low=0, high=len(self.data_source), size=(1,)).item()
+
+    def __len__(self):
+        return self.num_samples
+
+
 def _get_loader(args, dataset):
+
     if args.shuffle:
         length = args.shuffle / 1.0
-        sampler = torch.utils.data.RandomSampler(
+        sampler = LowMemoryRandomSampler(
             dataset, num_samples=int(length * len(dataset))
         )
     else:
@@ -237,6 +251,7 @@ def _get_loader(args, dataset):
         sampler=sampler,
         pin_memory=True,
         batch_size=args.batch_size,
+        num_workers=2,
     )
 
 
