@@ -33,7 +33,7 @@ class SeqMapper(torch.utils.data.Dataset):
             raise ValueError(f"sequence too short ({len(seq)}")
         assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int16
-        seq_meta.npy_path = seq_meta.df_file.replace(DUMP_SUFFIX, f"{seq_meta.i}.npy")
+        seq_meta.npy_path = seq_meta.df_file.replace(DUMP_SUFFIX, f".{seq_meta.i}.npy")
         seq_meta.l = len(seq)
         np.save(seq_meta.npy_path, seq)
         self.seq_metas.append(seq_meta)
