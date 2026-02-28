@@ -63,7 +63,7 @@ class RegTokenizer:
             return self.decode_unicode(self.tkmodel.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
 
-    def train_tokenizer(self, dfs, tokenizer="unigram"):
+    def train_tokenizer(self, dfs, tokenizer="bpe"):
         def write_uni(t):
             df_file, df, i = t
             uni_file = df_file.replace(DUMP_SUFFIX, f".{i}{UNI_SUFFIX}")
