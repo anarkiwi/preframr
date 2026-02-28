@@ -25,7 +25,7 @@ UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 
 
-def get_tk(tkvocab, tokenizer="unigram"):
+def get_tk(tkvocab, tokenizer="bpe"):
     if tokenizer == "unigram":
         tk = Tokenizer(models.Unigram())
         tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
