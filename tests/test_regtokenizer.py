@@ -15,6 +15,7 @@ class FakeArgs:
         self.reglogs = ""
         self.seq_len = seq_len
         self.tkvocab = tkvocab
+        self.tkmodel = tkmodel
         self.max_files = 1
         self.diffq = diffq
 

@@ -49,7 +49,7 @@ def get_tk(tkvocab, tokenizer="bpe"):
     raise ValueError
 
 
-def train_worker(tokenizer, tkvocab, uni_files):
+def train_worker(tokenizer, tkvocab, args_tkmodel, uni_files):
     def read_uni(uni_file):
         with zstd.open(uni_file, "r") as f:
             return f.read()
@@ -62,4 +62,4 @@ def train_worker(tokenizer, tkvocab, uni_files):
 
     tkmodel, trainer = get_tk(tkvocab, tokenizer=tokenizer)
     tkmodel.train_from_iterator(reader(), trainer=trainer)
-    return tkmodel
+    tkmodel.save(args_tkmodel)

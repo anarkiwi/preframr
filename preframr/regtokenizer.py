@@ -79,8 +79,13 @@ class RegTokenizer:
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=1, mp_context=multiprocessing.get_context("spawn")
         ) as p:
-            future = p.submit(train_worker, tokenizer, self.args.tkvocab, uni_files)
-            self.tkmodel = future.result()
+            future = p.submit(
+                train_worker, tokenizer, self.args.tkvocab, self.args.tkmodel, uni_files
+            )
+            assert not future.exception()
+
+        with open(self.args.tkmodel, "r") as f:
+            self.tkmodel = Tokenizer.from_str(f.read())
 
         assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
             self.tkmodel.get_vocab_size(),
