@@ -35,7 +35,9 @@ class TestRegTokenizer(unittest.TestCase):
             df = pd.DataFrame(x, dtype=pd.UInt16Dtype(), columns=["n"])
 
             for tokenizer in ("bpe", "unigram"):
-                loader.train_tokenizer([df], tokenizer=tokenizer)
+                loader.train_tokenizer(
+                    [(f"{tmpdir}/tune.dump.parquet", df, 1)], tokenizer=tokenizer
+                )
                 orig = np.array([1, 2, 3, 4, 5, 0, 6, 7, 8, 9], dtype=np.uint16)
                 encoded = loader.encode(orig)
                 decoded = loader.decode(encoded)

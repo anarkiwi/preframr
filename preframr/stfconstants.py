@@ -32,4 +32,5 @@ TUNING_REF_HZ = 440
 MIDI_N_TO_F = {n: (2 ** ((n - 69) / 12)) * TUNING_REF_HZ for n in range(128)}
 
 DUMP_SUFFIX = r".dump.parquet"
+UNI_SUFFIX = r".uni.zst"
 PARSED_SUFFIX = r".[0-9]*.parquet"

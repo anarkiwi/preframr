@@ -40,7 +40,7 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
 def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
     dfs = [
-        df.to_parquet()
+        df
         for df in reg_log_parser.parse(
             dump_file, max_perm=max_perm, require_pq=args.require_pq
         )
@@ -90,7 +90,7 @@ class RegDataset(torch.utils.data.Dataset):
             self.args.require_pq,
             seed=0,
         )
-        with concurrent.futures.ProcessPoolExecutor(
+        with concurrent.futures.ThreadPoolExecutor(
             max_workers=4,
         ) as executor:
             futures = [
@@ -102,9 +102,8 @@ class RegDataset(torch.utils.data.Dataset):
             for future in tqdm(
                 concurrent.futures.as_completed(futures), total=len(futures)
             ):
-                dump_file, df_strs = future.result()
-                for i, df_str in enumerate(df_strs):
-                    df = pd.read_parquet(io.BytesIO(df_str))
+                dump_file, dfs = future.result()
+                for i, df in enumerate(dfs):
                     seq = None
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
@@ -160,19 +159,24 @@ class RegDataset(torch.utils.data.Dataset):
             dataset_csv = self.args.dataset_csv
             if dataset_csv:
                 self.logger.info("writing dataset to %s", dataset_csv)
+                with zstd.open(dataset_csv, "w") as f:
+                    for i, (df_file, _i, df, _seq, _irq) in enumerate(
+                        self.load_dfs(
+                            self.args.reglogs, max_perm=self.args.max_perm, encode=False
+                        )
+                    ):
+                        df_files.append(df_file)
+                        df["i"] = int(i)
+                        df.to_csv(f, index=False, header=(i == 0))
+                        yield df_file, df, i
             else:
-                dataset_csv = "/dev/null"
-
-            with zstd.open(dataset_csv, "w") as f:
                 for i, (df_file, _i, df, _seq, _irq) in enumerate(
                     self.load_dfs(
                         self.args.reglogs, max_perm=self.args.max_perm, encode=False
                     )
                 ):
                     df_files.append(df_file)
-                    df["i"] = int(i)
-                    df.to_csv(f, index=False, header=(i == 0))
-                    yield df
+                    yield df_file, df, i
 
             if df_map_csv:
                 df_map = pd.DataFrame(df_files, columns=["dump_file"])
