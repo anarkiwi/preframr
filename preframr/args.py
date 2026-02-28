@@ -37,8 +37,8 @@ def add_args(parser):
         type=str,
         default="/scratch/preframr/dataset-map.csv",
     )
-    parser.add_argument("--shuffle", type=float, default=0.003)
-    parser.add_argument("--max-files", type=int, default=128)
+    parser.add_argument("--shuffle", type=float, default=0.01)
+    parser.add_argument("--max-files", type=int, default=1024)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
@@ -47,7 +47,7 @@ def add_args(parser):
     parser.add_argument("--layers", type=int, default=8)
     parser.add_argument("--heads", type=int, default=8)
     parser.add_argument("--kv-heads", type=int, default=8)
-    parser.add_argument("--embed", type=int, default=8)
+    parser.add_argument("--embed", type=int, default=256)
     parser.add_argument("--intermediate", type=int, default=None)
     parser.add_argument("--norm-eps", type=float, default=1e-5)
     parser.add_argument("--rope-base", type=float, default=1e4)
