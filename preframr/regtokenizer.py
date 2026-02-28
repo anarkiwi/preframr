@@ -84,8 +84,7 @@ class RegTokenizer:
             )
             assert not future.exception()
 
-        with open(self.args.tkmodel, "r") as f:
-            self.tkmodel = Tokenizer.from_str(f.read())
+        self.tkmodel = Tokenizer.from_file(self.args.tkmodel)
 
         assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
             self.tkmodel.get_vocab_size(),

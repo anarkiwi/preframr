@@ -80,7 +80,7 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_words = 0
         self.reg_widths = {}
         self.seq_mapper = SeqMapper(args.seq_len)
-        self.tokenizer = RegTokenizer(args, tokens=None)
+        self.tokenizer = RegTokenizer(args, tokens=None, logger=logger)
 
     def load_dfs(self, reglogs, max_perm=99, encode=True):
         dump_files = glob_dumps(
@@ -108,9 +108,8 @@ class RegDataset(torch.utils.data.Dataset):
                     if self.tokenizer.tokens is not None:
                         df = self.tokenizer.merge_token_df(self.tokenizer.tokens, df)
                         if encode:
-                            seq = self.tokenizer.encode(
-                                df["n"].astype(np.int16).to_numpy()
-                            ).astype(np.int16)
+                            n = df["n"].astype(np.int16).to_numpy()
+                            seq = self.tokenizer.encode(n).astype(np.int16)
                             if len(seq) < self.args.seq_len:
                                 self.logger.info(
                                     "rejecting sequence from %s too short %u",
@@ -202,7 +201,7 @@ class RegDataset(torch.utils.data.Dataset):
         n_words = 0
         reg_max = {}
         for df_file, i, df, seq, irq in self.load_dfs(
-            reglogs, max_perm=self.args.max_perm
+            reglogs, max_perm=self.args.max_perm, encode=True
         ):
             seq_meta = SeqMeta(irq=irq, df_file=df_file, i=i)
             self.seq_mapper.add(seq, seq_meta)
