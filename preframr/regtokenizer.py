@@ -1,12 +1,10 @@
 import concurrent.futures
 import difflib
 import logging
-import glob
-import os
-import tempfile
+import multiprocessing
 import zstandard as zstd
 from tqdm import tqdm
-from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
+from tokenizers import Tokenizer
 import multiprocessing
 import numpy as np
 import pandas as pd
@@ -17,71 +15,13 @@ from preframr.stfconstants import (
     UNI_SUFFIX,
     TOKEN_KEYS,
 )
+from preframr.train_worker import train_worker
 
 DIFF_PDTYPE = pd.UInt16Dtype()
 VAL_PDTYPE = pd.Int32Dtype()
 TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
 UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
-
-
-def get_tk(tkvocab, tokenizer="bpe"):
-    if tokenizer == "unigram":
-        tk = Tokenizer(models.Unigram())
-        tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
-        tk.decoder = decoders.Metaspace(replacement=" ")
-        tk.normalizer = None
-        trainer = trainers.UnigramTrainer(
-            vocab_size=tkvocab,
-            show_progress=True,
-            special_tokens=[UNK_TOKEN],
-            initial_alphabet=[],
-            unk_token=UNK_TOKEN,
-        )
-        return tk, trainer
-    if tokenizer == "bpe":
-        tk = Tokenizer(
-            models.BPE(
-                dropout=None,
-                unk_token=UNK_TOKEN,
-                end_of_word_suffix=END_OF_WORD_SUFFIX,
-                fuse_unk=False,
-                byte_fallback=False,
-                ignore_merges=False,
-                vocab={},
-                merges=[],
-            )
-        )
-        tk.normalizer = None
-        tk.pre_tokenizer = pre_tokenizers.WhitespaceSplit()
-        tk.decoder = decoders.BPEDecoder(suffix=END_OF_WORD_SUFFIX)
-        trainer = trainers.BpeTrainer(
-            vocab_size=tkvocab,
-            min_frequency=2,
-            special_tokens=[UNK_TOKEN],
-            limit_alphabet=tkvocab,
-            initial_alphabet=[],
-            end_of_word_suffix=END_OF_WORD_SUFFIX,
-            show_progress=True,
-        )
-        return tk, trainer
-    raise ValueError
-
-
-def worker(tkvocab, uni_files):
-    def read_uni(uni_file):
-        with zstd.open(uni_file, "r") as f:
-            return f.read()
-
-    def reader():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as p:
-            futures = [p.submit(read_uni, uni_file) for uni_file in uni_files]
-            for future in concurrent.futures.as_completed(futures):
-                yield future.result()
-
-    tkmodel, trainer = get_tk(tkvocab)
-    tkmodel.train_from_iterator(reader(), trainer=trainer)
-    return tkmodel
 
 
 class RegTokenizer:
@@ -123,7 +63,7 @@ class RegTokenizer:
             return self.decode_unicode(self.tkmodel.decode(encoded_tokens), dtype=dtype)
         return encoded_tokens
 
-    def train_tokenizer(self, dfs, tokenizer="unigram"):
+    def train_tokenizer(self, dfs, tokenizer="bpe"):
         def write_uni(t):
             df_file, df, i = t
             uni_file = df_file.replace(DUMP_SUFFIX, f".{i}{UNI_SUFFIX}")
@@ -134,12 +74,12 @@ class RegTokenizer:
             return uni_file
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as p:
-            uni_files = [result for result in p.map(write_uni, dfs)]
+            uni_files = list(p.map(write_uni, dfs))
 
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=1, mp_context=multiprocessing.get_context("spawn")
         ) as p:
-            future = p.submit(worker, self.args.tkvocab, uni_files)
+            future = p.submit(train_worker, tokenizer, self.args.tkvocab, uni_files)
             self.tkmodel = future.result()
 
         assert self.tkmodel.get_vocab_size() == self.args.tkvocab, (
