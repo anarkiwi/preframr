@@ -161,7 +161,7 @@ class RegDataset(torch.utils.data.Dataset):
             if dataset_csv:
                 self.logger.info("writing dataset to %s", dataset_csv)
             else:
-                dataset = "/dev/null"
+                dataset_csv = "/dev/null"
 
             with zstd.open(dataset_csv, "w") as f:
                 for i, (df_file, _i, df, _seq, _irq) in enumerate(
