@@ -82,7 +82,7 @@ class RegTokenizer:
             future = p.submit(
                 train_worker, tokenizer, self.args.tkvocab, self.args.tkmodel, uni_files
             )
-            assert not future.exception()
+            assert not future.exception(), future.exception()
 
         self.tkmodel = Tokenizer.from_file(self.args.tkmodel)
 
