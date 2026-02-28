@@ -166,7 +166,7 @@ class RegTokenizer:
                 )
         return seq
 
-    def get_tk(self, tokenizer="unigram"):
+    def get_tk(self, tokenizer="bpe"):
         if tokenizer == "unigram":
             tk = Tokenizer(models.Unigram())
             tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
