@@ -1,4 +1,5 @@
 import concurrent.futures
+import os
 import zstandard as zstd
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
@@ -8,6 +9,7 @@ END_OF_WORD_SUFFIX = "</w>"
 
 def get_tk(tkvocab, tokenizer="bpe"):
     if tokenizer == "unigram":
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
         tk = Tokenizer(models.Unigram())
         tk.pre_tokenizer = pre_tokenizers.Metaspace(replacement=" ")
         tk.decoder = decoders.Metaspace(replacement=" ")
