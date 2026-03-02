@@ -76,13 +76,13 @@ class RegTokenizer:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as p:
             uni_files = list(p.map(write_uni, dfs))
 
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=1, mp_context=multiprocessing.get_context("spawn")
-        ) as p:
-            future = p.submit(
-                train_worker, tokenizer, self.args.tkvocab, self.args.tkmodel, uni_files
-            )
-            assert not future.exception(), future.exception()
+        ctx = multiprocessing.get_context("spawn")
+        p = ctx.Process(
+            target=train_worker,
+            args=(tokenizer, self.args.tkvocab, self.args.tkmodel, uni_files),
+        )
+        p.start()
+        p.join()
 
         self.tkmodel = Tokenizer.from_file(self.args.tkmodel)
 

@@ -182,7 +182,7 @@ class RegDataset(torch.utils.data.Dataset):
                 df_map.to_csv(df_map_csv, index=False)
 
         if self.args.tkvocab:
-            self.tokenizer.train_tokenizer(worker())
+            self.tokenizer.train_tokenizer(worker(), tokenizer=self.args.tokenizer)
         else:
             for _df in worker():
                 continue
