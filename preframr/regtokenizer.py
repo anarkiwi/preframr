@@ -64,6 +64,8 @@ class RegTokenizer:
         return encoded_tokens
 
     def train_tokenizer(self, dfs, tokenizer="bpe"):
+        self.logger.info(f"training {tokenizer} tokenizer")
+
         def write_uni(t):
             df_file, df, i = t
             uni_file = df_file.replace(DUMP_SUFFIX, f".{i}{UNI_SUFFIX}")
@@ -83,6 +85,7 @@ class RegTokenizer:
         )
         p.start()
         p.join()
+        assert p.exitcode == 0, p.exitcode
 
         self.tkmodel = Tokenizer.from_file(self.args.tkmodel)
 
