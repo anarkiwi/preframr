@@ -589,35 +589,30 @@ class RegLogParser:
                 )
             f = "repeat"
             m = v_df[f] != 0
-            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
-            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
-            v_df.loc[(v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", f]] = 0
+            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = v_df["n"]
+            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = v_df["n"]
+            v_df.loc[(v_df["begin"] != 0) & (v_df["end"] != 0), ["begin", "end", f]] = 0
             v_df.loc[v_df["repeat"] != 0, "flip"] = 0
             f = "flip"
             m = v_df[f] != 0
-            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = 1
-            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = 1
-            # v_df.loc[
-            #    ((v_df["begin"] == 1) & (v_df["end"].shift(-1) == 1))
-            #    | ((v_df["end"] == 1) & (v_df["begin"].shift(1) == 1)),
-            #    ["repeat", "flip", "begin", "end"],
-            # ] = 0
+            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = v_df["n"]
+            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = v_df["n"]
             assert not len(v_df[(v_df["repeat"] != 0) & (v_df["flip"] != 0)])
             v_df.loc[
-                (v_df["begin"] == 1) & (v_df["end"] == 1), ["begin", "end", "flip"]
+                (v_df["begin"] != 0) & (v_df["end"] != 0), ["begin", "end", "flip"]
             ] = 0
 
             for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
                 if op in opcodes:
                     d_df = v_df[
-                        (v_df[f] != 0) & ((v_df["begin"] == 1) | (v_df["end"] == 1))
+                        (v_df[f] != 0) & ((v_df["begin"] != 0) | (v_df["end"] != 0))
                     ].copy()
                     v_df = v_df[v_df[f] == 0]
                     if d_df.empty:
                         continue
-                    assert d_df["begin"].iloc[0] == 1, d_df
-                    assert d_df["end"].iloc[-1] == 1, d_df
-                    d_df.loc[d_df["end"] == 1, "val"] = 0
+                    assert d_df["begin"].iloc[0] != 0, d_df
+                    assert d_df["end"].iloc[-1] != 0, d_df
+                    d_df.loc[d_df["end"] != 0, "val"] = 0
                     d_df["op"] = op
                     change_dfs.append(d_df.copy())
 
