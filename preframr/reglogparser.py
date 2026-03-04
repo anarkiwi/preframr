@@ -555,13 +555,7 @@ class RegLogParser:
             v_df = v_df.sort_values(["n", "val"])
             # Only one change per reg per frame.
             v_df["cpf"] = v_df.groupby("f").transform("size")
-            v_df = v_df[
-                (
-                    (v_df["val"].abs() <= minchange)
-                    | (v_df["val"].shift(1) == v_df["val"])
-                )
-                & (v_df["cpf"] == 1)
-            ]
+            v_df = v_df[(v_df["val"].abs() <= minchange) & (v_df["cpf"] == 1)]
             df = df[~df["n"].isin(v_df["n"])]
             m_df = v_df[v_df["f"].diff().fillna(1) > 1].copy()
             m_df["op"] = DIFF_OP
@@ -626,16 +620,18 @@ class RegLogParser:
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
-        freq_df, pcm_df, filter_df = self._last_reg_val_frame(
-            orig_df, [0, 2, FC_LO_REG]
+        freq_df, pcm_df, ctrl_df, filter_df = self._last_reg_val_frame(
+            orig_df, [0, 2, 4, FC_LO_REG]
         )
         freq_df["reg"] = freq_df["v"] * VOICE_REG_SIZE
         pcm_df["reg"] = pcm_df["v"] * VOICE_REG_SIZE + 2
+        ctrl_df["reg"] = ctrl_df["v"] * VOICE_REG_SIZE + 4
         filter_df["reg"] = FC_LO_REG
 
         all_change_dfs = []
         for xdf, matcher, minchange in (
             (freq_df, self._freq_match, (2 * 7) * CENTS),
+            (ctrl_df, self._ctrl_match, 1),
             (pcm_df, self._pcm_match, 64),
             (filter_df, self._filter_match, 64),
         ):
