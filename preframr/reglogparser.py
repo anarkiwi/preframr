@@ -465,6 +465,10 @@ class RegLogParser:
 
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
+        freq_df = list(self._last_reg_val_frame(orig_df, [0]))[0]
+        freq_df["reg"] = freq_df["v"] * VOICE_REG_SIZE
+        freq_df = freq_df.rename(columns={"val": "nval"})[["f", "reg", "nval"]]
+
         m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
         first_v = norm_df[m]
         if first_v.empty:
@@ -474,6 +478,11 @@ class RegLogParser:
         df = norm_df[((norm_df["vd"] != 0) | (norm_df["n"] == first_v["n"])) & m].copy()
         df["n"] -= 1
         df["val"] = df["v"]
+        df = df.merge(freq_df, how="left", on=["f", "reg"])
+        df["nval"] = np.left_shift(
+            np.right_shift(df["nval"], 6).ffill().fillna(0).astype(MODEL_PDTYPE), 8
+        )
+        df["val"] = df["v"] + df["nval"]
         df["reg"] = VOICE_REG
         df["op"] = SET_OP
 
