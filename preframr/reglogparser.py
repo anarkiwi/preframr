@@ -465,7 +465,9 @@ class RegLogParser:
 
     def _add_voice_reg(self, orig_df):
         norm_df = self._norm_df(orig_df)
-        freq_df = list(self._last_reg_val_frame(orig_df, [0]))[0]
+        freq_df = list(self._last_reg_val_frame(orig_df[orig_df["op"] == SET_OP], [0]))[
+            0
+        ]
         freq_df["reg"] = freq_df["v"] * VOICE_REG_SIZE
         freq_df = freq_df.rename(columns={"val": "nval"})[["f", "reg", "nval"]]
         freq_df["f"] += 1
