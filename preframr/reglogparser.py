@@ -633,7 +633,7 @@ class RegLogParser:
             (freq_df, self._freq_match, (2 * 7) * CENTS),
             (ctrl_df, self._ctrl_match, 1),
             (pcm_df, self._pcm_match, 64),
-            (filter_df, self._filter_match, 64),
+            (filter_df, self._filter_match, 128),
         ):
             df = df.merge(xdf[["reg", "f", "pval"]], how="left", on=["f", "reg"])
             xdf = df[matcher(df)].copy()
