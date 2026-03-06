@@ -243,6 +243,7 @@ def _get_loader(args, dataset):
 
     if args.shuffle:
         length = args.shuffle / 1.0
+        # sampler = torch.utils.data.RandomSampler(
         sampler = LowMemoryRandomSampler(
             dataset, num_samples=int(length * len(dataset))
         )
