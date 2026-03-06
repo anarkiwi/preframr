@@ -72,7 +72,7 @@ def remove_voice_reg(orig_df, reg_widths):
     if voice_regs:
         df = orig_df.copy()
         df["vr"] = pd.NA
-        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"] & 255
+        df.loc[df["reg"].isin({FRAME_REG, VOICE_REG}), "vr"] = df["val"] & 3
         df.loc[df["reg"] == DELAY_REG, "vr"] = 0
         df["vr"] = df["vr"].astype(pd.UInt8Dtype()).ffill().fillna(0)
         df = df[df["reg"] != VOICE_REG]
@@ -481,11 +481,17 @@ class RegLogParser:
             xdf["f"] += 1
             xdf = xdf[["f", "reg", "val"]].rename(columns={"val": f"val{reg}"})
             df = df.merge(xdf, how="left", on=["f", "reg"])
-        df["val"] = df["v"] + np.left_shift(
-            (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 4) & 0xF)
-            + (df["val4"].fillna(0) & 0xF0),
-            8,
-        ).astype(MODEL_PDTYPE)
+        df["val"] = (
+            df["v"]
+            # gate bit as bit 7
+            + np.left_shift(df["val4"].fillna(0) & 0x1, 7)
+            # high 4 bits of frequency, high 4 bits of control
+            + np.left_shift(
+                (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 4) & 0xF)
+                + (df["val4"].fillna(0) & 0xF0),
+                8,
+            )
+        )
         df["reg"] = VOICE_REG
         df["op"] = SET_OP
         df = (
