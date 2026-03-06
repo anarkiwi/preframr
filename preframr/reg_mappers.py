@@ -14,6 +14,7 @@ class FreqMapper:
         self.fi_map = {i: 0 for i in range(65536)}
         self.if_map = {}
         n = 0
+        self.bits = 0
 
         while True:
             l = f * (2 ** ((-cents / 2) / 1200))
@@ -29,3 +30,5 @@ class FreqMapper:
             n += 1
             if f > max_sid_f:
                 break
+
+        self.bits = int(len(self.if_map)).bit_length()

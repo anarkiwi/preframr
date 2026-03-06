@@ -482,7 +482,7 @@ class RegLogParser:
             xdf = xdf[["f", "reg", "val"]].rename(columns={"val": f"val{reg}"})
             df = df.merge(xdf, how="left", on=["f", "reg"])
         df["val"] = df["v"] + np.left_shift(
-            (np.right_shift(df["val0"].fillna(0), 6) & 0xF)
+            (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 4) & 0xF)
             + (df["val4"].fillna(0) & 0xF0),
             8,
         ).astype(MODEL_PDTYPE)
