@@ -1,7 +1,6 @@
 from collections import defaultdict
 import glob
 import logging
-import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -483,13 +482,14 @@ class RegLogParser:
             df = df.merge(xdf, how="left", on=["f", "reg"])
         df["val"] = (
             df["v"]
-            # gate bit as bit 7
-            + np.left_shift(df["val4"].fillna(0) & 0x1, 7)
-            # high 4 bits of frequency, high 4 bits of control
+            # high 4 bits of control
+            + (df["val4"].fillna(0) & 0xF0)
             + np.left_shift(
-                (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 4) & 0xF)
-                + (df["val4"].fillna(0) & 0xF0),
-                8,
+                # high 5 bits of frequency
+                (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 5) & 2**5-1)
+                # gate bit as bit 7
+                + np.left_shift(df["val4"].fillna(0) & 0x1, 7),
+                8
             )
         )
         df["reg"] = VOICE_REG
