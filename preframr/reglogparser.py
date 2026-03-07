@@ -486,10 +486,13 @@ class RegLogParser:
             + (df["val4"].fillna(0) & 0xF0)
             + np.left_shift(
                 # high 5 bits of frequency
-                (np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 5) & 2**5-1)
+                (
+                    np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 5)
+                    & 2**5 - 1
+                )
                 # gate bit as bit 7
                 + np.left_shift(df["val4"].fillna(0) & 0x1, 7),
-                8
+                8,
             )
         )
         df["reg"] = VOICE_REG
