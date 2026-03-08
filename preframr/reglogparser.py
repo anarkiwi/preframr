@@ -497,7 +497,7 @@ class RegLogParser:
             high_ctrl = v_df[ctrl_reg] & 0xF0
             gate = np.left_shift(v_df[ctrl_reg] & 0x1, 7)
             high_freq = (
-                np.right_shift(v_df[freq_reg], self.freq_mapper.bits - 4) & 2**4 - 1
+                np.right_shift(v_df[freq_reg], self.freq_mapper.bits - 6) & 2**6 - 1
             )
             df.loc[m, "val"] += high_ctrl + np.left_shift(gate + high_freq, 8)
         df["val"] += df["v"]
