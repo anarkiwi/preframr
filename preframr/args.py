@@ -38,8 +38,8 @@ def add_args(parser):
         type=str,
         default="/scratch/preframr/dataset-map.csv",
     )
-    parser.add_argument("--shuffle", type=float, default=0.0025)
-    parser.add_argument("--max-files", type=int, default=16384)
+    parser.add_argument("--shuffle", type=float, default=0.1)
+    parser.add_argument("--max-files", type=int, default=128)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
