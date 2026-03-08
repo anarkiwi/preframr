@@ -1,6 +1,5 @@
 import concurrent.futures
 import copy
-import functools
 import logging
 import glob
 import io
@@ -17,7 +16,6 @@ from preframr.seq_mapper import SeqMapper, SeqMeta
 from preframr.stfconstants import DUMP_SUFFIX, PARSED_SUFFIX
 
 
-@functools.cache
 def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
     random.seed(seed)
     dump_files = []
@@ -82,14 +80,17 @@ class RegDataset(torch.utils.data.Dataset):
         self.seq_mapper = SeqMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None, logger=logger)
 
-    def load_dfs(self, reglogs, max_perm=99, encode=True):
-        dump_files = glob_dumps(
-            reglogs,
-            self.args.max_files,
-            self.args.min_dump_size,
-            self.args.require_pq,
-            seed=0,
-        )
+    def load_dfs(self, reglogs=None, dump_files=None, max_perm=99, encode=True):
+        if not dump_files:
+            if not reglogs:
+                raise ValueError("need reglogs or dump_files")
+            dump_files = glob_dumps(
+                reglogs,
+                self.args.max_files,
+                self.args.min_dump_size,
+                self.args.require_pq,
+                seed=0,
+            )
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=4,
         ) as executor:
@@ -123,7 +124,7 @@ class RegDataset(torch.utils.data.Dataset):
     def make_tokens(self, reglogs):
         df_files = []
         for df_file, _i, df, _seq, _irq in self.load_dfs(
-            reglogs, max_perm=self.args.max_perm
+            reglogs=reglogs, max_perm=self.args.max_perm
         ):
             self.tokenizer.accumulate_tokens(df, df_file)
             df_files.append(df_file)
@@ -161,7 +162,9 @@ class RegDataset(torch.utils.data.Dataset):
                 with zstd.open(dataset_csv, "w") as f:
                     for i, (df_file, _i, df, _seq, _irq) in enumerate(
                         self.load_dfs(
-                            self.args.reglogs, max_perm=self.args.max_perm, encode=False
+                            reglogs=self.args.reglogs,
+                            max_perm=self.args.max_perm,
+                            encode=False,
                         )
                     ):
                         df_files.append(df_file)
@@ -171,7 +174,9 @@ class RegDataset(torch.utils.data.Dataset):
             else:
                 for i, (df_file, _i, df, _seq, _irq) in enumerate(
                     self.load_dfs(
-                        self.args.reglogs, max_perm=self.args.max_perm, encode=False
+                        reglogs=self.args.reglogs,
+                        max_perm=self.args.max_perm,
+                        encode=False,
                     )
                 ):
                     df_files.append(df_file)
@@ -188,11 +193,22 @@ class RegDataset(torch.utils.data.Dataset):
                 continue
 
     def load(self):
-        self.logger.info("loading data")
         assert self.tokenizer.tokens is not None
-        reglogs = self.args.reglogs
+        dump_files = None
+        reglogs = None
         if self.args.reglog:
+            self.logger.info(f"loading data from {self.args.reglog}")
             reglogs = self.args.reglog
+        elif os.path.exists(self.args.df_map_csv):
+            self.logger.info(f"loading data from {self.args.df_map_csv}")
+            df_map_df = pd.read_csv(self.args.df_map_csv)
+            dump_files = df_map_df["dump_file"].drop_duplicates().tolist()
+            self.logger.info(
+                f"loading data from {self.args.df_map_csv} - {len(dump_files)} files"
+            )
+        elif self.args.reglogs:
+            self.logger.info(f"loading data from {self.args.reglogs}")
+            reglogs = self.args.reglogs
         self.n_vocab = len(self.tokenizer.tokens["n"])
         if self.args.tkvocab:
             self.n_vocab = self.args.tkvocab
@@ -201,7 +217,10 @@ class RegDataset(torch.utils.data.Dataset):
         n_words = 0
         reg_max = {}
         for df_file, i, df, seq, irq in self.load_dfs(
-            reglogs, max_perm=self.args.max_perm, encode=True
+            reglogs=reglogs,
+            dump_files=dump_files,
+            max_perm=self.args.max_perm,
+            encode=True,
         ):
             seq_meta = SeqMeta(irq=irq, df_file=df_file, i=i)
             self.seq_mapper.add(seq, seq_meta)
