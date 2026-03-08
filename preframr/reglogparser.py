@@ -467,34 +467,40 @@ class RegLogParser:
         freq_df, ctrl_df = self._last_reg_val_frame(
             orig_df[orig_df["op"] == SET_OP], [0, 4]
         )
+        for xdf, reg in ((freq_df, 0), (ctrl_df, 4)):
+            xdf["f"] += 1
+            cols = []
+
+            for v in range(VOICES):
+                m = xdf["v"] == v
+                c = f"v{v}-reg{reg}"
+                cols.append(c)
+                xdf.loc[m, c] = xdf[m]["val"]
+            xdf = xdf[["f"] + cols].reset_index(drop=True)
+            xdf = xdf.ffill().fillna(0).drop_duplicates(["f"], keep="last")
+            norm_df = norm_df.merge(xdf, how="left", on=["f"])
+        norm_df = norm_df.ffill().fillna(0)
         m = (norm_df["reg"] >= 0) & (norm_df["v"].isin(set(range(VOICES))))
         first_v = norm_df[m]
         if first_v.empty:
             return orig_df
         first_v = first_v.iloc[0]
-        norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
         df = norm_df[((norm_df["vd"] != 0) | (norm_df["n"] == first_v["n"])) & m].copy()
+        norm_df.loc[m, "reg"] = norm_df[m]["reg"] % VOICE_REG_SIZE
         df["n"] -= 1
-        for xdf, reg in ((freq_df, 0), (ctrl_df, 4)):
-            xdf["reg"] = xdf["v"] * VOICE_REG_SIZE + reg
-            xdf["f"] += 1
-            xdf = xdf[["f", "reg", "val"]].rename(columns={"val": f"val{reg}"})
-            df = df.merge(xdf, how="left", on=["f", "reg"])
-        df["val"] = (
-            df["v"]
-            # high 4 bits of control
-            + (df["val4"].fillna(0) & 0xF0)
-            + np.left_shift(
-                # high 5 bits of frequency
-                (
-                    np.right_shift(df["val0"].fillna(0), self.freq_mapper.bits - 5)
-                    & 2**5 - 1
-                )
-                # gate bit as bit 7
-                + np.left_shift(df["val4"].fillna(0) & 0x1, 7),
-                8,
+        df["val"] = 0
+        for v in range(VOICES):
+            m = df["v"] == v
+            v_df = df[m]
+            freq_reg = f"v{v}-reg0"
+            ctrl_reg = f"v{v}-reg4"
+            high_ctrl = v_df[ctrl_reg] & 0xF0
+            gate = np.left_shift(v_df[ctrl_reg] & 0x1, 7)
+            high_freq = (
+                np.right_shift(v_df[freq_reg], self.freq_mapper.bits - 4) & 2**4 - 1
             )
-        )
+            v_df.loc[:, "val"] += high_ctrl + np.left_shift(gate + high_freq, 8)
+        df["val"] += df["v"]
         df["reg"] = VOICE_REG
         df["op"] = SET_OP
         df = (
