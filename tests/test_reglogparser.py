@@ -346,6 +346,47 @@ class TestRegLogParser(unittest.TestCase):
         )
         result_df = loader._add_voice_reg(test_df).astype(MODEL_PDTYPE)
         self.assertTrue(voice_df.equals(result_df))
+        test_df = pd.DataFrame(
+            [
+                {"reg": 0, "val": 1024, "diff": 32, "op": 0},
+                {"reg": 7, "val": 256, "diff": 32, "op": 0},
+                {"reg": 11, "val": 128, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 0, "val": 512, "diff": 32, "op": 0},
+                {"reg": 11, "val": 129, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 0, "val": 768, "diff": 32, "op": 0},
+                {"reg": 11, "val": 16, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        voice_df = pd.DataFrame(
+            [
+                {"reg": VOICE_REG, "val": 0, "diff": 32, "op": 0},
+                {"reg": 0, "val": 1024, "diff": 32, "op": 0},
+                {"reg": VOICE_REG, "val": 1, "diff": 32, "op": 0},
+                {"reg": 0, "val": 256, "diff": 32, "op": 0},
+                {"reg": 4, "val": 128, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 0, "val": 512, "diff": 32, "op": 0},
+                {"reg": VOICE_REG, "val": 641, "diff": 32, "op": 0},
+                {"reg": 4, "val": 129, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+                {"reg": 0, "val": 768, "diff": 32, "op": 0},
+                {
+                    "reg": VOICE_REG,
+                    "val": 1 + 128 + ((1 << 7) + (256 >> (11 - 4)) << 8),
+                    "diff": 32,
+                    "op": 0,
+                },
+                {"reg": 4, "val": 16, "diff": 32, "op": 0},
+                {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        result_df = loader._add_voice_reg(test_df).astype(MODEL_PDTYPE)
+        self.assertTrue(voice_df.equals(result_df))
 
     def test_expand_ops(self):
         test_df = pd.DataFrame(
