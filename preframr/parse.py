@@ -16,7 +16,9 @@ def write_df(args, name):
     log_parser = RegLogParser(args, logger)
     base_name = name.replace(".dump.parquet", "")
     try:
-        for i, df in enumerate(log_parser.parse(name, max_perm=99, require_pq=False)):
+        for i, df in enumerate(
+            log_parser.parse(name, max_perm=99, require_pq=False, reparse=True)
+        ):
             pq_name = base_name + f".{i}.parquet"
             df.to_parquet(pq_name, engine="pyarrow", compression="zstd")
     except Exception as err:
@@ -36,7 +38,6 @@ def main():
                 args.max_files,
                 args.min_dump_size,
                 require_pq=False,
-                reparse=True,
             ):
                 futures.append(executor.submit(write_df, args, name))
             with tqdm(total=len(futures)) as t:
