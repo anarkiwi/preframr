@@ -32,7 +32,11 @@ def main():
         ) as executor:
             futures = []
             for name in glob_dumps(
-                args.reglogs, args.max_files, args.min_dump_size, require_pq=False
+                args.reglogs,
+                args.max_files,
+                args.min_dump_size,
+                require_pq=False,
+                reparse=True,
             ):
                 futures.append(executor.submit(write_df, args, name))
             with tqdm(total=len(futures)) as t:
