@@ -752,23 +752,24 @@ class RegLogParser:
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
-    def parse(self, name, diffmax=512, max_perm=99, require_pq=False):
-        parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
-        if parquet_glob:
-            for parquet_name in sorted(parquet_glob):
-                # assert (
-                #     Path(parquet_name).stat().st_mtime > PY_MTIME
-                # ), f"pre-parsed {parquet_name} out of date"
-                pf = ParquetFile(parquet_name)
-                sample_rows = next(pf.iter_batches(batch_size=1))
-                df = pa.Table.from_batches([sample_rows]).to_pandas()
-                if self._filter_irq(df, parquet_name):
-                    df = pd.read_parquet(parquet_name)
-                    if self._filter(df, parquet_name):
-                        yield df
-            return
-        if require_pq:
-            return
+    def parse(self, name, diffmax=512, max_perm=99, require_pq=False, reparse=False):
+        if not reparse:
+            parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
+            if parquet_glob:
+                for parquet_name in sorted(parquet_glob):
+                    # assert (
+                    #     Path(parquet_name).stat().st_mtime > PY_MTIME
+                    # ), f"pre-parsed {parquet_name} out of date"
+                    pf = ParquetFile(parquet_name)
+                    sample_rows = next(pf.iter_batches(batch_size=1))
+                    df = pa.Table.from_batches([sample_rows]).to_pandas()
+                    if self._filter_irq(df, parquet_name):
+                        df = pd.read_parquet(parquet_name)
+                        if self._filter(df, parquet_name):
+                            yield df
+                return
+            if require_pq:
+                return
         df = self._read_df(name)
         df = self._squeeze_changes(df)
         df = self._combine_regs(df)
