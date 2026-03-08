@@ -140,7 +140,7 @@ class RegDataset(torch.utils.data.Dataset):
         if tokens is not None:
             self.tokenizer.load(tkmodel, tokens)
             return
-        self.logger.info("making tokens")
+        self.logger.info("preload making tokens")
         df_files = self.make_tokens(self.args.reglogs)
         if self.args.token_csv:
             self.logger.info("writing tokens to %s", self.args.token_csv)
@@ -183,6 +183,7 @@ class RegDataset(torch.utils.data.Dataset):
                     yield df_file, df, i
 
             if df_map_csv:
+                self.logger.info("writing dataset map to %s", df_map_csv)
                 df_map = pd.DataFrame(df_files, columns=["dump_file"])
                 df_map.to_csv(df_map_csv, index=False)
 
@@ -200,7 +201,6 @@ class RegDataset(torch.utils.data.Dataset):
             self.logger.info(f"loading data from {self.args.reglog}")
             reglogs = self.args.reglog
         elif os.path.exists(self.args.df_map_csv):
-            self.logger.info(f"loading data from {self.args.df_map_csv}")
             df_map_df = pd.read_csv(self.args.df_map_csv)
             dump_files = df_map_df["dump_file"].drop_duplicates().tolist()
             self.logger.info(
