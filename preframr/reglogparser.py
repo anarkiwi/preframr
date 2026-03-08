@@ -499,7 +499,7 @@ class RegLogParser:
             high_freq = (
                 np.right_shift(v_df[freq_reg], self.freq_mapper.bits - 4) & 2**4 - 1
             )
-            v_df.loc[:, "val"] += high_ctrl + np.left_shift(gate + high_freq, 8)
+            df.loc[m, "val"] += high_ctrl + np.left_shift(gate + high_freq, 8)
         df["val"] += df["v"]
         df["reg"] = VOICE_REG
         df["op"] = SET_OP
