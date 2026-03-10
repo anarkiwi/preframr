@@ -1,0 +1,79 @@
+name: docker-release
+on: [push, pull_request]
+jobs:
+  docker-cuda:
+    runs-on: ubuntu-latest
+    environment:
+      name: "release"
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+    - name: Login to Docker Hub
+      uses: docker/login-action@v4
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        tags: anarkiwi/preframr
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+      if: github.repository == 'anarkiwi/preframr' && github.event_name == 'push'
+  docker-xpu:
+    runs-on: ubuntu-latest
+    environment:
+      name: "release"
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+    - name: Login to Docker Hub
+      uses: docker/login-action@v4
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        tags: anarkiwi/preframr-xpu
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+            BASE=anarkiwi/pytorch-xpu:v2.10.0
+      if: github.repository == 'anarkiwi/preframr' && github.event_name == 'push'
+  docker-jetson:
+    runs-on: ubuntu-24.04-arm
+    environment:
+      name: "release"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: anarkiwi/preframr-jetson
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+              BASE=anarkiwi/jetson-pytorch:v2.10.0
+              REQ=jetson-requirements.txt
+        if: github.repository == 'anarkiwi/preframr' && github.event_name == 'push'
