@@ -20,11 +20,12 @@ from preframr.stfconstants import (
 
 
 class FakeArgs:
-    def __init__(self, seq_len=128, tkvocab=0, diffq=64, tkmodel=None):
+    def __init__(self, seq_len=128, tkvocab=0, diffq=64, tkmodel=None, cents=10):
         self.reglog = None
         self.reglogs = ""
         self.seq_len = seq_len
         self.max_files = 1
+        self.cents = cents
 
 
 class TestRegLogParser(unittest.TestCase):
@@ -236,7 +237,7 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 0, "diff": 32, "op": REPEAT_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 62, "diff": 32, "op": DIFF_OP},
+                {"reg": 7, "val": 65, "diff": 32, "op": SET_OP},
             ],
             dtype=MODEL_PDTYPE,
         )
@@ -266,7 +267,7 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
                 {"reg": 7, "val": 0, "diff": 32, "op": FLIP_OP},
                 {"reg": FRAME_REG, "val": 0, "diff": 19000, "op": 0},
-                {"reg": 7, "val": 64, "diff": 32, "op": DIFF_OP},
+                {"reg": 7, "val": 65, "diff": 32, "op": SET_OP},
             ],
             dtype=MODEL_PDTYPE,
         )
@@ -320,6 +321,7 @@ class TestRegLogParser(unittest.TestCase):
         self.assertTrue(test_df.equals(result_df))
 
     def test_add_voice_reg(self):
+        meta_freq_bits = 6
         loader = RegLogParser(FakeArgs())
         test_df = pd.DataFrame(
             [
@@ -344,7 +346,9 @@ class TestRegLogParser(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._add_voice_reg(test_df).astype(MODEL_PDTYPE)
+        result_df = loader._add_voice_reg(
+            test_df, add_meta=True, meta_freq_bits=meta_freq_bits
+        ).astype(MODEL_PDTYPE)
         self.assertTrue(voice_df.equals(result_df))
         test_df = pd.DataFrame(
             [
@@ -376,7 +380,13 @@ class TestRegLogParser(unittest.TestCase):
                 {"reg": 0, "val": 768, "diff": 32, "op": 0},
                 {
                     "reg": VOICE_REG,
-                    "val": 1 + 128 + ((1 << 7) + ((256 >> (11 - 6) & 2**6 - 1)) << 8),
+                    "val": 1
+                    + 128
+                    + (
+                        (1 << 7)
+                        + ((256 >> (11 - meta_freq_bits) & 2**meta_freq_bits - 1))
+                        << 8
+                    ),
                     "diff": 32,
                     "op": 0,
                 },
@@ -385,7 +395,9 @@ class TestRegLogParser(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
-        result_df = loader._add_voice_reg(test_df).astype(MODEL_PDTYPE)
+        result_df = loader._add_voice_reg(
+            test_df, add_meta=True, meta_freq_bits=meta_freq_bits
+        ).astype(MODEL_PDTYPE)
         self.assertTrue(voice_df.equals(result_df))
 
     def test_expand_ops(self):

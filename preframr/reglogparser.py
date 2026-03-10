@@ -8,7 +8,6 @@ from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
-    CENTS,
     DELAY_REG,
     DIFF_OP,
     DIFF_PDTYPE,
@@ -18,6 +17,7 @@ from preframr.stfconstants import (
     FLIP_OP,
     FRAME_REG,
     MAX_REG,
+    META_FREQ_BITS,
     MIN_DIFF,
     MODE_VOL_REG,
     MODEL_PDTYPE,
@@ -214,7 +214,7 @@ class RegLogParser:
     def __init__(self, args, logger=logging):
         self.args = args
         self.logger = logger
-        self.freq_mapper = FreqMapper()
+        self.freq_mapper = FreqMapper(cents=self.args.cents)
 
     def _vreg_match(self, vreg):
         return {(v * VOICE_REG_SIZE) + vreg for v in range(VOICES)}
@@ -462,7 +462,7 @@ class RegLogParser:
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
-    def _add_voice_reg(self, orig_df, add_meta=True):
+    def _add_voice_reg(self, orig_df, add_meta=True, meta_freq_bits=4):
         norm_df = self._norm_df(orig_df)
         if add_meta:
             freq_df, ctrl_df = self._last_reg_val_frame(
@@ -499,7 +499,10 @@ class RegLogParser:
                 high_ctrl = v_df[ctrl_reg] & 0xF0
                 gate = np.left_shift(v_df[ctrl_reg] & 0x1, 7)
                 high_freq = (
-                    np.right_shift(v_df[freq_reg], self.freq_mapper.bits - 6) & 2**6 - 1
+                    np.right_shift(
+                        v_df[freq_reg], self.freq_mapper.bits - meta_freq_bits
+                    )
+                    & 2**meta_freq_bits - 1
                 )
                 df.loc[m, "val"] += high_ctrl + np.left_shift(gate + high_freq, 8)
         df["val"] += df["v"]
@@ -583,13 +586,15 @@ class RegLogParser:
             v_df = v_df.sort_values(["n", "val"])
             # Only one change per reg per frame.
             v_df["cpf"] = v_df.groupby("f").transform("size")
-            v_df = v_df[(v_df["val"].abs() <= minchange) & (v_df["cpf"] == 1)]
+            v_df["aval"] = v_df["val"].abs()
+            v_df = v_df[
+                (v_df["aval"] > 0) & (v_df["aval"] <= minchange) & (v_df["cpf"] == 1)
+            ]
             df = df[~df["n"].isin(v_df["n"])]
             m_df = v_df[v_df["f"].diff().fillna(1) > 1].copy()
             m_df["op"] = DIFF_OP
             v_df = v_df[~v_df["n"].isin(m_df["n"])]
             change_dfs.append(m_df)
-            v_df["aval"] = v_df["val"].abs()
             v_df["cf"] = (
                 (
                     (v_df["f"].diff().fillna(1) > 1)
@@ -609,20 +614,19 @@ class RegLogParser:
                 ] = (
                     v_df["cf"] * v_df[c]
                 )
-            f = "repeat"
-            m = v_df[f] != 0
-            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = v_df["n"]
-            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = v_df["n"]
-            v_df.loc[(v_df["begin"] != 0) & (v_df["end"] != 0), ["begin", "end", f]] = 0
-            v_df.loc[v_df["repeat"] != 0, "flip"] = 0
-            f = "flip"
-            m = v_df[f] != 0
-            v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = v_df["n"]
-            v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = v_df["n"]
-            assert not len(v_df[(v_df["repeat"] != 0) & (v_df["flip"] != 0)])
-            v_df.loc[
-                (v_df["begin"] != 0) & (v_df["end"] != 0), ["begin", "end", "flip"]
-            ] = 0
+            # filter repeat/flip ranges.
+            for f, of in (("repeat", "flip"), ("flip", "repeat")):
+                m = v_df[f] != 0
+                v_df.loc[m & (v_df[f] != v_df[f].shift(1)), "begin"] = v_df["n"]
+                v_df.loc[m & (v_df[f] != v_df[f].shift(-1)), "end"] = v_df["n"]
+                # reject spans of length 0 and 1
+                for shift in (0, 1):
+                    v_df.loc[
+                        ((v_df["end"] != 0) & (v_df["begin"].shift(shift) != 0))
+                        | ((v_df["begin"] != 0) & (v_df["end"].shift(-shift) != 0)),
+                        ["begin", "end", f],
+                    ] = 0
+                v_df.loc[v_df[f] != 0, of] = 0
 
             for f, op in (("repeat", REPEAT_OP), ("flip", FLIP_OP)):
                 if op in opcodes:
@@ -638,13 +642,16 @@ class RegLogParser:
                     d_df["op"] = op
                     change_dfs.append(d_df.copy())
 
+            # default to diff
             v_df["op"] = DIFF_OP
             change_dfs.append(v_df)
 
         df = df.drop("pval", axis=1)
         return df, change_dfs
 
-    def _add_change_regs(self, orig_df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP]):
+    def _add_change_regs(
+        self, orig_df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP], cents=50
+    ):
         df = self._norm_df(orig_df)
         df["op"] = SET_OP
 
@@ -658,7 +665,9 @@ class RegLogParser:
 
         all_change_dfs = []
         for xdf, matcher, minchange in (
-            (freq_df, self._freq_match, (2 * 7) * CENTS),
+            # restrict frequency change to two octaves
+            (freq_df, self._freq_match, int((2 * 12) * 100 / cents)),
+            # control change to gate bit
             (ctrl_df, self._ctrl_match, 1),
             (pcm_df, self._pcm_match, 64),
             (filter_df, self._filter_match, 128),
@@ -783,7 +792,9 @@ class RegLogParser:
             return
         irq, df = self._add_frame_reg(df, diffmax)
         df = self._squeeze_frame_regs(df)
-        df = self._add_change_regs(df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP])
+        df = self._add_change_regs(
+            df, opcodes=[DIFF_OP, FLIP_OP, REPEAT_OP], cents=self.args.cents
+        )
         df = self._consolidate_frames(df)
         df = self._cap_delay(df)
         delay_val = df[df["reg"] == DELAY_REG]["val"]
@@ -803,7 +814,9 @@ class RegLogParser:
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             xdf = self._norm_pr_order(xdf)
-            xdf = self._add_voice_reg(xdf, add_meta=True)
+            xdf = self._add_voice_reg(
+                xdf, add_meta=False, meta_freq_bits=META_FREQ_BITS
+            )
             xdf = xdf.reset_index(drop=True)
             if not self._filter(xdf, name):
                 break
