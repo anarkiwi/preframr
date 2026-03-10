@@ -1,0 +1,36 @@
+import pandas as pd
+
+FRAME_REG = -128
+DELAY_REG = -127
+VOICE_REG = -126
+FC_LO_REG = 21
+FILTER_REG = 23
+
+SET_OP = 0
+DIFF_OP = 1
+REPEAT_OP = 2
+FLIP_OP = 3
+
+DIFF_PDTYPE = pd.UInt16Dtype()
+IMPLIED_FRAME_REG = False
+MAX_REG = 24
+MIN_DIFF = 32
+MODE_VOL_REG = 24
+MODEL_PDTYPE = pd.Int32Dtype()
+PAD_ID = -999
+REG_PDTYPE = pd.Int8Dtype()
+TOKEN_KEYS = ["op", "reg", "val"]
+TOKEN_PDTYPE = pd.Int64Dtype()  # Same as torch
+UNICODE_BASE = 0x300
+VAL_PDTYPE = pd.Int32Dtype()
+VOICES = 3
+VOICE_REG_SIZE = 7
+META_FREQ_BITS = 4
+
+PAL_CLOCK = 17734475
+TUNING_REF_HZ = 440
+MIDI_N_TO_F = {n: (2 ** ((n - 69) / 12)) * TUNING_REF_HZ for n in range(128)}
+
+DUMP_SUFFIX = r".dump.parquet"
+UNI_SUFFIX = r".uni.zst"
+PARSED_SUFFIX = r".[0-9]*.parquet"
