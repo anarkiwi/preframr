@@ -1,0 +1,9 @@
+{
+  "constraints": {
+  },
+  "extends": [
+    "config:base",
+    "docker:enableMajor"
+  ],
+  "ignorePaths": []
+}
