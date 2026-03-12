@@ -438,10 +438,8 @@ class RegLogParser:
         return df
 
     def _quantize_freq_to_cents(self, df):
-        for v in range(VOICES):
-            v_offset = v * VOICE_REG_SIZE
-            cond = df["reg"] == v_offset
-            df.loc[cond, "val"] = df[cond]["val"].map(self.freq_mapper.fi_map)
+        m = self._freq_match(df)
+        df.loc[m, "val"] = df[m]["val"].map(self.freq_mapper.fi_map)
         return df
 
     def _norm_df(self, orig_df):
