@@ -216,7 +216,6 @@ def write_samples(
     with AsidProxy(sid=sid, asid=asid, cents=cents, sysex_delay=sysex_delay) as proxy:
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
-        print(sorted(df[df["reg"].isin({0, 7, 14})]["val"].unique()))
 
         total_secs = df["delay"].sum() + 1
         sp = 0
