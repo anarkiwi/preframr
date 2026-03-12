@@ -35,6 +35,7 @@ class RegTokenizer:
     def load(self, tkmodel, tokens):
         self.tokens = tokens
         if tkmodel:
+            self.logger.info("loading tokenizer model")
             self.tkmodel = Tokenizer.from_str(tkmodel)
 
     def encode_unicode(self, tokens, dtype=np.uint16):
