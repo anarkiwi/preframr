@@ -29,6 +29,7 @@ def main():
     write_samples(
         prompt_df,
         args.wav,
+        cents=args.cents,
         reg_widths=reg_widths,
         asid=args.asid,
         sysex_delay=args.sysex_delay,

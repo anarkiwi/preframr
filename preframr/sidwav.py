@@ -61,7 +61,7 @@ def default_sid():
 
 
 class AsidProxy:
-    def __init__(self, sid, asid, update_cmd=ASID_UPDATE, sysex_delay=0.002):
+    def __init__(self, sid, asid, cents, update_cmd=ASID_UPDATE, sysex_delay=0.002):
         self.sid = sid
         self.asid = asid
         self.port = None
@@ -69,7 +69,7 @@ class AsidProxy:
         self.sysex_delay = sysex_delay
         self.pending_frame = False
         self._resetreg()
-        self.freq_mapper = FreqMapper()
+        self.freq_mapper = FreqMapper(cents=cents)
         if self.asid is not None:
             output_names = set(mido.get_output_names())  # pylint: disable=no-member
             if self.asid not in output_names:
@@ -194,6 +194,7 @@ def write_samples(
     df,
     name,
     reg_widths,
+    cents,
     reg_start=None,
     sid=None,
     asid=None,
@@ -212,9 +213,10 @@ def write_samples(
 
     reg_start[MODE_VOL_REG] = reg_start.get(MODE_VOL_REG, 15)
 
-    with AsidProxy(sid=sid, asid=asid, sysex_delay=sysex_delay) as proxy:
+    with AsidProxy(sid=sid, asid=asid, cents=cents, sysex_delay=sysex_delay) as proxy:
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
+        print(sorted(df[df["reg"].isin({0, 7, 14})]["val"].unique()))
 
         total_secs = df["delay"].sum() + 1
         sp = 0

@@ -118,6 +118,7 @@ def generate_sequence(args, logger, dataset, predictor, p):
         df,
         args.wav,
         reg_widths,
+        cents=args.cents,
         reg_start=reg_start,
         asid=args.asid,
         sysex_delay=args.sysex_delay,

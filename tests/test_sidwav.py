@@ -20,7 +20,7 @@ class TestSidwav(unittest.TestCase):
                 columns=["op", "diff", "reg", "val"],
             )
             test_df["delay"] = test_df["diff"] * sidq()
-            write_samples(test_df, test_wav_name, reg_widths={})
+            write_samples(test_df, test_wav_name, cents=10, reg_widths={})
             rate, data = scipy.io.wavfile.read(test_wav_name)
             self.assertEqual(rate, 48000)
             data = np.round(data, 2)
