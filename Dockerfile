@@ -1,4 +1,4 @@
-ARG BASE="pytorch/pytorch:2.10.0-cuda13.0-cudnn9-runtime"
+ARG BASE="pytorch/pytorch:2.11.0-cuda13.0-cudnn9-runtime"
 FROM ${BASE}
 ARG REQ="requirements.txt"
 ARG PIP_OPTS=""
