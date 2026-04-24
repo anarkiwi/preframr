@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
 RUN apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip && pip install --break-system-package $PIP_OPTS tensorboard
