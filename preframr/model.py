@@ -175,6 +175,70 @@ MODEL_GETTERS = {
 }
 
 
+def _build_vocab_frame_weight(args, n_vocab, tokens, tkmodel):
+    """Per-vocab-id audio-frame weight used to scale per-token CE loss.
+
+    Macro tokens that expand to multiple frames get proportionally higher
+    weight, so a misprediction on a BACK_REF/DO_LOOP/DELAY costs more than
+    a misprediction on a single within-frame write. Each base token in a
+    Unigram subword contributes:
+
+      * BACK_REF      -> length frames (from packed val payload)
+      * DO_LOOP BEGIN -> iteration count N (rough proxy for N x body)
+      * DELAY_REG     -> N empty frames (from val)
+      * FRAME_REG     -> 1 frame
+      * everything else (within-frame writes, DO_LOOP END) -> 0
+
+    Subword weights are summed across constituents and floored to 1.0 so
+    every token contributes at least the default weighting.
+    """
+    weights = torch.ones(n_vocab, dtype=torch.float32)
+    if tokens is None or len(tokens) == 0:
+        return weights
+    # Lazy import to avoid a circular reglogparser <- macros <- ... cycle.
+    from preframr.macros import _unpack_back_ref
+    from preframr.regtokenizer import RegTokenizer
+    from preframr.stfconstants import (
+        BACK_REF_OP,
+        DELAY_REG,
+        DO_LOOP_OP,
+        FRAME_REG,
+    )
+
+    rt = RegTokenizer(args, tokens=tokens)
+    rt.load(tkmodel, tokens)
+    n_base = len(tokens)
+    for vid in range(n_vocab):
+        if rt.tkmodel:
+            base_ids = rt.decode([vid])
+        else:
+            base_ids = [vid]
+        w = 0.0
+        for bid in base_ids:
+            bid = int(bid)
+            if bid >= n_base:
+                continue
+            row = tokens.iloc[bid]
+            reg = int(row.reg)
+            op = int(row.op)
+            val = int(row.val)
+            subreg = int(row.subreg)
+            if op == BACK_REF_OP:
+                _, length = _unpack_back_ref(val)
+                w += length
+            elif op == DO_LOOP_OP and subreg == 0:
+                w += val
+            elif reg == DELAY_REG:
+                w += val
+            elif reg == FRAME_REG:
+                w += 1.0
+            # within-frame writes (SET/DIFF/REPEAT/FLIP/PWM/...) and
+            # DO_LOOP END contribute 0 -- the floor below covers them.
+        if w > 0.0:
+            weights[vid] = w
+    return weights
+
+
 class Model(LightningModule):
     def __init__(self, args, n_vocab, tokens, tkmodel, metadata):
         super().__init__()
@@ -194,26 +258,43 @@ class Model(LightningModule):
             foreach=True,
             weight_decay=self.args.weight_decay,
         )
+        # Audio-frame weight per vocab id; used to scale per-token CE so
+        # macro tokens expanding to many frames (BACK_REF, DO_LOOP, DELAY)
+        # cost more when mispredicted than single-frame writes.
+        self.register_buffer(
+            "vocab_frame_weight",
+            _build_vocab_frame_weight(args, n_vocab, tokens, tkmodel),
+            persistent=False,
+        )
 
     def training_step(self, batch, batch_idx):
         x, y = batch
         preds = self.model(x)
         swapped_preds = preds.swapaxes(1, 2)
-        # acc = torchmetrics.functional.classification.accuracy(
-        #    swapped_preds, y, task="multiclass", num_classes=swapped_preds.shape[1]
-        # )
-        loss = torch.nn.functional.cross_entropy(
+        # Per-token CE so we can post-weight by audio-frame impact and
+        # optionally apply focal scaling.
+        per_tok = torch.nn.functional.cross_entropy(
             input=swapped_preds,
             target=y,
-            # reduction="none",
+            reduction="none",
             label_smoothing=self.args.label_smoothing,
         )
+        # Focal loss: alpha * (1 - p)^gamma * CE, where p is the predicted
+        # probability of the true class (= exp(-CE) when label_smoothing=0).
+        # focal_gamma=0 (default) is a no-op.
+        if self.args.focal_gamma:
+            with torch.no_grad():
+                p = (-per_tok).exp().clamp(max=1.0)
+                focal = self.args.focal_alpha * (1.0 - p).pow(self.args.focal_gamma)
+            per_tok = per_tok * focal
+        # Audio-frame weighting: penalize wrong predictions on multi-frame
+        # macro tokens (BACK_REF, DO_LOOP_BEGIN, DELAY_REG) proportionally
+        # to the audio they would have produced.
+        weights = self.vocab_frame_weight[y]
+        loss = (per_tok * weights).sum() / weights.sum().clamp(min=1.0)
         if self.l1_lambda:
-            l1_norm = sum(p.abs().sum() for p in self.model.tok_embeddings.weight)
-            loss += self.l1_lambda * l1_norm
-
-        # self.log("train_loss", loss, on_epoch=True, on_step=True)
-        # self.log("train_acc", acc, on_epoch=True, on_step=True)
+            l1_norm = self.model.tok_embeddings.weight.abs().sum()
+            loss = loss + self.l1_lambda * l1_norm
         return loss
 
     def on_before_backward(self, loss):
