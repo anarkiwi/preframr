@@ -691,7 +691,7 @@ class RegLogParser:
                     writes,
                     dtype=MODEL_PDTYPE,
                     columns=["reg", "val", "diff", "description"],
-                ).sort_values("reg")
+                ).sort_values("reg", kind="stable")
             )
 
         for _f, f_df in df.groupby("f"):

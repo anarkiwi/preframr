@@ -400,22 +400,46 @@ def _ensure_subreg(df):
 
 def _splice_rows(df, drop_idx, new_rows):
     """Drop rows by index and splice ``new_rows`` (each carrying ``__pos``)
-    into their original positions, preserving the rest of the row order."""
+    into their original positions, preserving the rest of the row order.
+
+    Critically: preserve the original column dtypes. ``pd.concat`` with a
+    plain-int-built ``new_df`` would promote ``UInt16`` etc. to ``Int64``,
+    which changes downstream behavior (e.g. ``Series.diff()`` on a
+    nullable-int column treats the leading row's NaN differently from on a
+    regular Int64 column, perturbing ``_norm_df``'s frame-boundary v-reset).
+    """
     if not new_rows:
         return df
     df = _ensure_subreg(df)
+    irq_value = (
+        int(df["irq"].iloc[0])
+        if "irq" in df.columns and len(df) and df["irq"].notna().any()
+        else -1
+    )
+    orig_dtypes = df.dtypes.to_dict()
     df = df.drop(index=drop_idx)
     df["__pos"] = df.index.astype("int64")
     new_df = pd.DataFrame(new_rows)
     for col in df.columns:
         if col not in new_df.columns:
-            # description defaults to 0 (matches normal token semantics); other
-            # missing columns default to -1 (matches subreg sentinel).
-            new_df[col] = 0 if col == "description" else -1
+            if col == "description":
+                new_df[col] = 0
+            elif col == "irq":
+                new_df[col] = irq_value
+            else:
+                new_df[col] = -1
     new_df = new_df[df.columns]
     combined = pd.concat([df, new_df], ignore_index=True)
-    combined = combined.sort_values("__pos").reset_index(drop=True)
+    combined = combined.sort_values("__pos", kind="stable").reset_index(drop=True)
     combined = combined.drop(columns=["__pos"])
+    # Restore original dtypes for columns that had them.
+    for col, dt in orig_dtypes.items():
+        if col == "__pos":
+            continue
+        try:
+            combined[col] = combined[col].astype(dt)
+        except (TypeError, ValueError):
+            pass
     return combined
 
 
@@ -881,22 +905,12 @@ class EndTerminatorPass(MacroPass):
 PASSES = [
     EndTerminatorPass(),
     FilterModeVolPass(),
+    PwmPass(),
     FilterSweepPass(),
+    Flip2Pass(),
+    TransposePass(),
+    IntervalPass(),
     GateTogglePass(),
-    # NOTE: PwmPass, TransposePass, Flip2Pass, IntervalPass round-trip cleanly
-    # in isolated unit tests but break end-to-end on real fixtures: when their
-    # macro op rows participate in _norm_pr_order's per-frame voice-block
-    # sort and _add_voice_reg's voice-ordering computation, FRAME_REG val and
-    # VOICE_REG positions can shift, corrupting the decoded stream.
-    #
-    # All four DECODERS are verified correct (see test_macros.py round-trip
-    # tests). The encoder-side fix needs either (a) running these passes
-    # after _add_voice_reg (so they see the final voice-slot layout), or
-    # (b) emitting rows with a (v, reg, op) sort key that lands them in the
-    # right slot post-_norm_pr_order.
-    #
-    # Tracked as a follow-up; classes remain importable so the fix can be
-    # iterated independently with their existing unit tests.
 ]
 
 
