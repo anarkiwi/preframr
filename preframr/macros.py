@@ -59,9 +59,14 @@ def _unpack_back_ref(val):
     return val >> 8, val & _BACK_REF_LEN_MASK
 
 
-# Registers whose byte value carries two semantically-independent nibbles
-# that SubregPass splits into separate (subreg=0/1) tokens.
-SUBREG_REGS = (4, 5, 6, FILTER_REG, MODE_VOL_REG)
+# Per-voice register *bases* (relative to voice slot) whose byte value
+# carries two semantically-independent nibbles. SubregPass runs before
+# _add_voice_reg, so we expand to the absolute per-voice instances
+# (4, 5, 6 for voice 0; 11, 12, 13 for voice 1; 18, 19, 20 for voice 2).
+_PER_VOICE_SUBREG_BASES = (4, 5, 6)
+SUBREG_REGS = tuple(
+    base + v * VOICE_REG_SIZE for v in range(VOICES) for base in _PER_VOICE_SUBREG_BASES
+) + (FILTER_REG, MODE_VOL_REG)
 
 PWM_REGS_BY_VOICE = tuple(2 + v * VOICE_REG_SIZE for v in range(VOICES))
 FREQ_REGS_BY_VOICE = tuple(0 + v * VOICE_REG_SIZE for v in range(VOICES))
