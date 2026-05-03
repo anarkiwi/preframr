@@ -17,11 +17,19 @@ INTERVAL_OP = 8
 END_REPEAT_OP = 9
 END_FLIP_OP = 10
 FILTER_SWEEP_OP = 11
+BACK_REF_OP = 15
+DO_LOOP_OP = 16
 # GATE_TOGGLE_OP (=6), FILTER_ROUTE_OP (=12), MASTER_VOL_OP (=13),
 # FILTER_MODE_OP (=14) were retired when SubregPass took over the byte
 # splitting they hand-rolled. Their op codes are deliberately not reused
 # so any rare third-party stream that contains them fails loudly.
-# 15 reserved for BACK_REF_OP, 16 for DO_LOOP_OP, 17 for PATTERN_REF_OP
+# 17 reserved for PATTERN_REF_OP
+
+# Sentinel reg used by BACK_REF and DO_LOOP rows. Distinct from FRAME_REG
+# (-128), DELAY_REG (-127), VOICE_REG (-126), and outside any valid SID
+# register range, so loop ops fail loudly if they ever reach _expand_ops
+# without being materialized by expand_loops first.
+LOOP_OP_REG = -125
 
 DIFF_PDTYPE = pd.UInt16Dtype()
 IMPLIED_FRAME_REG = False

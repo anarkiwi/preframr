@@ -16,6 +16,7 @@ import torch
 import torchmetrics
 
 from preframr.args import add_args, MODEL_PRECISION
+from preframr.macros import validate_back_refs
 from preframr.model import get_device, Model
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
@@ -82,6 +83,17 @@ def generate_sequence(args, logger, dataset, predictor, p):
     )
     states.extend(predict_states.tolist())
     df = loader._state_df(dataset.tokenizer.decode(states), dataset, irq)
+    # Case-B safety net: scan the full prompt+generated row stream for any
+    # BACK_REF that escapes its bounds. The LM should be predicting only
+    # in-bounds back-refs, but this catches the bug rather than letting it
+    # corrupt the audio render. (A proper sampling-time logit guard belongs
+    # in predictor.predict; tracked as a follow-up.)
+    try:
+        validate_back_refs(df, prompt_frame_count=0)
+    except AssertionError as e:
+        logger.error("generated stream contains an escapee BACK_REF: %s", e)
+        if args.min_acc:
+            sys.exit(-1)
     predicted_compare = prompt_compare[args.prompt_seq_len :]
     f_acc = pd.NA
     acc = pd.NA

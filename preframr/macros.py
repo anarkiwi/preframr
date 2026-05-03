@@ -15,8 +15,10 @@ from collections import defaultdict
 import pandas as pd
 
 from preframr.stfconstants import (
+    BACK_REF_OP,
     DELAY_REG,
     DIFF_OP,
+    DO_LOOP_OP,
     END_FLIP_OP,
     END_REPEAT_OP,
     FC_LO_REG,
@@ -26,6 +28,7 @@ from preframr.stfconstants import (
     FLIP_OP,
     FRAME_REG,
     INTERVAL_OP,
+    LOOP_OP_REG,
     MIN_DIFF,
     MODE_VOL_REG,
     PWM_OP,
@@ -35,6 +38,25 @@ from preframr.stfconstants import (
     VOICES,
     VOICE_REG_SIZE,
 )
+
+# Frame markers (in encoder coordinates each row is one logical frame slot).
+_FRAME_MARKER_REGS = {FRAME_REG, DELAY_REG}
+
+# BACK_REF payload packing: (distance << 8) | length.
+# Distance up to 2**24 = 16M frames (vastly more than any song); length 1..255.
+_BACK_REF_LEN_MASK = 0xFF
+
+
+def _pack_back_ref(distance, length):
+    assert 1 <= length <= 255, length
+    assert distance >= 1, distance
+    return (int(distance) << 8) | int(length)
+
+
+def _unpack_back_ref(val):
+    val = int(val)
+    return val >> 8, val & _BACK_REF_LEN_MASK
+
 
 # Registers whose byte value carries two semantically-independent nibbles
 # that SubregPass splits into separate (subreg=0/1) tokens.
@@ -804,6 +826,408 @@ class EndTerminatorPass(MacroPass):
         return _splice_rows(df, [], new_rows)
 
 
+# ---------------------------------------------------------------------------
+# Loop-back encoding (LZ77 + structured DO/LOOP, frame-aligned)
+# ---------------------------------------------------------------------------
+def _slice_into_frames(df):
+    """Return a list of (start_row_idx, end_row_idx) per frame. Frame
+    boundaries are FRAME_REG / DELAY_REG rows -- those rows belong to the
+    frame they start. The final frame extends to the end of df."""
+    starts = df.index[df["reg"].isin(_FRAME_MARKER_REGS)].tolist()
+    if not starts:
+        return []
+    ends = starts[1:] + [len(df)]
+    return list(zip(starts, ends))
+
+
+def _frame_content(df, start, end):
+    """Hashable, comparable content tuple for a frame -- ignores diff and irq
+    columns so that sequential identical-content frames at different stream
+    times still match."""
+    cols = ["reg", "val", "op", "subreg"]
+    return tuple(tuple(int(v) for v in df.iloc[r][cols]) for r in range(start, end))
+
+
+class LoopPass(MacroPass):
+    """Hybrid encoder for repeated frame sequences.
+
+    For each frame position, evaluates two candidate compressions and picks
+    the cheaper one (or a literal if neither pays back):
+
+      * **DO_LOOP**: longest run of M consecutive identical frame-groups
+        starting here. Save = ``(N - 1) * body_rows - 2`` (BEGIN + END
+        wrappers cost 2 tokens; body emitted once).
+
+      * **BACK_REF**: longest match against any earlier position in the
+        encoded stream. Save = ``body_rows - 1`` (replaces body_rows with
+        one back-ref token).
+
+    Greedy with one-frame lazy lookahead -- if i+1 has a meaningfully better
+    match, emit a literal at i and let i+1 take its match. Per-rotation
+    seed table; not retained across rotations.
+    """
+
+    min_lz_match = 2
+    min_do_repeat = 2
+    max_lz_length = 64
+    max_do_body = 32
+    max_do_repeat = 255
+    ref_cost = 1  # one BACK_REF token
+    do_wrap_cost = 2  # BEGIN + END
+
+    def apply(self, df, args=None):
+        df = df.reset_index(drop=True).copy()
+        df = _ensure_subreg(df)
+        frames = _slice_into_frames(df)
+        n_frames = len(frames)
+        if n_frames < self.min_lz_match:
+            return df
+        contents = [_frame_content(df, s, e) for s, e in frames]
+        sizes = [e - s for s, e in frames]
+
+        # LZ77 seed table: (content_i, content_{i+1}) -> [start frame indices]
+        seed = defaultdict(list)
+        out_rows = []
+        sample_row = df.iloc[0]  # used to seed dtypes when constructing macro rows
+        diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
+        irq_default = int(df["irq"].iloc[0]) if "irq" in df.columns else -1
+
+        def best_do(i):
+            best_save = 0
+            best_body = 0
+            best_n = 0
+            for body_len in range(1, min(self.max_do_body, (n_frames - i) // 2) + 1):
+                n = 1
+                j = i + body_len
+                while (
+                    j + body_len <= n_frames
+                    and n < self.max_do_repeat
+                    and contents[i : i + body_len] == contents[j : j + body_len]
+                ):
+                    n += 1
+                    j += body_len
+                if n < self.min_do_repeat:
+                    continue
+                body_rows = sum(sizes[i + k] for k in range(body_len))
+                save = (n - 1) * body_rows - self.do_wrap_cost
+                if save > best_save:
+                    best_save, best_body, best_n = save, body_len, n
+            return best_save, best_body, best_n
+
+        def best_lz(i):
+            best_save = 0
+            best_dist = 0
+            best_len = 0
+            if i + 1 >= n_frames:
+                return 0, 0, 0
+            cands = seed.get((contents[i], contents[i + 1]))
+            if not cands:
+                return 0, 0, 0
+            for cand in reversed(cands):
+                if cand >= i:
+                    continue
+                length = 0
+                while (
+                    length < self.max_lz_length
+                    and i + length < n_frames
+                    and cand + length < i
+                    and contents[cand + length] == contents[i + length]
+                ):
+                    length += 1
+                if length < self.min_lz_match:
+                    continue
+                body_rows = sum(sizes[i + k] for k in range(length))
+                save = body_rows - self.ref_cost
+                if save > best_save:
+                    best_save, best_dist, best_len = save, i - cand, length
+            return best_save, best_dist, best_len
+
+        def emit_literal(i):
+            s, e = frames[i]
+            for r in range(s, e):
+                out_rows.append(df.iloc[r].to_dict())
+            if i + 1 < n_frames:
+                seed[(contents[i], contents[i + 1])].append(i)
+
+        def emit_back_ref(i, dist, length):
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(_pack_back_ref(dist, length)),
+                    "diff": diff_default,
+                    "op": int(BACK_REF_OP),
+                    "subreg": -1,
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            for k in range(length):
+                if i + k + 1 < n_frames:
+                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
+
+        def emit_do_loop(i, body, n):
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(n),
+                    "diff": diff_default,
+                    "op": int(DO_LOOP_OP),
+                    "subreg": 0,
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            for k in range(body):
+                s, e = frames[i + k]
+                for r in range(s, e):
+                    out_rows.append(df.iloc[r].to_dict())
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": 0,
+                    "diff": diff_default,
+                    "op": int(DO_LOOP_OP),
+                    "subreg": 1,
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            covered = body * n
+            for k in range(covered):
+                if i + k + 1 < n_frames:
+                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
+
+        i = 0
+        while i < n_frames:
+            do_save, do_body, do_n = best_do(i)
+            lz_save, lz_dist, lz_len = best_lz(i)
+            best_now = max(do_save, lz_save)
+            # One-frame lazy lookahead: if deferring buys >2 more tokens,
+            # emit a literal at i now.
+            if best_now > 0 and i + 1 < n_frames:
+                la_do, _, _ = best_do(i + 1)
+                la_lz, _, _ = best_lz(i + 1)
+                if max(la_do, la_lz) > best_now + 2:
+                    emit_literal(i)
+                    i += 1
+                    continue
+            if do_save > 0 and do_save >= lz_save:
+                emit_do_loop(i, do_body, do_n)
+                i += do_body * do_n
+            elif lz_save > 0:
+                emit_back_ref(i, lz_dist, lz_len)
+                i += lz_len
+            else:
+                emit_literal(i)
+                i += 1
+
+        if not out_rows:
+            return df
+        # Build new df preserving original column dtypes.
+        orig_dtypes = df.dtypes.to_dict()
+        new_df = pd.DataFrame(out_rows)
+        for col in df.columns:
+            if col not in new_df.columns:
+                new_df[col] = 0 if col == "description" else -1
+        new_df = new_df[list(df.columns)]
+        for col, dt in orig_dtypes.items():
+            try:
+                new_df[col] = new_df[col].astype(dt)
+            except (TypeError, ValueError):
+                pass
+        return new_df.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Loop-back expansion (decode-side pre-pass for _expand_ops)
+# ---------------------------------------------------------------------------
+def _is_frame_marker_row(row):
+    return row[0] in _FRAME_MARKER_REGS  # row is a tuple-like with reg first
+
+
+def expand_loops(df):
+    """Materialize BACK_REF and DO_LOOP rows into literal frame copies.
+
+    Run as a pre-pass to ``RegLogParser._expand_ops`` so per-row decoders
+    never see loop ops. Maintains a stack of pending DO_LOOP iterations and
+    a list of output frame start positions for back-ref slicing. Distances
+    and lengths are interpreted in *logical frame slots* -- each FRAME_REG
+    or DELAY_REG row in the OUTPUT counts as one slot.
+    """
+    if "op" not in df.columns:
+        return df
+    has_loops = df["op"].isin([BACK_REF_OP, DO_LOOP_OP]).any()
+    if not has_loops:
+        return df
+
+    cols = list(df.columns)
+    out = []
+    output_frame_starts = []  # row idx in `out` where each output frame begins
+    do_stack = []  # list of [body_start_row_in_input, remaining_iterations]
+
+    def append_row(row_dict):
+        out.append(row_dict)
+        if row_dict["reg"] in _FRAME_MARKER_REGS:
+            output_frame_starts.append(len(out) - 1)
+
+    n = len(df)
+    i = 0
+    while i < n:
+        row = df.iloc[i]
+        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
+        if op == BACK_REF_OP:
+            distance, length = _unpack_back_ref(row["val"])
+            cur_frame = len(output_frame_starts)
+            target = cur_frame - distance
+            assert target >= 0, (
+                f"BACK_REF target frame {target} reaches before output start "
+                f"(cur_frame={cur_frame}, distance={distance})"
+            )
+            assert target + length <= cur_frame, (
+                f"BACK_REF target range [{target},{target+length}) overlaps "
+                f"present frame {cur_frame}"
+            )
+            # Copy the L source frames out of the existing output buffer.
+            for f in range(target, target + length):
+                src_lo = output_frame_starts[f]
+                src_hi = (
+                    output_frame_starts[f + 1]
+                    if f + 1 < len(output_frame_starts)
+                    else len(out)
+                )
+                # snapshot to avoid mutation while iterating
+                snapshot = list(out[src_lo:src_hi])
+                for snap_row in snapshot:
+                    append_row(dict(snap_row))
+            i += 1
+            continue
+        if op == DO_LOOP_OP:
+            subreg = int(row["subreg"]) if not pd.isna(row["subreg"]) else -1
+            if subreg == 0:
+                n_iter = int(row["val"])
+                assert n_iter >= 1, n_iter
+                # Push: record where the body starts (i+1) and remaining iters
+                do_stack.append([i + 1, n_iter - 1])
+                i += 1
+                continue
+            # subreg == 1: END marker
+            if do_stack and do_stack[-1][1] > 0:
+                body_start, remaining = do_stack[-1]
+                do_stack[-1][1] = remaining - 1
+                i = body_start
+            else:
+                if do_stack:
+                    do_stack.pop()
+                i += 1
+            continue
+        # Literal row.
+        append_row({c: row[c] for c in cols})
+        i += 1
+
+    if not out:
+        return df.iloc[0:0]
+    expanded = pd.DataFrame(out, columns=cols)
+    # Restore dtypes.
+    for col, dt in df.dtypes.items():
+        try:
+            expanded[col] = expanded[col].astype(dt)
+        except (TypeError, ValueError):
+            pass
+    return expanded.reset_index(drop=True)
+
+
+def materialize_back_refs_outside(df, slice_lo_frame, slice_hi_frame):
+    """For Case A: rewrite ``df`` so that any BACK_REF whose target falls
+    outside ``[slice_lo_frame, slice_hi_frame)`` (in logical output frames)
+    is replaced with the literal frames it would have copied. The result
+    is still a valid encoded stream, but every surviving BACK_REF in the
+    slice ``[slice_lo_frame, slice_hi_frame)`` resolves within the slice.
+
+    Use this when extracting a prompt window from a longer parsed stream
+    so the prompt is self-contained.
+    """
+    if "op" not in df.columns or not df["op"].isin([BACK_REF_OP]).any():
+        return df
+
+    # First, fully expand to obtain the literal frame-row layout.
+    literal = expand_loops(df.copy())
+    literal_frame_starts = literal.index[
+        literal["reg"].isin(_FRAME_MARKER_REGS)
+    ].tolist()
+    literal_frame_starts.append(len(literal))
+
+    cols = list(df.columns)
+    out = []
+    output_frame_count = 0
+    n = len(df)
+    i = 0
+    while i < n:
+        row = df.iloc[i]
+        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
+        if op == BACK_REF_OP:
+            distance, length = _unpack_back_ref(row["val"])
+            target = output_frame_count - distance
+            if target < slice_lo_frame:
+                # Materialize: copy literal rows for frames [target, target+length).
+                for f in range(target, target + length):
+                    s = literal_frame_starts[f]
+                    e = literal_frame_starts[f + 1]
+                    for r in range(s, e):
+                        out.append({c: literal.iloc[r][c] for c in cols})
+                output_frame_count += length
+                i += 1
+                continue
+            # Keep the back-ref as-is.
+            out.append({c: row[c] for c in cols})
+            output_frame_count += length
+            i += 1
+            continue
+        out.append({c: row[c] for c in cols})
+        if row["reg"] in _FRAME_MARKER_REGS:
+            output_frame_count += 1
+        i += 1
+
+    rebuilt = pd.DataFrame(out, columns=cols)
+    for col, dt in df.dtypes.items():
+        try:
+            rebuilt[col] = rebuilt[col].astype(dt)
+        except (TypeError, ValueError):
+            pass
+    return rebuilt.reset_index(drop=True)
+
+
+def validate_back_refs(df, prompt_frame_count=0):
+    """Walk ``df`` and verify every BACK_REF resolves within bounds.
+
+    ``prompt_frame_count`` is the number of frames already in the output
+    buffer at df's start (e.g. for an LM-generated continuation appended
+    after a prompt). Returns True if all back-refs are valid; raises
+    AssertionError with the offending row index otherwise.
+    """
+    if "op" not in df.columns:
+        return True
+    output_frame_count = prompt_frame_count
+    for idx, row in df.iterrows():
+        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
+        if op == BACK_REF_OP:
+            distance, length = _unpack_back_ref(row["val"])
+            target = output_frame_count - distance
+            assert target >= 0, (
+                f"row {idx}: BACK_REF distance={distance} reaches before "
+                f"frame 0 (output_frame_count={output_frame_count})"
+            )
+            output_frame_count += length
+            continue
+        if op == DO_LOOP_OP:
+            # DO_LOOP body is self-contained; skip frame-counting until END.
+            # validate_back_refs is conservative -- we only sanity-check
+            # back-refs at the top level here.
+            continue
+        if row["reg"] in _FRAME_MARKER_REGS:
+            output_frame_count += 1
+    return True
+
+
 PASSES = [
     EndTerminatorPass(),
     PwmPass(),
@@ -811,15 +1235,30 @@ PASSES = [
     Flip2Pass(),
     TransposePass(),
     IntervalPass(),
-    # SubregPass last: it splits byte-level SETs that survived the other
-    # passes into nibble-level rows. Running it after PWM/FILTER_SWEEP/
-    # TRANSPOSE/etc. avoids needing those to be subreg-aware.
     SubregPass(),
 ]
 
 
+# LoopPass runs in a separate later stage -- AFTER _norm_pr_order and
+# _add_voice_reg have produced the final encoded form the LM sees. Frame
+# matching in any earlier form would false-match: two frames that differ
+# post-norm (different voice ordering, different VOICE_REG layout) can have
+# identical row content pre-norm.
+POST_NORM_PASSES = [
+    LoopPass(),
+]
+
+
 def run_passes(df, args=None):
-    """Apply every registered ``MacroPass`` in order."""
+    """Apply every PRE-norm-order ``MacroPass`` in order."""
     for macro_pass in PASSES:
+        df = macro_pass.apply(df, args=args)
+    return df
+
+
+def run_post_norm_passes(df, args=None):
+    """Apply post-norm-order passes (currently just LoopPass) on the final
+    encoded form (post _add_voice_reg)."""
+    for macro_pass in POST_NORM_PASSES:
         df = macro_pass.apply(df, args=args)
     return df

@@ -18,13 +18,20 @@ from preframr.macros import (
     FilterSweepPass,
     Flip2Pass,
     IntervalPass,
+    LoopPass,
     PwmPass,
     SubregPass,
     TransposePass,
+    _pack_back_ref,
+    expand_loops,
+    materialize_back_refs_outside,
+    validate_back_refs,
 )
 from preframr.reglogparser import RegLogParser
 from preframr.stfconstants import (
+    BACK_REF_OP,
     DIFF_OP,
+    DO_LOOP_OP,
     END_FLIP_OP,
     END_REPEAT_OP,
     FC_LO_REG,
@@ -34,6 +41,7 @@ from preframr.stfconstants import (
     FLIP_OP,
     FRAME_REG,
     INTERVAL_OP,
+    LOOP_OP_REG,
     MODE_VOL_REG,
     MODEL_PDTYPE,
     PWM_OP,
@@ -471,6 +479,252 @@ class TestDecodeState(unittest.TestCase):
         writes = state.tick_frame()
         regs = sorted(w[0] for w in writes)
         self.assertEqual(regs, [2, 9])
+
+
+# ---------------------------------------------------------------------------
+# LOOP_BACK: encoder, expander, materializer, validator
+# ---------------------------------------------------------------------------
+def _back_ref_row(distance, length, diff=32):
+    return {
+        "reg": LOOP_OP_REG,
+        "subreg": -1,
+        "val": _pack_back_ref(distance, length),
+        "diff": diff,
+        "op": BACK_REF_OP,
+        "description": 0,
+    }
+
+
+def _do_loop_begin_row(n, diff=32):
+    return {
+        "reg": LOOP_OP_REG,
+        "subreg": 0,
+        "val": n,
+        "diff": diff,
+        "op": DO_LOOP_OP,
+        "description": 0,
+    }
+
+
+def _do_loop_end_row(diff=32):
+    return {
+        "reg": LOOP_OP_REG,
+        "subreg": 1,
+        "val": 0,
+        "diff": diff,
+        "op": DO_LOOP_OP,
+        "description": 0,
+    }
+
+
+class TestExpandLoops(unittest.TestCase):
+    def test_no_loops_passthrough(self):
+        df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)])
+        out = expand_loops(df)
+        # No loop ops -> df returned essentially unchanged
+        self.assertEqual(len(out), len(df))
+
+    def test_back_ref_copies_frames(self):
+        # Two literal frames, then BACK_REF(distance=2, length=2) copies them.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 0
+                _frame(),
+                _row(5, 10, op=SET_OP),  # frame 1
+                _back_ref_row(distance=2, length=2),  # copies frames 0,1
+            ]
+        )
+        out = expand_loops(df)
+        # Expected: original 4 rows + 4 copied rows
+        self.assertEqual(len(out), 8)
+        # frames now: 0, 1, 0', 1' -- checking last two frames have correct content
+        self.assertEqual(int(out.iloc[5]["val"]), 8)
+        self.assertEqual(int(out.iloc[7]["val"]), 10)
+
+    def test_do_loop_unrolls(self):
+        df = pd.DataFrame(
+            [
+                _do_loop_begin_row(3),
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _do_loop_end_row(),
+            ]
+        )
+        out = expand_loops(df)
+        # 1 frame body x 3 iterations = 3 frames, 6 rows
+        self.assertEqual(len(out), 6)
+
+    def test_do_loop_nested(self):
+        # DO 2 [DO 3 [F R(4,8)] LOOP] LOOP -> 6 iterations
+        df = pd.DataFrame(
+            [
+                _do_loop_begin_row(2),
+                _do_loop_begin_row(3),
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _do_loop_end_row(),
+                _do_loop_end_row(),
+            ]
+        )
+        out = expand_loops(df)
+        self.assertEqual(len(out), 12)
+
+    def test_back_ref_overlaps_present_raises(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _back_ref_row(distance=2, length=4),  # overlaps current
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            expand_loops(df)
+
+
+class TestLoopPass(unittest.TestCase):
+    def test_lz77_non_adjacent_match(self):
+        # Two frames AB, then a divider, then AB again -- LZ77 territory
+        # because the repeat is not consecutive (so DO_LOOP can't match it).
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 0 (A)
+                _frame(),
+                _row(5, 10, op=SET_OP),  # frame 1 (B)
+                _frame(),
+                _row(6, 100, op=SET_OP),  # frame 2 (X, divider)
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 3 (A)
+                _frame(),
+                _row(5, 10, op=SET_OP),  # frame 4 (B)
+            ]
+        )
+        result = LoopPass().apply(df)
+        backrefs = result[result["op"] == BACK_REF_OP]
+        self.assertEqual(len(backrefs), 1)
+
+    def test_do_loop_preferred_for_long_consecutive_runs(self):
+        # 4 consecutive identical frames -- DO_LOOP saves more than LZ77
+        df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)] * 4)
+        result = LoopPass().apply(df)
+        do_begins = result[(result["op"] == DO_LOOP_OP) & (result["subreg"] == 0)]
+        self.assertEqual(len(do_begins), 1)
+        self.assertEqual(int(do_begins.iloc[0]["val"]), 4)
+
+    def test_no_compression_for_unique_frames(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _frame(),
+                _row(6, 100, op=SET_OP),
+            ]
+        )
+        result = LoopPass().apply(df)
+        self.assertEqual(int((result["op"] == BACK_REF_OP).sum()), 0)
+        self.assertEqual(int((result["op"] == DO_LOOP_OP).sum()), 0)
+
+    def test_round_trip_lz77(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+            ]
+        )
+        encoded = LoopPass().apply(df.copy())
+        # Round trip via expand_loops: should recover the original
+        decoded = expand_loops(encoded)
+        cols = ["reg", "val", "op", "subreg"]
+        # Compare row content (ignoring index and ancillary columns)
+        self.assertEqual(len(df), len(decoded))
+        for i in range(len(df)):
+            self.assertEqual(
+                tuple(int(df.iloc[i][c]) for c in cols),
+                tuple(int(decoded.iloc[i][c]) for c in cols),
+            )
+
+
+class TestMaterializeBackRefsOutside(unittest.TestCase):
+    def test_keeps_self_contained_back_refs(self):
+        # Build a stream where BACK_REF target is INSIDE the slice -- should keep it.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _back_ref_row(
+                    distance=2, length=2
+                ),  # target frames 0, 1 (within slice [0,2))
+            ]
+        )
+        out = materialize_back_refs_outside(df, slice_lo_frame=0, slice_hi_frame=2)
+        # back-ref kept (target 0, 1 are >= slice_lo_frame=0)
+        self.assertEqual(int((out["op"] == BACK_REF_OP).sum()), 1)
+
+    def test_materializes_escapee_back_refs(self):
+        # back-ref target is BEFORE slice_lo -- materialize.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 0
+                _frame(),
+                _row(5, 10, op=SET_OP),  # frame 1
+                _back_ref_row(distance=2, length=2),  # target frames 0, 1
+            ]
+        )
+        # Pretend slice starts at frame 2 (i.e. only the back-ref row is in slice)
+        # The back-ref's targets (0, 1) are < slice_lo=2 -> escapee -> materialize.
+        out = materialize_back_refs_outside(df, slice_lo_frame=2, slice_hi_frame=4)
+        self.assertEqual(int((out["op"] == BACK_REF_OP).sum()), 0)
+        # Should have inlined frames 0 and 1's literal rows
+        # Original literal rows + 2 inlined frames (4 rows)
+        self.assertEqual(len(out), 4 + 4)
+
+
+class TestValidateBackRefs(unittest.TestCase):
+    def test_valid_passes(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _back_ref_row(distance=2, length=2),
+            ]
+        )
+        self.assertTrue(validate_back_refs(df, prompt_frame_count=0))
+
+    def test_escapee_in_zero_prompt_raises(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _back_ref_row(distance=5, length=1),  # reaches before output
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            validate_back_refs(df, prompt_frame_count=0)
+
+    def test_escapee_resolved_by_prompt(self):
+        # Same escapee, but with a non-zero prompt frame count it's fine.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _back_ref_row(distance=5, length=1),
+            ]
+        )
+        self.assertTrue(validate_back_refs(df, prompt_frame_count=10))
 
 
 if __name__ == "__main__":

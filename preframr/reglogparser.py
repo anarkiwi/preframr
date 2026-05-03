@@ -664,7 +664,9 @@ class RegLogParser:
         return df
 
     def _expand_ops(self, orig_df, strict):
-        df = orig_df.copy()
+        # Materialize any LOOP_BACK / DO_LOOP rows into literal frames before
+        # per-row dispatch. No-op if the stream contains neither.
+        df = macros.expand_loops(orig_df.copy())
         last_diff = {}
         for reg in df["reg"].unique():
             reg_df = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
@@ -905,6 +907,10 @@ class RegLogParser:
             for k in TOKEN_KEYS:
                 if k not in xdf.columns:
                     xdf[k] = int(-1)
+            # Post-norm passes (LoopPass) run on the final encoded form so
+            # frame matching is against the same view the LM will see.
+            xdf = macros.run_post_norm_passes(xdf, args=self.args)
+            xdf = xdf.reset_index(drop=True)
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
             yield xdf
