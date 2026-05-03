@@ -20,16 +20,12 @@ from preframr.stfconstants import (
     END_FLIP_OP,
     END_REPEAT_OP,
     FC_LO_REG,
-    FILTER_MODE_OP,
     FILTER_REG,
-    FILTER_ROUTE_OP,
     FILTER_SWEEP_OP,
     FLIP2_OP,
     FLIP_OP,
     FRAME_REG,
-    GATE_TOGGLE_OP,
     INTERVAL_OP,
-    MASTER_VOL_OP,
     MIN_DIFF,
     MODE_VOL_REG,
     PWM_OP,
@@ -39,6 +35,10 @@ from preframr.stfconstants import (
     VOICES,
     VOICE_REG_SIZE,
 )
+
+# Registers whose byte value carries two semantically-independent nibbles
+# that SubregPass splits into separate (subreg=0/1) tokens.
+SUBREG_REGS = (4, 5, 6, FILTER_REG, MODE_VOL_REG)
 
 PWM_REGS_BY_VOICE = tuple(2 + v * VOICE_REG_SIZE for v in range(VOICES))
 FREQ_REGS_BY_VOICE = tuple(0 + v * VOICE_REG_SIZE for v in range(VOICES))
@@ -133,15 +133,19 @@ class SetDecoder(MacroDecoder):
 
     def expand(self, row, state):
         if row.subreg == 0:
+            # Low-nibble-only update. Apply to state and emit one write with
+            # the consolidated byte (preserving the prior high nibble).
             assert row.val < 16
-            state.last_val[row.reg] = (state.last_val[row.reg] & 0x11110000) + row.val
-            return None
-        if row.subreg == 1:
+            state.last_val[row.reg] = (state.last_val[row.reg] & 0xF0) | int(row.val)
+        elif row.subreg == 1:
+            # High-nibble-only update.
             assert row.val < 16
-            state.last_val[row.reg] = (state.last_val[row.reg] & 0b00001111) + (
-                row.val << 4
+            state.last_val[row.reg] = (state.last_val[row.reg] & 0x0F) | (
+                int(row.val) << 4
             )
         else:
+            # Full-byte SET (used both for non-subreg-eligible regs and for
+            # the both-nibbles-changed case on eligible regs).
             state.last_val[row.reg] = row.val
         return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
 
@@ -257,18 +261,6 @@ class TransposeDecoder(MacroDecoder):
         return writes if writes else None
 
 
-class GateToggleDecoder(MacroDecoder):
-    """Flip the gate (LSB) of a voice's control register."""
-
-    op_code = GATE_TOGGLE_OP
-
-    def expand(self, row, state):
-        # row.reg = the control reg (4/11/18). val/subreg unused.
-        state.last_val[row.reg] ^= 1
-        state.last_diff[row.reg] = row.diff
-        return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
-
-
 class IntervalDecoder(MacroDecoder):
     """Bind one voice's freq DIFF to another's for N frames."""
 
@@ -310,42 +302,6 @@ class EndFlipDecoder(_EndOpDecoder):
     op_code = END_FLIP_OP
 
 
-class FilterRouteDecoder(MacroDecoder):
-    """Set the routing nibble (low bits) of FILTER_REG without touching res."""
-
-    op_code = FILTER_ROUTE_OP
-
-    def expand(self, row, state):
-        prev = state.last_val[FILTER_REG] & 0xF0
-        state.last_val[FILTER_REG] = prev | (int(row.val) & 0x0F)
-        state.last_diff[FILTER_REG] = row.diff
-        return [(FILTER_REG, state.last_val[FILTER_REG], row.diff, row.description)]
-
-
-class FilterModeDecoder(MacroDecoder):
-    """Set the filter mode nibble (high bits) of MODE_VOL_REG."""
-
-    op_code = FILTER_MODE_OP
-
-    def expand(self, row, state):
-        prev = state.last_val[MODE_VOL_REG] & 0x0F
-        state.last_val[MODE_VOL_REG] = ((int(row.val) & 0x0F) << 4) | prev
-        state.last_diff[MODE_VOL_REG] = row.diff
-        return [(MODE_VOL_REG, state.last_val[MODE_VOL_REG], row.diff, row.description)]
-
-
-class MasterVolDecoder(MacroDecoder):
-    """Set the master volume nibble (low bits) of MODE_VOL_REG."""
-
-    op_code = MASTER_VOL_OP
-
-    def expand(self, row, state):
-        prev = state.last_val[MODE_VOL_REG] & 0xF0
-        state.last_val[MODE_VOL_REG] = prev | (int(row.val) & 0x0F)
-        state.last_diff[MODE_VOL_REG] = row.diff
-        return [(MODE_VOL_REG, state.last_val[MODE_VOL_REG], row.diff, row.description)]
-
-
 DECODERS = {
     d.op_code: d
     for d in (
@@ -355,15 +311,11 @@ DECODERS = {
         FlipDecoder(),
         PwmDecoder(),
         TransposeDecoder(),
-        GateToggleDecoder(),
         Flip2Decoder(),
         IntervalDecoder(),
         EndRepeatDecoder(),
         EndFlipDecoder(),
         FilterSweepDecoder(),
-        FilterRouteDecoder(),
-        FilterModeDecoder(),
-        MasterVolDecoder(),
     )
 }
 
@@ -539,39 +491,6 @@ class TransposePass(MacroPass):
 
         df = df.drop(columns=["mf"])
         return _splice_rows(df, drop_idx, new_rows)
-
-
-class GateTogglePass(MacroPass):
-    """Replace ctrl-reg SETs that flip only the gate bit (LSB) with GATE_TOGGLE.
-
-    Tracks per-voice ctrl-reg state by reg index. A toggle-only SET is one
-    where ``new_val == prev_val ^ 1``.
-    """
-
-    target_regs = CTRL_REGS_BY_VOICE
-
-    def apply(self, df, args=None):
-        df = df.reset_index(drop=True).copy()
-        last_seen = {}
-        replace_idx = []
-        for row in df.itertuples():
-            if row.reg not in self.target_regs or row.op != SET_OP:
-                continue
-            prev = last_seen.get(row.reg)
-            if prev is not None and (prev ^ int(row.val)) == 1:
-                replace_idx.append((row.Index, row.reg, row.diff))
-            last_seen[row.reg] = int(row.val)
-
-        if not replace_idx:
-            return df
-        df = _ensure_subreg(df)
-        for idx, reg, diff in replace_idx:
-            df.at[idx, "op"] = int(GATE_TOGGLE_OP)
-            df.at[idx, "val"] = 0
-            df.at[idx, "subreg"] = -1
-            df.at[idx, "diff"] = int(diff)
-            df.at[idx, "reg"] = int(reg)
-        return df
 
 
 class Flip2Pass(MacroPass):
@@ -763,57 +682,74 @@ class FilterSweepPass(MacroPass):
         return _splice_rows(df, drop_idx, new_rows)
 
 
-class FilterModeVolPass(MacroPass):
-    """Split FILTER_REG and MODE_VOL_REG nibble-changes into typed ops.
+class SubregPass(MacroPass):
+    """Smart byte-to-nibble splitting for the subreg-eligible registers.
 
-    For FILTER_REG (23): low nibble = routing bits, high nibble = resonance.
-    Resonance changes stay as SETs (rare, narrow vocab); routing changes
-    become FILTER_ROUTE_OP.
+    For each SET on a reg in ``SUBREG_REGS``, compare to the last value seen
+    on that reg and rewrite into a more LM-friendly form:
 
-    For MODE_VOL_REG (24): low nibble = master volume, high nibble = filter
-    mode (LP/BP/HP). Each becomes its own op when only that nibble changes.
+      - low nibble only changed -> ``subreg=0`` row carrying the new lo
+      - high nibble only changed -> ``subreg=1`` row carrying the new hi
+      - both nibbles changed -> leave as full-byte ``subreg=-1`` (no split)
 
-    Does not use the existing _add_subreg byte-split machinery -- operates
-    purely on per-row values vs prior state.
+    This keeps the SID write stream byte-identical to baseline (each
+    encoded row produces exactly one SID write) while collapsing the
+    per-reg vocab from 256 byte values to ~16 lo + ~16 hi + a handful of
+    both-changed bytes. No sequence length growth; no intra-frame write
+    consolidation needed.
+
+    Subsumes the previous ``GateTogglePass`` (a "gate-only" SET is now a
+    ``subreg=0`` row on reg 4) and ``FilterModeVolPass`` (master-volume,
+    filter-route, filter-mode changes are nibble-only on regs 23/24).
     """
+
+    target_regs = SUBREG_REGS
 
     def apply(self, df, args=None):
         df = df.reset_index(drop=True).copy()
-        df = _ensure_subreg(df)
-        last_filter = None
-        last_modevol = None
-        for row in list(df.itertuples()):
-            if row.op != SET_OP:
+        last_val_per_reg = {}
+        drop_idx = []
+        new_rows = []
+        for row in df.itertuples():
+            if row.reg not in self.target_regs or row.op != SET_OP:
                 continue
-            if row.reg == FILTER_REG:
-                cur = int(row.val)
-                if last_filter is not None:
-                    prev_lo = last_filter & 0x0F
-                    cur_lo = cur & 0x0F
-                    prev_hi = last_filter & 0xF0
-                    cur_hi = cur & 0xF0
-                    if prev_hi == cur_hi and prev_lo != cur_lo:
-                        df.at[row.Index, "op"] = int(FILTER_ROUTE_OP)
-                        df.at[row.Index, "val"] = int(cur_lo)
-                        df.at[row.Index, "subreg"] = -1
-                last_filter = cur
-            elif row.reg == MODE_VOL_REG:
-                cur = int(row.val)
-                if last_modevol is not None:
-                    prev_lo = last_modevol & 0x0F
-                    cur_lo = cur & 0x0F
-                    prev_hi = (last_modevol >> 4) & 0x0F
-                    cur_hi = (cur >> 4) & 0x0F
-                    if prev_hi == cur_hi and prev_lo != cur_lo:
-                        df.at[row.Index, "op"] = int(MASTER_VOL_OP)
-                        df.at[row.Index, "val"] = int(cur_lo)
-                        df.at[row.Index, "subreg"] = -1
-                    elif prev_lo == cur_lo and prev_hi != cur_hi:
-                        df.at[row.Index, "op"] = int(FILTER_MODE_OP)
-                        df.at[row.Index, "val"] = int(cur_hi)
-                        df.at[row.Index, "subreg"] = -1
-                last_modevol = cur
-        return df
+            if row.subreg != -1:
+                continue  # already split by an earlier pass
+            cur = int(row.val)
+            prev = last_val_per_reg.get(int(row.reg), 0)
+            cur_lo = cur & 0x0F
+            cur_hi = (cur & 0xF0) >> 4
+            prev_lo = prev & 0x0F
+            prev_hi = (prev & 0xF0) >> 4
+            lo_changed = cur_lo != prev_lo
+            hi_changed = cur_hi != prev_hi
+            if lo_changed and not hi_changed:
+                drop_idx.append(int(row.Index))
+                new_rows.append(
+                    {
+                        "reg": int(row.reg),
+                        "val": int(cur_lo),
+                        "diff": int(row.diff),
+                        "op": int(SET_OP),
+                        "subreg": 0,
+                        "__pos": int(row.Index),
+                    }
+                )
+            elif hi_changed and not lo_changed:
+                drop_idx.append(int(row.Index))
+                new_rows.append(
+                    {
+                        "reg": int(row.reg),
+                        "val": int(cur_hi),
+                        "diff": int(row.diff),
+                        "op": int(SET_OP),
+                        "subreg": 1,
+                        "__pos": int(row.Index),
+                    }
+                )
+            # both-changed and no-change cases: leave row untouched.
+            last_val_per_reg[int(row.reg)] = cur
+        return _splice_rows(df, drop_idx, new_rows)
 
 
 class EndTerminatorPass(MacroPass):
@@ -870,13 +806,15 @@ class EndTerminatorPass(MacroPass):
 
 PASSES = [
     EndTerminatorPass(),
-    FilterModeVolPass(),
     PwmPass(),
     FilterSweepPass(),
     Flip2Pass(),
     TransposePass(),
     IntervalPass(),
-    GateTogglePass(),
+    # SubregPass last: it splits byte-level SETs that survived the other
+    # passes into nibble-level rows. Running it after PWM/FILTER_SWEEP/
+    # TRANSPOSE/etc. avoids needing those to be subreg-aware.
+    SubregPass(),
 ]
 
 

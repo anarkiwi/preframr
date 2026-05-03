@@ -911,9 +911,12 @@ class TestRegLogParser(unittest.TestCase):
         )
         result = loader._expand_ops(test_df, strict=True)
         reg7_vals = result[result["reg"] == 7]["val"].tolist()
-        # subreg 0: low nibble=5; subreg 1: high nibble 3<<4=48; combined=53
-        self.assertEqual(len(reg7_vals), 1)
-        self.assertEqual(reg7_vals[0], 48 + 5)
+        # subreg=0 emits a write with the new low nibble (high preserved=0):
+        # last_val[7] becomes 5. subreg=1 then emits with combined byte 53.
+        # The redesigned SetDecoder emits one write per subreg row -- the
+        # SID receives the intermediate state, matching the behavior of two
+        # back-to-back full-byte SETs (5, then 53).
+        self.assertEqual(reg7_vals, [5, 48 + 5])
 
     def test_prepare_df_for_audio(self):
         test_df = pd.DataFrame(

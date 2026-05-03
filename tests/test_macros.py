@@ -15,12 +15,11 @@ import pandas as pd
 from preframr.macros import (
     DecodeState,
     EndTerminatorPass,
-    FilterModeVolPass,
     FilterSweepPass,
     Flip2Pass,
-    GateTogglePass,
     IntervalPass,
     PwmPass,
+    SubregPass,
     TransposePass,
 )
 from preframr.reglogparser import RegLogParser
@@ -29,16 +28,12 @@ from preframr.stfconstants import (
     END_FLIP_OP,
     END_REPEAT_OP,
     FC_LO_REG,
-    FILTER_MODE_OP,
     FILTER_REG,
-    FILTER_ROUTE_OP,
     FILTER_SWEEP_OP,
     FLIP2_OP,
     FLIP_OP,
     FRAME_REG,
-    GATE_TOGGLE_OP,
     INTERVAL_OP,
-    MASTER_VOL_OP,
     MODE_VOL_REG,
     MODEL_PDTYPE,
     PWM_OP,
@@ -147,53 +142,99 @@ class TestPwmPass(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# GATE_TOGGLE
+# SUBREG (smart nibble splitting; subsumes GATE_TOGGLE and FILTER_*/VOL split)
 # ---------------------------------------------------------------------------
-class TestGateTogglePass(unittest.TestCase):
-    def test_encode_lsb_only_change(self):
+class TestSubregPass(unittest.TestCase):
+    def test_lo_only_change_becomes_subreg_0(self):
+        # default (0) -> 0x40 changes hi only -> subreg=1 with val=4
+        # 0x40 -> 0x41 changes lo only -> subreg=0 with val=1
         df = pd.DataFrame(
             [
                 _frame(),
-                _row(4, 64, op=SET_OP),
+                _row(4, 0x40, op=SET_OP),
                 _frame(),
-                _row(4, 65, op=SET_OP),  # only LSB differs -> GATE_TOGGLE
-                _frame(),
-                _row(4, 64, op=SET_OP),  # back -> GATE_TOGGLE
+                _row(4, 0x41, op=SET_OP),
             ]
         )
-        result = GateTogglePass().apply(df, args=FakeArgs(gate_toggle_pass=True))
-        toggles = result[result["op"] == GATE_TOGGLE_OP]
-        self.assertEqual(len(toggles), 2)
-        # First write (no prior state) stays a SET
-        sets_left = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
-        self.assertEqual(len(sets_left), 1)
+        result = SubregPass().apply(df)
+        rows = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
+        # Two SETs in, two SETs out (each split into a single subreg row).
+        self.assertEqual(len(rows), 2)
+        subregs = rows["subreg"].tolist()
+        vals = rows["val"].tolist()
+        self.assertEqual(subregs, [1, 0])
+        self.assertEqual(vals, [4, 1])
 
-    def test_non_lsb_change_stays_set(self):
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(4, 64, op=SET_OP),
-                _frame(),
-                _row(4, 128, op=SET_OP),  # different waveform bit
-            ]
-        )
-        result = GateTogglePass().apply(df, args=FakeArgs(gate_toggle_pass=True))
-        self.assertEqual(len(result[result["op"] == GATE_TOGGLE_OP]), 0)
+    def test_both_nibbles_change_stays_full_byte(self):
+        # default (0) -> 0x41 changes both nibbles -> leave as subreg=-1
+        df = pd.DataFrame([_frame(), _row(4, 0x41, op=SET_OP)])
+        result = SubregPass().apply(df)
+        sub_rows = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
+        self.assertEqual(len(sub_rows), 1)
+        self.assertEqual(int(sub_rows.iloc[0]["subreg"]), -1)
+        self.assertEqual(int(sub_rows.iloc[0]["val"]), 0x41)
 
-    def test_round_trip(self):
+    def test_no_change_left_alone(self):
+        # Two identical SETs (an upstream squeeze should remove this case but
+        # SubregPass should not split unchanged values either way).
         df = pd.DataFrame(
             [
                 _frame(),
-                _row(4, 64, op=SET_OP),
+                _row(4, 0x41, op=SET_OP),
                 _frame(),
-                _row(4, 65, op=SET_OP),
-                _frame(),
-                _row(4, 64, op=SET_OP),
+                _row(4, 0x41, op=SET_OP),
             ]
         )
-        encoded = GateTogglePass().apply(
-            df.copy(), args=FakeArgs(gate_toggle_pass=True)
+        result = SubregPass().apply(df)
+        rows = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
+        # First: both nibbles change from 0 -> stays subreg=-1
+        # Second: no nibbles change -> also stays subreg=-1
+        self.assertTrue(all(int(s) == -1 for s in rows["subreg"]))
+        self.assertEqual(len(rows), 2)
+
+    def test_unaffected_regs_pass_through(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(0, 100, op=SET_OP),  # reg 0 not in SUBREG_REGS
+                _row(7, 200, op=SET_OP),  # reg 7 not in SUBREG_REGS
+            ]
         )
+        result = SubregPass().apply(df)
+        self.assertEqual(len(result[result["subreg"] != -1]), 0)
+
+    def test_round_trip_lone_nibbles(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 0x40, op=SET_OP),  # both change (subreg=-1)
+                _frame(),
+                _row(4, 0x41, op=SET_OP),  # gate-on, lo only
+                _frame(),
+                _row(4, 0x40, op=SET_OP),  # gate-off, lo only
+                _frame(),
+                _row(4, 0xC0, op=SET_OP),  # waveform change, hi only
+                _frame(),
+                _row(4, 0xC1, op=SET_OP),  # gate-on with new wave, lo only
+            ]
+        )
+        encoded = SubregPass().apply(df.copy())
+        _assert_round_trip(self, df, encoded)
+
+    def test_round_trip_mixed_lone_and_paired(self):
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(5, 0x00, op=SET_OP),
+                _frame(),
+                _row(5, 0x35, op=SET_OP),  # both nibbles -> stays full-byte
+                _frame(),
+                _row(5, 0x36, op=SET_OP),  # lo only
+                _frame(),
+                _row(5, 0x86, op=SET_OP),  # hi only
+            ]
+        )
+        encoded = SubregPass().apply(df.copy())
         _assert_round_trip(self, df, encoded)
 
 
@@ -369,53 +410,6 @@ class TestFilterSweepPass(unittest.TestCase):
             df.copy(), args=FakeArgs(filter_sweep_pass=True)
         )
         _assert_round_trip(self, df, encoded)
-
-
-# ---------------------------------------------------------------------------
-# FILTER_ROUTE / MASTER_VOL / FILTER_MODE
-# ---------------------------------------------------------------------------
-class TestFilterModeVolPass(unittest.TestCase):
-    def test_filter_route_when_lo_nibble_changes(self):
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(FILTER_REG, 0x14, op=SET_OP),
-                _frame(),
-                _row(FILTER_REG, 0x12, op=SET_OP),  # high nibble same
-            ]
-        )
-        result = FilterModeVolPass().apply(df, args=FakeArgs(filter_split_pass=True))
-        routes = result[result["op"] == FILTER_ROUTE_OP]
-        self.assertEqual(len(routes), 1)
-        self.assertEqual(int(routes.iloc[0]["val"]), 0x2)
-
-    def test_master_vol_when_lo_nibble_changes(self):
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(MODE_VOL_REG, 0x1F, op=SET_OP),
-                _frame(),
-                _row(MODE_VOL_REG, 0x1A, op=SET_OP),  # high nibble same
-            ]
-        )
-        result = FilterModeVolPass().apply(df, args=FakeArgs(filter_split_pass=True))
-        vols = result[result["op"] == MASTER_VOL_OP]
-        self.assertEqual(len(vols), 1)
-        self.assertEqual(int(vols.iloc[0]["val"]), 0xA)
-
-    def test_filter_mode_when_hi_nibble_changes(self):
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(MODE_VOL_REG, 0x1F, op=SET_OP),
-                _frame(),
-                _row(MODE_VOL_REG, 0x2F, op=SET_OP),  # low nibble same
-            ]
-        )
-        result = FilterModeVolPass().apply(df, args=FakeArgs(filter_split_pass=True))
-        modes = result[result["op"] == FILTER_MODE_OP]
-        self.assertEqual(len(modes), 1)
-        self.assertEqual(int(modes.iloc[0]["val"]), 0x2)
 
 
 # ---------------------------------------------------------------------------
