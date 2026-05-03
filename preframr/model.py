@@ -205,6 +205,11 @@ def _build_vocab_frame_weight(args, n_vocab, tokens, tkmodel):
         FRAME_REG,
     )
 
+    # RegTokenizer.load expects a JSON string (it calls Tokenizer.from_str).
+    # Callers may pass either the live Tokenizer object (fresh training) or
+    # the already-serialized string (after checkpoint reload), so normalize.
+    if tkmodel is not None and not isinstance(tkmodel, str):
+        tkmodel = tkmodel.to_str()
     rt = RegTokenizer(args, tokens=tokens)
     rt.load(tkmodel, tokens)
     n_base = len(tokens)
