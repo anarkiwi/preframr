@@ -12,7 +12,8 @@ def add_args(parser):
     parser.add_argument(
         "--reglogs",
         type=str,
-        default="/scratch/preframr/training-dumps/**/*dump.parquet",
+        # default="/scratch/preframr/training-dumps/**/*dump.parquet",
+        default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/*dump.parquet",
     )
     parser.add_argument(
         "--model-state",
@@ -96,5 +97,12 @@ def add_args(parser):
     parser.add_argument("--cents", type=int, default=50)
     parser.add_argument(
         "--max-autotune", action=argparse.BooleanOptionalAction, default=True
+    )
+    # Macro pass toggles. The other macro passes (PWM, TRANSPOSE, FLIP2,
+    # INTERVAL, SubregPass, FilterSweep, EndTerminator) are unconditional;
+    # only LoopPass has a kill switch since it's the most recent addition,
+    # changes vocab the most, and is the one most worth A/B-testing.
+    parser.add_argument(
+        "--loop-pass", action=argparse.BooleanOptionalAction, default=True
     )
     return parser

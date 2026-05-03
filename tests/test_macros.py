@@ -627,6 +627,28 @@ class TestLoopPass(unittest.TestCase):
         self.assertEqual(int((result["op"] == BACK_REF_OP).sum()), 0)
         self.assertEqual(int((result["op"] == DO_LOOP_OP).sum()), 0)
 
+    def test_disabled_when_flag_off(self):
+        # Two AB pairs would normally trigger a back-ref; with the flag
+        # disabled LoopPass is a no-op.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _frame(),
+                _row(6, 100, op=SET_OP),
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+            ]
+        )
+        result = LoopPass().apply(df, args=FakeArgs(loop_pass=False))
+        self.assertEqual(int((result["op"] == BACK_REF_OP).sum()), 0)
+        self.assertEqual(int((result["op"] == DO_LOOP_OP).sum()), 0)
+        self.assertEqual(len(result), len(df))
+
     def test_round_trip_lz77(self):
         df = pd.DataFrame(
             [

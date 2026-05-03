@@ -876,6 +876,8 @@ class LoopPass(MacroPass):
     do_wrap_cost = 2  # BEGIN + END
 
     def apply(self, df, args=None):
+        if args is not None and not getattr(args, "loop_pass", True):
+            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         frames = _slice_into_frames(df)
