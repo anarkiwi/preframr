@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from pyarrow.parquet import ParquetFile
 import pyarrow as pa
+from preframr import macros
+from preframr.macros import DECODERS, DecodeState
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
@@ -663,9 +665,6 @@ class RegLogParser:
 
     def _expand_ops(self, orig_df, strict):
         df = orig_df.copy()
-        last_val = defaultdict(int)
-        last_repeat = defaultdict(int)
-        last_flip = defaultdict(int)
         last_diff = {}
         for reg in df["reg"].unique():
             reg_df = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
@@ -675,6 +674,7 @@ class RegLogParser:
                 last_diff[reg] = MIN_DIFF
 
         frame_diff = df[df["reg"] == FRAME_REG]["diff"].iloc[0]
+        state = DecodeState(frame_diff, last_diff=last_diff, strict=strict)
         sid_writes = []
 
         df["f"] = (
@@ -685,17 +685,6 @@ class RegLogParser:
             .astype(MODEL_PDTYPE)
         )
 
-        def apply_ops():
-            f_sid_writes = []
-            for reg, val in last_repeat.items():
-                last_val[reg] += val
-                f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
-            for reg, val in list(last_flip.items()):
-                last_val[reg] += val
-                last_flip[reg] = -val
-                f_sid_writes.append((reg, last_val[reg], last_diff[reg]))
-            return f_sid_writes
-
         def add_frame(writes):
             sid_writes.append(
                 pd.DataFrame(
@@ -705,7 +694,7 @@ class RegLogParser:
                 ).sort_values("reg")
             )
 
-        for f, f_df in df.groupby("f"):
+        for _f, f_df in df.groupby("f"):
             f_sid_writes = []
             for i, row in enumerate(f_df.itertuples()):
                 if row.reg < 0:
@@ -718,55 +707,20 @@ class RegLogParser:
                             delay_sid_writes = [
                                 (FRAME_REG, 0, frame_diff, row.description)
                             ]
-                            delay_sid_writes.extend(apply_ops())
+                            delay_sid_writes.extend(state.tick_frame())
                             add_frame(delay_sid_writes)
                         f_sid_writes.append((FRAME_REG, 0, frame_diff, row.description))
                     else:
                         assert False, f"unknown reg {row.reg}, {row}"
                     assert i == 0
                     continue
-                if row.op == SET_OP:
-                    if row.subreg == 0:
-                        assert row.val < 16
-                        last_val[row.reg] = (last_val[row.reg] & 0x11110000) + row.val
-                        continue
-                    elif row.subreg == 1:
-                        assert row.val < 16
-                        last_val[row.reg] = (last_val[row.reg] & 0b00001111) + (
-                            row.val << 4
-                        )
-                    else:
-                        last_val[row.reg] = row.val
-                elif row.op == DIFF_OP:
-                    assert row.subreg == -1
-                    last_val[row.reg] += row.val
-                elif row.op == REPEAT_OP:
-                    assert row.subreg == -1
-                    if row.val == 0:
-                        last_val[row.reg] += last_repeat[row.reg]
-                        del last_repeat[row.reg]
-                    else:
-                        if strict:
-                            assert not row.reg in last_repeat, (f, row.reg, last_repeat)
-                        last_repeat[row.reg] = row.val
-                        continue
-                elif row.op == FLIP_OP:
-                    assert row.subreg == -1
-                    if row.val == 0:
-                        last_val[row.reg] += last_flip[row.reg]
-                        del last_flip[row.reg]
-                    else:
-                        if strict:
-                            assert row.reg not in last_flip, (f, row.reg, last_flip)
-                        last_flip[row.reg] = row.val
-                        continue
-                else:
-                    assert False, f"unknown op {row.op}, {row}"
+                decoder = DECODERS.get(row.op)
+                assert decoder is not None, f"unknown op {row.op}, {row}"
+                writes = decoder.expand(row, state)
+                if writes:
+                    f_sid_writes.extend(writes)
 
-                newrow = (row.reg, last_val[row.reg], row.diff, row.description)
-                f_sid_writes.append(newrow)
-
-            f_sid_writes.extend(apply_ops())
+            f_sid_writes.extend(state.tick_frame())
             add_frame(f_sid_writes)
 
         df = pd.concat(sid_writes, ignore_index=True)
@@ -941,6 +895,7 @@ class RegLogParser:
 
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
+            xdf = macros.run_passes(xdf, args=self.args)
             xdf = self._norm_pr_order(xdf, v_only=False)
             xdf = self._add_voice_reg(xdf, zero_voice_reg=True)
             # xdf = self._add_subreg(xdf)
