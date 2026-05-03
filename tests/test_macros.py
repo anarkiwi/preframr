@@ -47,6 +47,7 @@ from preframr.stfconstants import (
     PWM_OP,
     REPEAT_OP,
     SET_OP,
+    SUBREG_FLUSH_OP,
     TRANSPOSE_OP,
     VOICE_REG_SIZE,
 )
@@ -173,18 +174,20 @@ class TestSubregPass(unittest.TestCase):
         self.assertEqual(subregs, [1, 0])
         self.assertEqual(vals, [4, 1])
 
-    def test_both_nibbles_change_stays_full_byte(self):
-        # default (0) -> 0x41 changes both nibbles -> leave as subreg=-1
+    def test_both_nibbles_change_splits_into_two(self):
+        # default (0) -> 0x41 changes both nibbles -> two subreg rows.
         df = pd.DataFrame([_frame(), _row(4, 0x41, op=SET_OP)])
         result = SubregPass().apply(df)
-        sub_rows = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
-        self.assertEqual(len(sub_rows), 1)
-        self.assertEqual(int(sub_rows.iloc[0]["subreg"]), -1)
-        self.assertEqual(int(sub_rows.iloc[0]["val"]), 0x41)
+        sub_rows = result[
+            (result["reg"] == 4) & (result["op"] == SET_OP) & (result["subreg"] != -1)
+        ]
+        self.assertEqual(len(sub_rows), 2)
+        self.assertEqual(sub_rows["subreg"].tolist(), [0, 1])
+        self.assertEqual(sub_rows["val"].tolist(), [1, 4])
 
     def test_no_change_left_alone(self):
         # Two identical SETs (an upstream squeeze should remove this case but
-        # SubregPass should not split unchanged values either way).
+        # SubregPass should not split unchanged values).
         df = pd.DataFrame(
             [
                 _frame(),
@@ -194,11 +197,12 @@ class TestSubregPass(unittest.TestCase):
             ]
         )
         result = SubregPass().apply(df)
-        rows = result[(result["reg"] == 4) & (result["op"] == SET_OP)]
-        # First: both nibbles change from 0 -> stays subreg=-1
-        # Second: no nibbles change -> also stays subreg=-1
-        self.assertTrue(all(int(s) == -1 for s in rows["subreg"]))
-        self.assertEqual(len(rows), 2)
+        # First SET (both nibbles change from 0): split into 2 subreg rows.
+        # Second SET (no nibbles change): stays subreg=-1.
+        sub01 = result[(result["reg"] == 4) & (result["subreg"].isin([0, 1]))]
+        self.assertEqual(len(sub01), 2)
+        full = result[(result["reg"] == 4) & (result["subreg"] == -1)]
+        self.assertEqual(len(full), 1)
 
     def test_unaffected_regs_pass_through(self):
         df = pd.DataFrame(
@@ -235,7 +239,7 @@ class TestSubregPass(unittest.TestCase):
                 _frame(),
                 _row(5, 0x00, op=SET_OP),
                 _frame(),
-                _row(5, 0x35, op=SET_OP),  # both nibbles -> stays full-byte
+                _row(5, 0x35, op=SET_OP),  # both nibbles change
                 _frame(),
                 _row(5, 0x36, op=SET_OP),  # lo only
                 _frame(),
@@ -243,6 +247,60 @@ class TestSubregPass(unittest.TestCase):
             ]
         )
         encoded = SubregPass().apply(df.copy())
+        _assert_round_trip(self, df, encoded)
+
+    def test_case_3_inserts_flush_to_preserve_intermediate(self):
+        # Two adjacent baseline SETs in the same frame, each touching only
+        # one (different) nibble. Without FLUSH the decoder would coalesce
+        # them and drop the intermediate write.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 0x05, op=SET_OP),  # lo only (0 -> 5)
+                _row(4, 0x65, op=SET_OP),  # hi only (0 -> 6)
+            ]
+        )
+        encoded = SubregPass().apply(df.copy())
+        flushes = encoded[encoded["op"] == SUBREG_FLUSH_OP]
+        self.assertEqual(len(flushes), 1)
+        # Verify the round-trip preserves both writes.
+        _assert_round_trip(self, df, encoded)
+
+    def test_no_flush_for_both_nib_split(self):
+        # A single both-nibble baseline SET produces (subreg=0, subreg=1) in
+        # one go -- they SHOULD coalesce, no FLUSH between them.
+        df = pd.DataFrame([_frame(), _row(4, 0x35, op=SET_OP)])
+        encoded = SubregPass().apply(df.copy())
+        self.assertEqual(int((encoded["op"] == SUBREG_FLUSH_OP).sum()), 0)
+        _assert_round_trip(self, df, encoded)
+
+    def test_no_flush_when_decoder_naturally_flushes(self):
+        # Same nibble of same reg twice -> decoder's "same nib in pending"
+        # rule already flushes, no encoder FLUSH needed.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 0x05, op=SET_OP),  # lo (0 -> 5)
+                _row(4, 0x07, op=SET_OP),  # lo again (5 -> 7)
+            ]
+        )
+        encoded = SubregPass().apply(df.copy())
+        self.assertEqual(int((encoded["op"] == SUBREG_FLUSH_OP).sum()), 0)
+        _assert_round_trip(self, df, encoded)
+
+    def test_no_flush_across_different_regs(self):
+        # Different reg between two subreg events -> decoder flushes
+        # naturally, no encoder FLUSH needed.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 0x05, op=SET_OP),  # lo on reg 4
+                _row(5, 0x03, op=SET_OP),  # any change on reg 5
+                _row(4, 0x65, op=SET_OP),  # hi on reg 4
+            ]
+        )
+        encoded = SubregPass().apply(df.copy())
+        self.assertEqual(int((encoded["op"] == SUBREG_FLUSH_OP).sum()), 0)
         _assert_round_trip(self, df, encoded)
 
 

@@ -34,6 +34,7 @@ from preframr.stfconstants import (
     PWM_OP,
     REPEAT_OP,
     SET_OP,
+    SUBREG_FLUSH_OP,
     TRANSPOSE_OP,
     VOICES,
     VOICE_REG_SIZE,
@@ -89,13 +90,55 @@ class DecodeState:
         # Snapshot of last_val at the END of the previous frame's tick_frame.
         # Used by INTERVAL to compute "what diff did src receive this frame".
         self.prev_frame_val = {}
+        # Subreg deferred coalescing (set by SetDecoder for subreg=0/1 rows;
+        # cleared by SUBREG_FLUSH_OP / different-reg ops / same-nibble
+        # repeats / frame boundaries). When non-None, holds the reg whose
+        # nibble updates are pending, plus which nibbles have been touched
+        # since the last flush.
+        self.pending_subreg_reg = None
+        self.pending_subreg_nibbles = set()
 
     def diff_for(self, reg):
         return self.last_diff.get(reg, MIN_DIFF)
 
+    def flush_pending_subreg(self):
+        """Emit and clear any pending subreg state. Returns at most one
+        write tuple ``(reg, val, diff)``; empty list if nothing pending."""
+        if self.pending_subreg_reg is None:
+            return []
+        reg = self.pending_subreg_reg
+        write = (reg, self.last_val[reg], self.diff_for(reg))
+        self.pending_subreg_reg = None
+        self.pending_subreg_nibbles = set()
+        return [write]
+
+    def maybe_flush_for(self, incoming_reg, incoming_subreg):
+        """Decide whether the incoming row should flush pending subreg
+        state. Returns the flush writes (possibly empty)."""
+        if self.pending_subreg_reg is None:
+            return []
+        if self.pending_subreg_reg != incoming_reg:
+            # Different reg -- the old pending is logically "between" this
+            # row and any prior subreg, so flush it now.
+            return self.flush_pending_subreg()
+        # Same reg.
+        if incoming_subreg in (0, 1):
+            if incoming_subreg in self.pending_subreg_nibbles:
+                # Same reg, same nibble already pending -> the about-to-be
+                # set nibble would overwrite the pending one. Flush first.
+                return self.flush_pending_subreg()
+            # Same reg, different nibble -> coalesce into one byte write.
+            return []
+        # Same reg, non-subreg op (full-byte SET, DIFF, REPEAT, FLIP, etc.):
+        # the pending subreg state needs to be observable before the new op
+        # mutates the byte further.
+        return self.flush_pending_subreg()
+
     def tick_frame(self):
-        """Apply pending REPEAT/FLIP/PWM/INTERVAL ops at a frame boundary."""
-        writes = []
+        """Apply pending REPEAT/FLIP/PWM/INTERVAL/subreg ops at a frame boundary."""
+        # Subreg flush first so the consolidated byte appears at the frame
+        # boundary, before any tick-driven writes.
+        writes = self.flush_pending_subreg()
         for reg, val in self.last_repeat.items():
             self.last_val[reg] += val
             writes.append((reg, self.last_val[reg], self.diff_for(reg)))
@@ -154,61 +197,78 @@ class SetDecoder(MacroDecoder):
     op_code = SET_OP
 
     def expand(self, row, state):
+        # First, flush any pending subreg if this row would otherwise corrupt
+        # the deferred state (different reg, same-nibble repeat, or full-byte
+        # SET on the same reg).
+        pre = state.maybe_flush_for(row.reg, row.subreg)
         if row.subreg == 0:
-            # Low-nibble-only update. Apply to state and emit one write with
-            # the consolidated byte (preserving the prior high nibble).
+            # Low-nibble update -- defer; the actual SID write is emitted
+            # later by maybe_flush / SUBREG_FLUSH / tick_frame.
             assert row.val < 16
             state.last_val[row.reg] = (state.last_val[row.reg] & 0xF0) | int(row.val)
-        elif row.subreg == 1:
-            # High-nibble-only update.
+            state.last_diff[row.reg] = row.diff
+            state.pending_subreg_reg = row.reg
+            state.pending_subreg_nibbles.add(0)
+            return pre or None
+        if row.subreg == 1:
+            # High-nibble update -- defer.
             assert row.val < 16
             state.last_val[row.reg] = (state.last_val[row.reg] & 0x0F) | (
                 int(row.val) << 4
             )
-        else:
-            # Full-byte SET (used both for non-subreg-eligible regs and for
-            # the both-nibbles-changed case on eligible regs).
-            state.last_val[row.reg] = row.val
-        return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
+            state.last_diff[row.reg] = row.diff
+            state.pending_subreg_reg = row.reg
+            state.pending_subreg_nibbles.add(1)
+            return pre or None
+        # Full-byte SET: apply state and emit immediately.
+        state.last_val[row.reg] = row.val
+        own = (row.reg, state.last_val[row.reg], row.diff, row.description)
+        return pre + [own]
 
 
 class DiffDecoder(MacroDecoder):
     op_code = DIFF_OP
 
     def expand(self, row, state):
+        pre = state.maybe_flush_for(row.reg, row.subreg)
         assert row.subreg == -1
         state.last_val[row.reg] += row.val
-        return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
+        own = (row.reg, state.last_val[row.reg], row.diff, row.description)
+        return pre + [own]
 
 
 class RepeatDecoder(MacroDecoder):
     op_code = REPEAT_OP
 
     def expand(self, row, state):
+        pre = state.maybe_flush_for(row.reg, row.subreg)
         assert row.subreg == -1
         if row.val == 0:
             state.last_val[row.reg] += state.last_repeat[row.reg]
             del state.last_repeat[row.reg]
-            return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
+            own = (row.reg, state.last_val[row.reg], row.diff, row.description)
+            return pre + [own]
         if state.strict:
             assert row.reg not in state.last_repeat, (row.reg, state.last_repeat)
         state.last_repeat[row.reg] = row.val
-        return None
+        return pre or None
 
 
 class FlipDecoder(MacroDecoder):
     op_code = FLIP_OP
 
     def expand(self, row, state):
+        pre = state.maybe_flush_for(row.reg, row.subreg)
         assert row.subreg == -1
         if row.val == 0:
             state.last_val[row.reg] += state.last_flip[row.reg]
             del state.last_flip[row.reg]
-            return [(row.reg, state.last_val[row.reg], row.diff, row.description)]
+            own = (row.reg, state.last_val[row.reg], row.diff, row.description)
+            return pre + [own]
         if state.strict:
             assert row.reg not in state.last_flip, (row.reg, state.last_flip)
         state.last_flip[row.reg] = row.val
-        return None
+        return pre or None
 
 
 class _PendingDiffBurstDecoder(MacroDecoder):
@@ -221,6 +281,7 @@ class _PendingDiffBurstDecoder(MacroDecoder):
     """
 
     def expand(self, row, state):
+        pre = state.maybe_flush_for(row.reg, -1)
         length = int(row.subreg)
         assert length > 0, (self.op_code, row)
         state.last_diff[row.reg] = row.diff
@@ -228,7 +289,7 @@ class _PendingDiffBurstDecoder(MacroDecoder):
         # frame this row appears in (matches how REPEAT_OP/FLIP_OP behave).
         for _ in range(length):
             state.pending_diffs[row.reg].append(row.val)
-        return None
+        return pre or None
 
 
 class PwmDecoder(_PendingDiffBurstDecoder):
@@ -245,6 +306,7 @@ class Flip2Decoder(MacroDecoder):
     op_code = FLIP2_OP
 
     def expand(self, row, state):
+        pre = state.maybe_flush_for(row.reg, -1)
         # val packs (a << 8) | (b & 0xff), interpreted as signed 8-bit each.
         # subreg = burst length.
         length = int(row.subreg)
@@ -259,7 +321,7 @@ class Flip2Decoder(MacroDecoder):
         # Queue length deltas: a, b, a, b, ... -- one per frame including this.
         for k in range(length):
             state.pending_diffs[row.reg].append(a if k % 2 == 0 else b)
-        return None
+        return pre or None
 
 
 class TransposeDecoder(MacroDecoder):
@@ -273,6 +335,11 @@ class TransposeDecoder(MacroDecoder):
         if delta >= 0x8000:
             delta -= 0x10000
         mask = int(row.subreg)
+        # Flush pending subreg state on every freq reg this op will touch.
+        pre = []
+        for v in range(VOICES):
+            if mask & (1 << v):
+                pre.extend(state.maybe_flush_for(FREQ_REGS_BY_VOICE[v], -1))
         writes = []
         for v in range(VOICES):
             if mask & (1 << v):
@@ -280,7 +347,7 @@ class TransposeDecoder(MacroDecoder):
                 state.last_val[reg] += delta
                 state.last_diff[reg] = row.diff
                 writes.append((reg, state.last_val[reg], row.diff, row.description))
-        return writes if writes else None
+        return (pre + writes) if (pre or writes) else None
 
 
 class IntervalDecoder(MacroDecoder):
@@ -296,11 +363,12 @@ class IntervalDecoder(MacroDecoder):
         src_v = int(row.val) & 0xF
         tgt_reg = FREQ_REGS_BY_VOICE[tgt_v]
         src_reg = FREQ_REGS_BY_VOICE[src_v]
+        pre = state.maybe_flush_for(tgt_reg, -1)
         state.last_diff[tgt_reg] = row.diff
         state.interval_links.append(
             {"tgt": tgt_reg, "src": src_reg, "remaining": length}
         )
-        return None
+        return pre or None
 
 
 class _EndOpDecoder(MacroDecoder):
@@ -324,6 +392,18 @@ class EndFlipDecoder(_EndOpDecoder):
     op_code = END_FLIP_OP
 
 
+class SubregFlushDecoder(MacroDecoder):
+    """Force-flush deferred subreg state. Inserted by SubregPass between two
+    consecutive subreg rows that are on the same reg, touch different
+    nibbles, AND came from different baseline SETs (so they would otherwise
+    coalesce and lose the intermediate write)."""
+
+    op_code = SUBREG_FLUSH_OP
+
+    def expand(self, row, state):
+        return state.flush_pending_subreg() or None
+
+
 DECODERS = {
     d.op_code: d
     for d in (
@@ -338,6 +418,7 @@ DECODERS = {
         EndRepeatDecoder(),
         EndFlipDecoder(),
         FilterSweepDecoder(),
+        SubregFlushDecoder(),
     )
 }
 
@@ -705,24 +786,29 @@ class FilterSweepPass(MacroPass):
 
 
 class SubregPass(MacroPass):
-    """Smart byte-to-nibble splitting for the subreg-eligible registers.
+    """Always-split byte-to-nibble for subreg-eligible registers, with
+    SUBREG_FLUSH inserted to preserve byte-equality across intra-frame
+    multi-write sequences.
 
-    For each SET on a reg in ``SUBREG_REGS``, compare to the last value seen
-    on that reg and rewrite into a more LM-friendly form:
+    For each SET on a reg in ``SUBREG_REGS``, compare against the last value
+    seen on that reg and emit nibble rows:
 
-      - low nibble only changed -> ``subreg=0`` row carrying the new lo
-      - high nibble only changed -> ``subreg=1`` row carrying the new hi
-      - both nibbles changed -> leave as full-byte ``subreg=-1`` (no split)
+      - lo only changed -> one ``subreg=0`` row
+      - hi only changed -> one ``subreg=1`` row
+      - both nibbles changed -> two rows: ``subreg=0`` then ``subreg=1``
+      - no change -> leave SET as-is (subreg=-1, redundant-but-harmless)
 
-    This keeps the SID write stream byte-identical to baseline (each
-    encoded row produces exactly one SID write) while collapsing the
-    per-reg vocab from 256 byte values to ~16 lo + ~16 hi + a handful of
-    both-changed bytes. No sequence length growth; no intra-frame write
-    consolidation needed.
+    The decoder defers ``subreg=0/1`` updates and emits one consolidated
+    SID write at frame boundaries (or earlier when a different reg / a
+    same-nibble repeat / a non-subreg op forces a flush). To preserve
+    byte-equality with the baseline in the case where two adjacent baseline
+    SETs each change only one (different) nibble (which would otherwise
+    coalesce into one write), the encoder inserts a ``SUBREG_FLUSH_OP`` row
+    between them.
 
-    Subsumes the previous ``GateTogglePass`` (a "gate-only" SET is now a
-    ``subreg=0`` row on reg 4) and ``FilterModeVolPass`` (master-volume,
-    filter-route, filter-mode changes are nibble-only on regs 23/24).
+    Subsumes the previous ``GateTogglePass`` and ``FilterModeVolPass``;
+    eliminates the ``subreg=-1`` byte-vocab entries on subreg-eligible regs
+    in exchange for slightly longer streams on both-nibble events.
     """
 
     target_regs = SUBREG_REGS
@@ -730,13 +816,23 @@ class SubregPass(MacroPass):
     def apply(self, df, args=None):
         df = df.reset_index(drop=True).copy()
         last_val_per_reg = {}
+        last_emitted_reg = None  # most recently emitted subreg row's reg
+        last_emitted_nib = None  # ... and nibble (0 or 1)
         drop_idx = []
         new_rows = []
         for row in df.itertuples():
             if row.reg not in self.target_regs or row.op != SET_OP:
+                # A non-target row (or non-SET op) means the decoder will
+                # flush naturally on the next subreg row; no need for an
+                # explicit FLUSH between them.
+                last_emitted_reg = None
+                last_emitted_nib = None
                 continue
             if row.subreg != -1:
-                continue  # already split by an earlier pass
+                # Already split.
+                last_emitted_reg = int(row.reg)
+                last_emitted_nib = int(row.subreg)
+                continue
             cur = int(row.val)
             prev = last_val_per_reg.get(int(row.reg), 0)
             cur_lo = cur & 0x0F
@@ -745,32 +841,56 @@ class SubregPass(MacroPass):
             prev_hi = (prev & 0xF0) >> 4
             lo_changed = cur_lo != prev_lo
             hi_changed = cur_hi != prev_hi
-            if lo_changed and not hi_changed:
-                drop_idx.append(int(row.Index))
+
+            emitted_subregs = []
+            if lo_changed:
+                emitted_subregs.append((0, cur_lo))
+            if hi_changed:
+                emitted_subregs.append((1, cur_hi))
+
+            if not emitted_subregs:
+                # Redundant SET; leave untouched.
+                last_val_per_reg[int(row.reg)] = cur
+                last_emitted_reg = None
+                last_emitted_nib = None
+                continue
+
+            drop_idx.append(int(row.Index))
+
+            # Insert SUBREG_FLUSH between two adjacent baseline SETs on the
+            # same reg whose first new nibble differs from the last emitted
+            # nibble: without the flush the decoder would coalesce them and
+            # silently drop the previously-deferred byte.
+            if (
+                last_emitted_reg == int(row.reg)
+                and emitted_subregs[0][0] != last_emitted_nib
+            ):
                 new_rows.append(
                     {
                         "reg": int(row.reg),
-                        "val": int(cur_lo),
+                        "val": 0,
                         "diff": int(row.diff),
-                        "op": int(SET_OP),
-                        "subreg": 0,
+                        "op": int(SUBREG_FLUSH_OP),
+                        "subreg": -1,
                         "__pos": int(row.Index),
                     }
                 )
-            elif hi_changed and not lo_changed:
-                drop_idx.append(int(row.Index))
+
+            for subr, val in emitted_subregs:
                 new_rows.append(
                     {
                         "reg": int(row.reg),
-                        "val": int(cur_hi),
+                        "val": int(val),
                         "diff": int(row.diff),
                         "op": int(SET_OP),
-                        "subreg": 1,
+                        "subreg": subr,
                         "__pos": int(row.Index),
                     }
                 )
-            # both-changed and no-change cases: leave row untouched.
+
             last_val_per_reg[int(row.reg)] = cur
+            last_emitted_reg = int(row.reg)
+            last_emitted_nib = emitted_subregs[-1][0]
         return _splice_rows(df, drop_idx, new_rows)
 
 
