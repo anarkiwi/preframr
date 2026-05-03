@@ -103,6 +103,6 @@ def add_args(parser):
     # only LoopPass has a kill switch since it's the most recent addition,
     # changes vocab the most, and is the one most worth A/B-testing.
     parser.add_argument(
-        "--loop-pass", action=argparse.BooleanOptionalAction, default=True
+        "--loop-pass", action=argparse.BooleanOptionalAction, default=False
     )
     return parser
