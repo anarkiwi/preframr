@@ -97,31 +97,4 @@ def add_args(parser):
     parser.add_argument(
         "--max-autotune", action=argparse.BooleanOptionalAction, default=True
     )
-    # Macro passes (preframr.macros). Default off pending corpus validation;
-    # enabling them changes the token vocabulary and invalidates pre-trained
-    # models trained without the macro layer.
-    parser.add_argument(
-        "--pwm-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--transpose-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--gate-toggle-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--flip2-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--interval-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--filter-sweep-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--filter-split-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--end-terminator-pass", action=argparse.BooleanOptionalAction, default=False
-    )
     return parser

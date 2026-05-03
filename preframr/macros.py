@@ -374,14 +374,6 @@ DECODERS = {
 class MacroPass:
     """Base class for encode-side passes operating on a token DataFrame."""
 
-    enabled_arg = None  # name of args attribute that gates this pass
-
-    def is_enabled(self, args):
-        if self.enabled_arg is None or args is None:
-            return True
-        # Missing attribute -> off (safer default for ad-hoc test fixtures).
-        return bool(getattr(args, self.enabled_arg, False))
-
     def apply(self, df, args=None):
         raise NotImplementedError
 
@@ -451,13 +443,10 @@ class PwmPass(MacroPass):
     in ``(reg, val, subreg)``. Voice rotation rotates the burst's reg field.
     """
 
-    enabled_arg = "pwm_pass"
     target_regs = PWM_REGS_BY_VOICE
     min_run = 2
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -510,12 +499,9 @@ class TransposePass(MacroPass):
     though the mask is recomputed at decode time per voice index).
     """
 
-    enabled_arg = "transpose_pass"
     target_regs = FREQ_REGS_BY_VOICE
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -562,12 +548,9 @@ class GateTogglePass(MacroPass):
     where ``new_val == prev_val ^ 1``.
     """
 
-    enabled_arg = "gate_toggle_pass"
     target_regs = CTRL_REGS_BY_VOICE
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         last_seen = {}
         replace_idx = []
@@ -598,12 +581,9 @@ class Flip2Pass(MacroPass):
     encodes ``(a, b, length)`` in ``(val_packed, subreg)``.
     """
 
-    enabled_arg = "flip2_pass"
     min_run = 3
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -666,13 +646,10 @@ class IntervalPass(MacroPass):
     of the run; the decoder mirrors source DIFFs to the target voice.
     """
 
-    enabled_arg = "interval_pass"
     min_run = 2
     target_regs = FREQ_REGS_BY_VOICE
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -741,13 +718,10 @@ class IntervalPass(MacroPass):
 class FilterSweepPass(MacroPass):
     """Mirror of PwmPass for the filter cutoff register (FC_LO_REG)."""
 
-    enabled_arg = "filter_sweep_pass"
     target_regs = (FC_LO_REG,)
     min_run = 2
 
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -803,11 +777,7 @@ class FilterModeVolPass(MacroPass):
     purely on per-row values vs prior state.
     """
 
-    enabled_arg = "filter_split_pass"
-
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         last_filter = None
@@ -853,11 +823,7 @@ class EndTerminatorPass(MacroPass):
     Tokens are predictability markers for the LM; decoder ignores them.
     """
 
-    enabled_arg = "end_terminator_pass"
-
     def apply(self, df, args=None):
-        if not self.is_enabled(args):
-            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         active_repeat = {}  # reg -> True

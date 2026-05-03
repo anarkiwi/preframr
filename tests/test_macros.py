@@ -126,11 +126,6 @@ class TestPwmPass(unittest.TestCase):
         leftover = result[(result["reg"] == 2) & (result["op"] == DIFF_OP)]
         self.assertEqual(len(leftover), 0)
 
-    def test_disabled_when_flag_off(self):
-        df = self._three_frame_pwm()
-        result = PwmPass().apply(df, args=FakeArgs(pwm_pass=False))
-        self.assertEqual(len(result[result["op"] == PWM_OP]), 0)
-
     def test_min_run_2_is_replaced(self):
         df = pd.DataFrame(
             [_frame(), _row(2, 32, op=DIFF_OP), _frame(), _row(2, 32, op=DIFF_OP)]
