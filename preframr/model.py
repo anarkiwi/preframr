@@ -296,6 +296,15 @@ class Model(LightningModule):
         # macro tokens (BACK_REF, DO_LOOP_BEGIN, DELAY_REG) proportionally
         # to the audio they would have produced.
         weights = self.vocab_frame_weight[y]
+        # Pad mask: BlockMapper pads short songs with token id 0 (the
+        # Unigram tokenizer's pad/unk slot) so songs ≤ seq_len fit a
+        # fixed-size block. Without masking, cross-entropy at pad
+        # positions would teach the model to emit pad tokens, which is
+        # nonsense at inference. Zero out both the per-token CE and the
+        # frame-weight at pads so they contribute nothing to the loss.
+        pad_mask = (y != 0).float()
+        per_tok = per_tok * pad_mask
+        weights = weights * pad_mask
         loss = (per_tok * weights).sum() / weights.sum().clamp(min=1.0)
         if self.l1_lambda:
             l1_norm = self.model.tok_embeddings.weight.abs().sum()

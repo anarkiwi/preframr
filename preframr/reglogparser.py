@@ -848,8 +848,13 @@ class RegLogParser:
         if len(df[df["reg"] == FRAME_REG]) == 0:
             self.logger.info("skipped %s, no frames", name)
             return False
-        if len(df) < (self.args.seq_len * 2):
-            self.logger.info("skipped %s, length %u (too short)", name, len(df))
+        # Minimum useful song length. Was ``seq_len * 2`` (16384) which
+        # rejected the bulk of HVSC -- BlockMapper pads short blocks
+        # already, so the gate just needs to ensure the song has enough
+        # frames to be musically meaningful for next-token training.
+        min_song = getattr(self.args, "min_song_tokens", 256)
+        if len(df) < min_song:
+            self.logger.info("skipped %s, length %u (< %u)", name, len(df), min_song)
             return False
         vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
         if len(vol) >= 8:

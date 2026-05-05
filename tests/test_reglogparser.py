@@ -37,6 +37,7 @@ class FakeArgs:
         cents=10,
         min_irq=0,
         max_irq=100000,
+        min_song_tokens=4,
     ):
         self.reglog = None
         self.reglogs = ""
@@ -45,6 +46,7 @@ class FakeArgs:
         self.cents = cents
         self.min_irq = min_irq
         self.max_irq = max_irq
+        self.min_song_tokens = min_song_tokens
 
 
 class TestRegLogParser(unittest.TestCase):
@@ -1161,7 +1163,7 @@ class TestRegLogParser(unittest.TestCase):
         )
         self.assertFalse(loader._filter(test_df, "test"))
 
-        # Too short (< seq_len * 2 = 4) -> False
+        # Too short (< min_song_tokens=4) -> False
         test_df = pd.DataFrame(
             [
                 {"reg": FRAME_REG, "val": 0, "diff": 19000},

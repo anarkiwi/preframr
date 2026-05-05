@@ -129,8 +129,13 @@ def parser_worker(args, logger, dump_file, max_perm):
 def get_prompt(args, dataset, logger):
     seq, seq_meta = dataset.getseq(args.start_seq)
     if args.start_n is None:
-        # Don't predict past where we can compare accuracy.
-        start = random.randint(0, len(seq) - args.max_seq_len)
+        # Don't predict past where we can compare accuracy. For songs
+        # shorter than max_seq_len the random range collapses to {0},
+        # so the whole song becomes the prompt window (the user's
+        # "n-seconds at position n" inference shape: prompt covers
+        # whatever is available, generation continues past it).
+        max_start = max(0, len(seq) - args.max_seq_len)
+        start = random.randint(0, max_start) if max_start > 0 else 0
     else:
         start = args.start_n
     logger.info(
@@ -272,11 +277,15 @@ class RegDataset(torch.utils.data.Dataset):
                                 if encode:
                                     n = df["n"].astype(np.int16).to_numpy()
                                     seq = self.tokenizer.encode(n).astype(np.int16)
-                                    if len(seq) < self.args.seq_len:
+                                    min_seq = getattr(
+                                        self.args, "min_song_tokens", 256
+                                    )
+                                    if len(seq) < min_seq:
                                         self.logger.info(
-                                            "rejecting sequence from %s too short %u",
+                                            "rejecting sequence from %s too short %u (< %u)",
                                             dump_file,
                                             len(seq),
+                                            min_seq,
                                         )
                                         break
                                     # Self-contained block file generation

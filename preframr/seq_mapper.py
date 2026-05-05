@@ -29,8 +29,14 @@ class SeqMapper(torch.utils.data.Dataset):
         return
 
     def add(self, seq, seq_meta):
+        # SeqMapper sliding-window training only makes sense when there
+        # are sliding positions to take, i.e. ``len(seq) > seq_len``.
+        # Shorter sequences are silently skipped here -- BlockMapper's
+        # padded variant carries them in the parallel training path. The
+        # caller doesn't need to gate on length; just register both
+        # mappers and let each accept what it can use.
         if len(seq) <= self.seq_len:
-            raise ValueError(f"sequence too short ({len(seq)}")
+            return
         assert isinstance(seq, np.ndarray), type(seq)
         assert seq.dtype == np.int16
         seq_meta.npy_path = seq_meta.df_file.replace(DUMP_SUFFIX, f".{seq_meta.i}.npy")

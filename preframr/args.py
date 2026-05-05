@@ -40,6 +40,12 @@ def add_args(parser):
     parser.add_argument("--shuffle", type=float, default=0.05)
     parser.add_argument("--max-files", type=int, default=2048)
     parser.add_argument("--min-dump-size", type=int, default=int(1e5))
+    # Minimum post-encode token count for a song to enter training. Was
+    # implicitly seq_len*2 (16384) via the parser's _filter check, which
+    # rejected ~75% of HVSC. BlockMapper pads short blocks, so a small
+    # floor (~256 tokens) is enough to skip degenerate / empty dumps
+    # while admitting normal-length songs.
+    parser.add_argument("--min-song-tokens", type=int, default=256)
     parser.add_argument("--min-irq", type=int, default=int(1.5e4))
     parser.add_argument("--max-irq", type=int, default=int(2.5e4))
     parser.add_argument("--diffq", type=int, default=4)
