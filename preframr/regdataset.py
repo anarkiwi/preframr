@@ -50,6 +50,41 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
     return dump_files
 
 
+def iter_voiced_blocks(
+    raw_df, seq_len, parser, reg_widths, frames_per_block=None, stride=None
+):
+    """Yield each self-contained block as a post-voice-reg row df --
+    the same form ``materialize_block_array`` would later turn into
+    int-encoded rows. Used by ``RegDataset.make_tokens`` to build the
+    token alphabet from blocks (so the alphabet covers exactly the
+    (op, reg, subreg, val) tuples training will see), and by
+    ``materialize_block_array`` to write the .blocks.npy training data.
+
+    The two callers MUST consume the same block stream so the alphabet
+    matches the encoded blocks; routing both through this generator
+    eliminates the alphabet/training-data mismatch that previously
+    caused ``merge_token_df`` to fail on macro-op rows whose val
+    payload (back-ref distance, palette slot, etc.) is block-local.
+    """
+    if frames_per_block is None:
+        frames_per_block = max(1, seq_len // 2)
+    abs_df, _ = parser._remove_voice_reg(raw_df.copy(), reg_widths)
+    for block_df in iter_self_contained_row_blocks(
+        abs_df, frames_per_block, args=parser.args, stride=stride
+    ):
+        if block_df.empty:
+            continue
+        # Re-add voice rotation so the block matches the LM's input
+        # form. _add_voice_reg can fail on degenerate blocks (e.g.
+        # entirely empty after self_contain materialisation); skip
+        # those rather than abort the whole song.
+        try:
+            voiced = parser._add_voice_reg(block_df.copy(), zero_voice_reg=True)
+        except Exception:
+            continue
+        yield voiced
+
+
 def materialize_block_array(
     tokenizer,
     raw_df,
@@ -67,46 +102,30 @@ def materialize_block_array(
     Longer blocks are truncated; shorter ones pad with zero (which encodes
     the unk/pad slot in the tokenizer's vocabulary).
 
-    Internally calls ``parser._remove_voice_reg`` to strip the voice-
-    rotation markers so the simulator inside ``self_contain_slice`` sees
-    absolute regs (the same form the predict path passes to
-    ``_self_contained_prompt_df``). After block extraction, the absolute-
-    reg block is round-tripped through ``parser._add_voice_reg`` to
-    restore the LM's view; without that, every block would lose voice
-    rotation and the tokenizer would fail to merge.
-
-    The materialiser shares ``iter_self_contained_row_blocks`` with the
-    predict path so a block produced at parse time decodes identically
-    to one produced on-the-fly during inference.
+    Walks blocks via ``iter_voiced_blocks`` (shared with
+    ``make_tokens``); each block goes through ``merge_token_df`` and
+    is then int-encoded. A merge failure is fatal -- it indicates the
+    alphabet didn't cover this block's tokens, which means the training
+    data is silently corrupted. Earlier behaviour swallowed the
+    exception; we now let it propagate so the bug surfaces at parse
+    time instead of mid-training.
     """
     block_size = seq_len + 1
-    if frames_per_block is None:
-        # Default: a generous frame budget that almost always tokenizes
-        # under ``block_size``. Bin-search refinement is a future
-        # optimisation; for now a 2-tokens-per-frame estimate works for
-        # the post-bundle-decoupling encoding.
-        frames_per_block = max(1, seq_len // 2)
-
-    abs_df, _ = parser._remove_voice_reg(raw_df.copy(), reg_widths)
-
     blocks = []
-    for block_df in iter_self_contained_row_blocks(
-        abs_df, frames_per_block, args=parser.args, stride=stride
+    for voiced in iter_voiced_blocks(
+        raw_df,
+        seq_len,
+        parser,
+        reg_widths,
+        frames_per_block=frames_per_block,
+        stride=stride,
     ):
-        if block_df.empty:
-            continue
-        # Re-add voice rotation so the block matches the LM's input form.
-        # _add_voice_reg recomputes per-frame VOICE_REG markers from the
-        # block's absolute regs alone, so a block produced this way is
-        # byte-identical to the corresponding slice of the full-song
-        # voice-reg'd form.
-        try:
-            voiced = parser._add_voice_reg(block_df.copy(), zero_voice_reg=True)
-        except Exception:
-            continue
         merged = tokenizer.merge_token_df(tokenizer.tokens, voiced.copy())
         if merged is None or "n" not in merged.columns:
-            continue
+            raise RuntimeError(
+                "merge_token_df returned no 'n' column; alphabet does "
+                "not cover block tokens"
+            )
         n = merged["n"].astype(np.int16).to_numpy()
         seq = tokenizer.encode(n).astype(np.int16)
         if len(seq) >= block_size:
@@ -302,30 +321,32 @@ class RegDataset(torch.utils.data.Dataset):
                                     # skip and fall back to the sliding-window
                                     # SeqMapper training path.
                                     if getattr(self.args, "write_blocks", True):
-                                        try:
-                                            block_parser = RegLogParser(self.args)
-                                            blocks_arr = materialize_block_array(
-                                                self.tokenizer,
-                                                raw_df,
-                                                self.args.seq_len,
-                                                block_parser,
-                                                self.reg_widths,
-                                                stride=getattr(
-                                                    self.args, "block_stride", None
-                                                ),
-                                            )
-                                            blocks_path = dump_file.replace(
-                                                DUMP_SUFFIX, f".{i}.blocks.npy"
-                                            )
-                                            np.save(blocks_path, blocks_arr)
-                                        except Exception as e:
-                                            self.logger.info(
-                                                "block materialisation failed for "
-                                                "%s rotation %u: %s",
-                                                dump_file,
-                                                i,
-                                                e,
-                                            )
+                                        # Block materialisation is the
+                                        # canonical training-data
+                                        # encoder. A failure here means
+                                        # the alphabet didn't cover a
+                                        # block's tokens (a bug, not a
+                                        # data issue) -- propagate so
+                                        # the whole training run fails
+                                        # loudly instead of silently
+                                        # dropping rotations and
+                                        # training on a corrupted /
+                                        # partial corpus.
+                                        block_parser = RegLogParser(self.args)
+                                        blocks_arr = materialize_block_array(
+                                            self.tokenizer,
+                                            raw_df,
+                                            self.args.seq_len,
+                                            block_parser,
+                                            self.reg_widths,
+                                            stride=getattr(
+                                                self.args, "block_stride", None
+                                            ),
+                                        )
+                                        blocks_path = dump_file.replace(
+                                            DUMP_SUFFIX, f".{i}.blocks.npy"
+                                        )
+                                        np.save(blocks_path, blocks_arr)
                             output_dumps.add(dump_file)
                             irq = df["irq"].iloc[0]
                             yield dump_file, i, df, seq, irq
@@ -338,10 +359,25 @@ class RegDataset(torch.utils.data.Dataset):
 
     def make_tokens(self, reglogs):
         df_files = []
+        # Build the alphabet from the block-level encoding -- the form
+        # training will actually see -- not from full-song encoding.
+        # Block-local back-ref distances, palette slot ids, instrument
+        # program lengths etc. produce (op, reg, subreg, val) tuples
+        # that don't appear in full-song encodings; building the
+        # alphabet from full songs caused merge_token_df to fail on
+        # those tuples mid-training.
+        block_parser = RegLogParser(self.args)
         for df_file, _i, df, _seq, _irq in self.load_dfs(
             reglogs=reglogs, max_perm=self.args.max_perm
         ):
-            self.tokenizer.accumulate_tokens(df, df_file)
+            for voiced in iter_voiced_blocks(
+                df,
+                self.args.seq_len,
+                block_parser,
+                self.reg_widths,
+                stride=getattr(self.args, "block_stride", None),
+            ):
+                self.tokenizer.accumulate_tokens(voiced, df_file)
             try:
                 if df_files[-1] == df_file:
                     continue

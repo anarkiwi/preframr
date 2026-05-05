@@ -10,8 +10,12 @@ import multiprocessing
 import numpy as np
 import pandas as pd
 from preframr.stfconstants import (
+    DIFF_OP,
     DUMP_SUFFIX,
+    FLIP_OP,
     FRAME_REG,
+    REPEAT_OP,
+    SET_OP,
     UNICODE_BASE,
     UNI_SUFFIX,
     TOKEN_KEYS,
@@ -25,6 +29,14 @@ UNK_TOKEN = "<unk>"
 END_OF_WORD_SUFFIX = "</w>"
 SPLITCHS = [ord(i) for i in string.punctuation]
 SPLITTERS = len(SPLITCHS)
+# Ops whose val lives on a continuous scale (cents-quantized freq for
+# DIFF/FLIP, raw byte for SET, repeat-count for REPEAT). Substituting a
+# nearby val on these is a small numerical error. Other ops --
+# BACK_REF, PATTERN_REPLAY, GATE_REPLAY, PLAY_INSTRUMENT, etc. -- carry
+# categorical payloads (distance, slot id, length) where "near"
+# substitution silently corrupts the encoding; merge_token_df refuses
+# to substitute and fails loudly instead.
+_SUBSTITUTABLE_OPS = frozenset({SET_OP, DIFF_OP, REPEAT_OP, FLIP_OP})
 
 
 class RegTokenizer:
@@ -214,20 +226,57 @@ class RegTokenizer:
             for missing_token in missing_tokens.itertuples():
                 reg = missing_token.reg
                 val = missing_token.val
-                reg_tokens = tokens[tokens["reg"] == reg]
-                if reg_tokens.empty:
-                    self.logger.error("no possible token for reg %u val %u", reg, val)
-                    assert False
-                compare_tokens = reg_tokens.copy()
+                op = getattr(missing_token, "op", SET_OP)
+                subreg = getattr(missing_token, "subreg", -1)
+                # Filter on (op, reg, subreg) so the substitute keeps
+                # the row's semantic identity. Old code filtered by
+                # reg only, picking a "near" token of any op -- which
+                # silently swapped e.g. PATTERN_REPLAY_OP for
+                # BACK_REF_OP at the same reg, corrupting the encoded
+                # macro. For macro ops (anything other than SET/DIFF/
+                # REPEAT/FLIP whose val is on a continuous scale), val
+                # carries categorical payload (back-ref distance,
+                # palette slot id, ...) and "near" substitution is
+                # meaningless; refuse to substitute and fail loudly.
+                key_tokens = tokens[
+                    (tokens["op"] == op)
+                    & (tokens["reg"] == reg)
+                    & (tokens["subreg"] == subreg)
+                ]
+                if op not in _SUBSTITUTABLE_OPS or key_tokens.empty:
+                    self.logger.error(
+                        "no token for op=%u reg=%d subreg=%d val=%u; "
+                        "alphabet does not cover this row",
+                        int(op),
+                        int(reg),
+                        int(subreg),
+                        int(val),
+                    )
+                    raise KeyError(
+                        f"missing token op={int(op)} reg={int(reg)} "
+                        f"subreg={int(subreg)} val={int(val)}"
+                    )
+                compare_tokens = key_tokens.copy()
                 compare_tokens["diff_val"] = (compare_tokens["val"] - val).abs()
                 best_token = compare_tokens[
                     compare_tokens["diff_val"] == compare_tokens["diff_val"].min()
                 ].iloc[0]
                 best_val = best_token.val
                 self.logger.info(
-                    "substitute reg %u val %u with val %u", reg, val, best_val
+                    "substitute op=%u reg=%d subreg=%d val=%u with val=%u",
+                    int(op),
+                    int(reg),
+                    int(subreg),
+                    int(val),
+                    int(best_val),
                 )
-                df.loc[((df["reg"] == reg) & (df["val"] == val)), "val"] = best_val
+                df.loc[
+                    (df["op"] == op)
+                    & (df["reg"] == reg)
+                    & (df["subreg"] == subreg)
+                    & (df["val"] == val),
+                    "val",
+                ] = best_val
             df = df[orig_cols].astype(orig_dtypes)
             df, missing_tokens = self._merged_and_missing(tokens, df)
             assert missing_tokens.empty, missing_tokens
