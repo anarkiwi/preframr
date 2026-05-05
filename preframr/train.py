@@ -67,7 +67,7 @@ def main():
     dataset = RegDataset(args, logger=logger)
     dataset.preload()
     assert dataset.tokenizer.token_metadata()
-    dataloader = get_loader(args, dataset, seq_mapper=True)
+    dataloader = get_loader(args, dataset)
     model = get_model(dataset, args, logger)
     train(model, dataloader, args, ckpt_path, logger)
 

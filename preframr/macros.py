@@ -2839,7 +2839,9 @@ def self_contain_slice(df, slice_lo_frame, slice_hi_frame, args=None):
     return run_passes(slice_df, args=args)
 
 
-def iter_self_contained_row_blocks(df, frames_per_block, args=None):
+def iter_self_contained_row_blocks(
+    df, frames_per_block, args=None, stride=None
+):
     """Yield row-DataFrames each covering ``frames_per_block`` logical
     frame slots (= FRAME_REG/DELAY_REG markers) of ``df``. Every block
     has its out-of-block references (BACK_REF_OP, GATE_REPLAY_OP,
@@ -2852,6 +2854,14 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None):
     just a slice. The predict path takes the first (or chosen) block as
     the prompt.
 
+    ``stride`` (in frame slots) controls how far apart adjacent block
+    starts are. Default ``stride=frames_per_block`` produces the
+    historical non-overlapping tiling. Smaller values yield overlapping
+    blocks for data augmentation -- e.g.  ``stride=frames_per_block//4``
+    gives 4x as many blocks per song, each starting at a different
+    musical phase. Each block is independently self-contained, so
+    overlap doesn't compromise correctness.
+
     Notes:
     - Blocks always start and end at logical frame boundaries.
     - The materialized block may be slightly longer (in row count) than
@@ -2861,6 +2871,9 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None):
     - Callers can pass a small ``frames_per_block`` and let Layer 2
       bin-search the right size, or pass a precomputed value.
     """
+    if stride is None or stride < 1:
+        stride = frames_per_block
+
     if "op" not in df.columns:
         # No macros to materialize -- chunk by frame markers.
         is_marker = df["reg"].isin({FRAME_REG, DELAY_REG})
@@ -2869,7 +2882,7 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None):
             yield df.reset_index(drop=True).copy()
             return
         n_frames = len(marker_idx)
-        for lo in range(0, n_frames, frames_per_block):
+        for lo in range(0, n_frames, stride):
             hi = min(lo + frames_per_block, n_frames)
             row_lo = marker_idx[lo]
             row_hi = (
@@ -2884,7 +2897,7 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None):
         yield df.reset_index(drop=True).copy()
         return
 
-    for lo_frame in range(0, marker_count, frames_per_block):
+    for lo_frame in range(0, marker_count, stride):
         hi_frame = min(lo_frame + frames_per_block, marker_count)
         block = self_contain_slice(df, lo_frame, hi_frame, args=args)
         if not block.empty:

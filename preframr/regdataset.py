@@ -1,5 +1,4 @@
 import concurrent.futures
-import copy
 import logging
 import glob
 import io
@@ -52,7 +51,8 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
 
 
 def materialize_block_array(
-    tokenizer, raw_df, seq_len, parser, reg_widths, frames_per_block=None
+    tokenizer, raw_df, seq_len, parser, reg_widths,
+    frames_per_block=None, stride=None,
 ):
     """Materialise the encoded ``raw_df`` (post-voice-reg, post-LoopPass)
     into a fixed-size 2D array of self-contained blocks.
@@ -86,7 +86,7 @@ def materialize_block_array(
 
     blocks = []
     for block_df in iter_self_contained_row_blocks(
-        abs_df, frames_per_block, args=parser.args
+        abs_df, frames_per_block, args=parser.args, stride=stride
     ):
         if block_df.empty:
             continue
@@ -309,6 +309,9 @@ class RegDataset(torch.utils.data.Dataset):
                                                 self.args.seq_len,
                                                 block_parser,
                                                 self.reg_widths,
+                                                stride=getattr(
+                                                    self.args, "block_stride", None
+                                                ),
                                             )
                                             blocks_path = dump_file.replace(
                                                 DUMP_SUFFIX, f".{i}.blocks.npy"
@@ -461,18 +464,19 @@ class RegDataset(torch.utils.data.Dataset):
         )
 
     def __len__(self):
-        # Prefer block_mapper when populated -- each block is a single
-        # self-contained training sample. Falls back to the flat seq
-        # sliding-window when blocks haven't been written (e.g., loading
-        # an older dataset that pre-dates the block path).
-        if len(self.block_mapper) > 0:
-            return len(self.block_mapper)
-        return len(self.seq_mapper)
+        # Training reads from block_mapper exclusively. Each block is a
+        # self-contained training sample (palettes, back-refs, loop
+        # bodies all resolve within the block by construction). The
+        # SeqMapper sliding-window fallback was retired because (a) most
+        # of its samples were one-token shifts of each other, and (b)
+        # cross-window reference leakage gave the LM unresolvable
+        # macros. SeqMapper is still populated for inference's
+        # ``getseq`` (which needs the full per-song 1D sequence), but
+        # never serves training batches.
+        return len(self.block_mapper)
 
     def __getitem__(self, index):
-        if len(self.block_mapper) > 0:
-            return self.block_mapper[index]
-        return self.seq_mapper[index]
+        return self.block_mapper[index]
 
     def getseq(self, i):
         seq, seq_meta = self.seq_mapper.getseq(i)
@@ -513,8 +517,6 @@ def _get_loader(args, dataset):
     )
 
 
-def get_loader(args, dataset, seq_mapper=False):
+def get_loader(args, dataset):
     dataset.load()
-    if seq_mapper:
-        return _get_loader(args, copy.deepcopy(dataset.seq_mapper))
-    return get_loader(args, dataset)
+    return _get_loader(args, dataset)

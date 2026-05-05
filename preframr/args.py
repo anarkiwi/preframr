@@ -155,4 +155,12 @@ def add_args(parser):
     parser.add_argument(
         "--write-blocks", action=argparse.BooleanOptionalAction, default=True
     )
+    # Stride between adjacent self-contained blocks, in logical frame
+    # slots. Default ``None`` => non-overlapping tiling (stride =
+    # frames_per_block ~= seq_len // 2). Smaller values produce
+    # overlapping blocks with different musical phases, expanding the
+    # training-sample count per song. Each block is independently
+    # self-contained, so overlap is correctness-neutral. Useful when
+    # the corpus is small relative to model capacity.
+    parser.add_argument("--block-stride", type=int, default=None)
     return parser

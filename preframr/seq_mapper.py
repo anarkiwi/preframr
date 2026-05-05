@@ -113,9 +113,14 @@ class BlockMapper(torch.utils.data.Dataset):
         self.mmap = mmap
         self.block_metas = []  # list[(path, seq_meta, num_blocks)]
         self.loaded = {}
-        self.cum_counts = None
+        # Start in a "finalized empty" state so an unloaded BlockMapper
+        # behaves like an empty sequence (len=0, __getitem__ raises
+        # IndexError) rather than ValueError("call finalize() first").
+        # ``add`` resets ``finalized`` so callers must re-finalize before
+        # iteration.
+        self.cum_counts = np.zeros(0, dtype=np.int64)
         self.total = 0
-        self.finalized = False
+        self.finalized = True
 
     def add(self, blocks_path, seq_meta):
         arr = np.load(blocks_path, mmap_mode="r" if self.mmap else None)
