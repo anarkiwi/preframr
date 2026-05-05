@@ -996,6 +996,9 @@ class RegLogParser:
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             xdf = macros.run_passes(xdf, args=self.args)
             xdf = self._norm_pr_order(xdf, v_only=False)
+            # Post-norm but pre-voice-reg passes (FuzzyLoopPass): they
+            # need DECODERS to dispatch on absolute regs.
+            xdf = macros.run_post_norm_pre_voice_passes(xdf, args=self.args)
             xdf = self._add_voice_reg(xdf, zero_voice_reg=True)
             # xdf = self._add_subreg(xdf)
             xdf = xdf.reset_index(drop=True)

@@ -3617,13 +3617,28 @@ PASSES = [
 # matching in any earlier form would false-match: two frames that differ
 # post-norm (different voice ordering, different VOICE_REG layout) can have
 # identical row content pre-norm.
-POST_NORM_PASSES = [
-    # FuzzyLoopPass runs first; LoopPass short-circuits when fuzzy_loop_pass
-    # is on (the two can't stack -- LoopPass's frame math doesn't account
-    # for PATTERN_REPLAY_OP body-length expansion).
+POST_NORM_PRE_VOICE_PASSES = [
+    # Runs after _norm_pr_order but before _add_voice_reg. Regs are
+    # absolute (not voice-rotated) so DECODERS can dispatch state-tracking
+    # walks correctly, and frame-level row order is canonical (sorted by
+    # voice, reg, op). FuzzyLoopPass needs both.
     FuzzyLoopPass(),
+]
+
+POST_NORM_PASSES = [
+    # LoopPass short-circuits when fuzzy_loop_pass is on (the two can't
+    # stack -- LoopPass's frame math doesn't account for
+    # PATTERN_REPLAY_OP body-length expansion).
     LoopPass(),
 ]
+
+
+def run_post_norm_pre_voice_passes(df, args=None):
+    """Apply passes that need post-norm row order but pre-voice-rotation
+    regs. Currently just FuzzyLoopPass."""
+    for macro_pass in POST_NORM_PRE_VOICE_PASSES:
+        df = macro_pass.apply(df, args=args)
+    return df
 
 
 def run_passes(df, args=None):
