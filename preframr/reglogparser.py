@@ -186,15 +186,17 @@ class RegLogParser:
         return df
 
     def _squeeze_changes(self, df):
-        diff_cols = df.reg.unique()
-        reg_df = (
-            df.pivot(columns="reg", values="val").astype(MODEL_PDTYPE).ffill().fillna(0)
-        )
-        reg_df = reg_df.loc[
-            (reg_df[diff_cols].shift(fill_value=0) != reg_df[diff_cols]).any(axis=1)
-        ]
-        df = reg_df.join(df)[["clock", "irq", "reg", "val"]]
-        return df.reset_index(drop=True)
+        # Drop a row when its (reg, val) repeats the previous write to the
+        # same reg -- i.e., the SID register's running value is unchanged.
+        # The old implementation pivoted to a wide form (one column per reg)
+        # then ffill+shift to detect any change; that's O(n*k) and on
+        # multi-million-row dumps takes 10s+ in pandas overhead.
+        # ``groupby('reg')['val'].shift()`` gives each row the previous val
+        # written to the same reg in O(n), and the row is kept iff its val
+        # differs from that or there's no prior write.
+        prev = df.groupby("reg")["val"].shift()
+        mask = prev.isna() | (prev != df["val"])
+        return df.loc[mask, ["clock", "irq", "reg", "val"]].reset_index(drop=True)
 
     def _combine_val(self, reg_df, reg, reg_range, dtype=MODEL_PDTYPE, lobits=8):
         origcols = reg_df.columns
@@ -209,20 +211,21 @@ class RegLogParser:
         return reg_df[origcols]
 
     def _combine_reg(self, orig_df, reg, diffmax=512, bits=0, lobits=8):
-        df = orig_df.copy()
-        df["dclock"] = df["clock"].floordiv(diffmax)
-        cond = (df["reg"] == reg) | (df["reg"] == (reg + 1))
-        reg_df = df[cond].copy()
-        non_reg_df = df[~cond].copy()
-        reg_df = self._combine_val(reg_df, reg, 2, lobits=lobits).drop_duplicates(
-            ["dclock"], keep="last"
-        )
+        # Sort only the small (reg, reg+1) subset so ``_combine_val``'s
+        # ffill sees temporal order; the rest of the df doesn't need to
+        # be clock-sorted at this stage. ``_combine_regs`` does one big
+        # sort at the end. This avoids 7 full-df sort_values on
+        # multi-million-row dumps.
+        cond = (orig_df["reg"] == reg) | (orig_df["reg"] == (reg + 1))
+        reg_df = orig_df[cond].sort_values("clock", kind="stable").copy()
+        non_reg_df = orig_df[~cond]
+        reg_df["dclock"] = reg_df["clock"].floordiv(diffmax)
+        reg_df = self._combine_val(reg_df, reg, 2, lobits=lobits)
+        reg_df = reg_df.drop_duplicates(["dclock"], keep="last")
         if bits:
             reg_df["val"] = np.left_shift(np.right_shift(reg_df["val"], bits), bits)
-        df = pd.concat([non_reg_df, reg_df], ignore_index=True).sort_values(
-            ["clock"], ascending=True
-        )
-        df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        df = pd.concat([non_reg_df, reg_df[orig_df.columns]], ignore_index=True)
+        df = df.astype(orig_df.dtypes)
         return df
 
     def _rotate_filter(self, df, r):
@@ -825,7 +828,10 @@ class RegLogParser:
             for reg, bits in ((v_offset, 0), ((v_offset + 2), PCM_BITS)):
                 df = self._combine_reg(df, reg=reg, bits=bits)
         df = self._combine_reg(df, FC_LO_REG, bits=FILTER_BITS)
-        return df
+        # _combine_reg defers clock-sorting; restore it once for the
+        # whole df at the end so downstream stages see clock-ordered
+        # rows.
+        return df.sort_values("clock", kind="stable").reset_index(drop=True)
 
     def _consolidate_frames(self, orig_df):
         df = self._norm_df(orig_df.copy())
