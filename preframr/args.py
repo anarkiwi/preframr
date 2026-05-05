@@ -106,6 +106,13 @@ def add_args(parser):
     parser.add_argument(
         "--loop-pass", action=argparse.BooleanOptionalAction, default=True
     )
+    # Transposed-loop matching inside LoopPass: matches frame patterns
+    # whose freq SET vals differ from a prior occurrence by a uniform
+    # delta, emitting BACK_REF_TRANSPOSED_OP. Targets defmon-style
+    # orderlist transposition (same pattern played at different keys).
+    parser.add_argument(
+        "--loop-transposed", action=argparse.BooleanOptionalAction, default=True
+    )
     # Per-(voice, direction) cap on the GateMacroPass palette. Default
     # ``None`` keeps v1 behaviour (unbounded palette: every distinct
     # ``(ctrl, AD, SR)`` end-of-frame state earns a slot). Setting a small

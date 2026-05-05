@@ -107,6 +107,7 @@ def _df_arrays_and_frames(df):
 
 from preframr.stfconstants import (
     BACK_REF_OP,
+    BACK_REF_TRANSPOSED_OP,
     DELAY_REG,
     DIFF_OP,
     DO_LOOP_OP,
@@ -1592,6 +1593,45 @@ def _frame_contents_batch(df, frames):
     return out
 
 
+# Voice-relative freq reg (post-``_add_voice_reg``: all voices' freq
+# collapses to reg 0 mod VOICE_REG_SIZE). ``LoopPass`` uses this to
+# detect transposed pattern repeats: same body where every freq SET
+# val differs from the source by a uniform delta (one semitone shift
+# = a fixed quantized-note-index offset).
+_FREQ_REG_VOICED = 0
+
+
+def _frame_stripped_contents_batch(df, frames):
+    """Like ``_frame_contents_batch`` but freq SET vals are replaced by a
+    placeholder so that stripped content matches across transpositions.
+    Returned alongside per-frame freq-SET position lists for the
+    transposed-match step.
+    """
+    regs = df["reg"].to_numpy()
+    vals = df["val"].to_numpy()
+    ops = df["op"].to_numpy()
+    if "subreg" in df.columns:
+        subregs = df["subreg"].to_numpy()
+    else:
+        subregs = np.full(len(df), -1, dtype=np.int64)
+    is_freq_set = (regs == _FREQ_REG_VOICED) & (ops == SET_OP) & (subregs == -1)
+    stripped = []
+    for s, e in frames:
+        rs = regs[s:e].tolist()
+        vs = vals[s:e].tolist()
+        os = ops[s:e].tolist()
+        ss = subregs[s:e].tolist()
+        is_fs = is_freq_set[s:e]
+        # placeholder val 0 for freq SETs -- vals[i] is dropped.
+        stripped.append(
+            tuple(
+                (rs[k], 0 if is_fs[k] else vs[k], os[k], ss[k])
+                for k in range(e - s)
+            )
+        )
+    return stripped
+
+
 class LoopPass(MacroPass):
     """Hybrid encoder for repeated frame sequences.
 
@@ -1622,6 +1662,9 @@ class LoopPass(MacroPass):
     def apply(self, df, args=None):
         if args is not None and not getattr(args, "loop_pass", True):
             return df
+        loop_transposed = (
+            getattr(args, "loop_transposed", True) if args is not None else True
+        )
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         frames = _slice_into_frames(df)
@@ -1629,10 +1672,17 @@ class LoopPass(MacroPass):
         if n_frames < self.min_lz_match:
             return df
         contents = _frame_contents_batch(df, frames)
+        stripped = (
+            _frame_stripped_contents_batch(df, frames) if loop_transposed else None
+        )
         sizes = [e - s for s, e in frames]
 
-        # LZ77 seed table: (content_i, content_{i+1}) -> [start frame indices]
+        # LZ77 seed table: (content_i, content_{i+1}) -> [start frame indices].
+        # ``seed_stripped`` keys on freq-stripped contents so transposed
+        # repeats (same melodic shape, different absolute pitch) hit
+        # candidates the exact-match table misses.
         seed = defaultdict(list)
+        seed_stripped = defaultdict(list)
         out_rows = []
         sample_row = df.iloc[0]  # used to seed dtypes when constructing macro rows
         diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
@@ -1692,11 +1742,86 @@ class LoopPass(MacroPass):
                     best_save, best_dist, best_len = save, i - cand, length
             return best_save, best_dist, best_len
 
+        def best_lz_transposed(i):
+            """Like ``best_lz`` but matches frames whose freq SET vals
+            differ from the source by a uniform delta. Returns
+            ``(save, dist, length, delta)``. delta=0 implies exact match
+            -- defer to ``best_lz`` for that case."""
+            best_save = 0
+            best_dist = 0
+            best_len = 0
+            best_delta = 0
+            if i + 1 >= n_frames:
+                return 0, 0, 0, 0
+            cands = seed_stripped.get((stripped[i], stripped[i + 1]))
+            if not cands:
+                return 0, 0, 0, 0
+            for cand in reversed(cands):
+                if cand >= i:
+                    continue
+                # Walk frames; verify a single uniform delta holds across
+                # all freq SETs and other rows match exactly.
+                length = 0
+                delta = None
+                while (
+                    length < self.max_lz_length
+                    and i + length < n_frames
+                    and cand + length < i
+                ):
+                    f_src = contents[cand + length]
+                    f_dst = contents[i + length]
+                    if len(f_src) != len(f_dst):
+                        break
+                    frame_ok = True
+                    for r_src, r_dst in zip(f_src, f_dst):
+                        if (
+                            r_src[0] == _FREQ_REG_VOICED
+                            and r_src[2] == SET_OP
+                            and r_src[3] == -1
+                        ):
+                            if (
+                                r_dst[0] != r_src[0]
+                                or r_dst[2] != r_src[2]
+                                or r_dst[3] != r_src[3]
+                            ):
+                                frame_ok = False
+                                break
+                            d = int(r_dst[1]) - int(r_src[1])
+                            if delta is None:
+                                delta = d
+                            elif d != delta:
+                                frame_ok = False
+                                break
+                        else:
+                            if r_src != r_dst:
+                                frame_ok = False
+                                break
+                    if not frame_ok:
+                        break
+                    length += 1
+                if length < self.min_lz_match or delta is None or delta == 0:
+                    continue
+                # Need at least one freq-SET row that participates -- if
+                # delta is None we matched exact (best_lz handles).
+                # Cost: BACK_REF_TRANSPOSED is a single token, same as
+                # BACK_REF, but vocab pressure is one extra slot per
+                # distinct delta. Conservative save accounting: same as
+                # back-ref minus the additional metadata token.
+                body_rows = sum(sizes[i + k] for k in range(length))
+                save = body_rows - self.ref_cost
+                if save > best_save:
+                    best_save, best_dist, best_len, best_delta = (
+                        save, i - cand, length, delta,
+                    )
+            return best_save, best_dist, best_len, best_delta
+
         def emit_literal(i):
             s, e = frames[i]
             out_rows.extend(all_records[s:e])
             if i + 1 < n_frames:
                 seed[(contents[i], contents[i + 1])].append(i)
+                if loop_transposed:
+                    seed_stripped[(stripped[i], stripped[i + 1])].append(i)
 
         def emit_back_ref(i, dist, length):
             out_rows.append(
@@ -1713,6 +1838,34 @@ class LoopPass(MacroPass):
             for k in range(length):
                 if i + k + 1 < n_frames:
                     seed[(contents[i + k], contents[i + k + 1])].append(i + k)
+                    if loop_transposed:
+                        seed_stripped[
+                            (stripped[i + k], stripped[i + k + 1])
+                        ].append(i + k)
+
+        def emit_back_ref_transposed(i, dist, length, delta):
+            # Encoded as ``(distance, length)`` in val (same packing as
+            # BACK_REF_OP) and the freq delta in subreg (signed). The
+            # decoder copies frames cand..cand+length-1 and adds delta
+            # to every freq SET val it dispatches.
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(_pack_back_ref(dist, length)),
+                    "diff": diff_default,
+                    "op": int(BACK_REF_TRANSPOSED_OP),
+                    "subreg": int(delta),
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            for k in range(length):
+                if i + k + 1 < n_frames:
+                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
+                    if loop_transposed:
+                        seed_stripped[
+                            (stripped[i + k], stripped[i + k + 1])
+                        ].append(i + k)
 
         def emit_do_loop(i, body, n):
             out_rows.append(
@@ -1744,27 +1897,40 @@ class LoopPass(MacroPass):
             for k in range(covered):
                 if i + k + 1 < n_frames:
                     seed[(contents[i + k], contents[i + k + 1])].append(i + k)
+                    if loop_transposed:
+                        seed_stripped[
+                            (stripped[i + k], stripped[i + k + 1])
+                        ].append(i + k)
 
         i = 0
         while i < n_frames:
             do_save, do_body, do_n = best_do(i)
             lz_save, lz_dist, lz_len = best_lz(i)
-            best_now = max(do_save, lz_save)
-            # One-frame lazy lookahead: if deferring buys >2 more tokens,
-            # emit a literal at i now.
+            if loop_transposed:
+                tr_save, tr_dist, tr_len, tr_delta = best_lz_transposed(i)
+            else:
+                tr_save = tr_dist = tr_len = tr_delta = 0
+            best_now = max(do_save, lz_save, tr_save)
             if best_now > 0 and i + 1 < n_frames:
                 la_do, _, _ = best_do(i + 1)
                 la_lz, _, _ = best_lz(i + 1)
-                if max(la_do, la_lz) > best_now + 2:
+                if loop_transposed:
+                    la_tr, _, _, _ = best_lz_transposed(i + 1)
+                else:
+                    la_tr = 0
+                if max(la_do, la_lz, la_tr) > best_now + 2:
                     emit_literal(i)
                     i += 1
                     continue
-            if do_save > 0 and do_save >= lz_save:
+            if do_save > 0 and do_save >= lz_save and do_save >= tr_save:
                 emit_do_loop(i, do_body, do_n)
                 i += do_body * do_n
-            elif lz_save > 0:
+            elif lz_save > 0 and lz_save >= tr_save:
                 emit_back_ref(i, lz_dist, lz_len)
                 i += lz_len
+            elif tr_save > 0:
+                emit_back_ref_transposed(i, tr_dist, tr_len, tr_delta)
+                i += tr_len
             else:
                 emit_literal(i)
                 i += 1
@@ -1804,7 +1970,9 @@ def expand_loops(df):
     """
     if "op" not in df.columns:
         return df
-    has_loops = df["op"].isin([BACK_REF_OP, DO_LOOP_OP]).any()
+    has_loops = df["op"].isin(
+        [BACK_REF_OP, DO_LOOP_OP, BACK_REF_TRANSPOSED_OP]
+    ).any()
     if not has_loops:
         return df
 
@@ -1823,8 +1991,17 @@ def expand_loops(df):
     while i < n:
         row = df.iloc[i]
         op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
-        if op == BACK_REF_OP:
+        if op == BACK_REF_OP or op == BACK_REF_TRANSPOSED_OP:
             distance, length = _unpack_back_ref(row["val"])
+            delta = 0
+            if op == BACK_REF_TRANSPOSED_OP:
+                # ``subreg`` carries the (signed) freq-val delta. Pandas
+                # may store it as nullable int; coerce to plain int.
+                d_raw = row["subreg"]
+                if pd.isna(d_raw):
+                    delta = 0
+                else:
+                    delta = int(d_raw)
             cur_frame = len(output_frame_starts)
             target = cur_frame - distance
             assert target >= 0, (
@@ -1835,7 +2012,6 @@ def expand_loops(df):
                 f"BACK_REF target range [{target},{target+length}) overlaps "
                 f"present frame {cur_frame}"
             )
-            # Copy the L source frames out of the existing output buffer.
             for f in range(target, target + length):
                 src_lo = output_frame_starts[f]
                 src_hi = (
@@ -1843,10 +2019,17 @@ def expand_loops(df):
                     if f + 1 < len(output_frame_starts)
                     else len(out)
                 )
-                # snapshot to avoid mutation while iterating
                 snapshot = list(out[src_lo:src_hi])
                 for snap_row in snapshot:
-                    append_row(dict(snap_row))
+                    new_row = dict(snap_row)
+                    if (
+                        delta
+                        and int(new_row.get("reg", -1)) == _FREQ_REG_VOICED
+                        and int(new_row.get("op", SET_OP)) == SET_OP
+                        and int(new_row.get("subreg", -1)) == -1
+                    ):
+                        new_row["val"] = int(new_row["val"]) + delta
+                    append_row(new_row)
             i += 1
             continue
         if op == DO_LOOP_OP:
