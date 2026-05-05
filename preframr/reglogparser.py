@@ -1013,14 +1013,23 @@ class RegLogParser:
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             xdf = macros.run_passes(xdf, args=self.args)
             xdf = self._norm_pr_order(xdf, v_only=False)
-            # Post-norm but pre-voice-reg passes (FuzzyLoopPass): they
-            # need DECODERS to dispatch on absolute regs.
+            # The filter's length check (``seq_len*2``) measures the
+            # row count of the final post-voice-reg form, so check
+            # against a temporary _add_voice_reg view BEFORE LoopPass
+            # collapses bodies into 1-row BACK_REF tokens. Without
+            # this, songs whose final post-encoding row count is below
+            # the threshold get filtered out even though their
+            # pre-encoding form was fine.
+            xdf_voice_preview = self._add_voice_reg(xdf, zero_voice_reg=True)
+            if not self._filter(xdf_voice_preview, name):
+                break
+            # Post-norm but pre-voice-reg passes (LoopPass): regs are
+            # absolute so DECODERS dispatch on the right voice for the
+            # fuzzy-match state walk.
             xdf = macros.run_post_norm_pre_voice_passes(xdf, args=self.args)
             xdf = self._add_voice_reg(xdf, zero_voice_reg=True)
             # xdf = self._add_subreg(xdf)
             xdf = xdf.reset_index(drop=True)
-            if not self._filter(xdf, name):
-                break
             for k in TOKEN_KEYS:
                 if k not in xdf.columns:
                     xdf[k] = int(-1)

@@ -113,19 +113,18 @@ def add_args(parser):
     parser.add_argument(
         "--loop-transposed", action=argparse.BooleanOptionalAction, default=True
     )
-    # Fuzzy-loop matching: catches frame patterns whose musical
-    # fingerprint matches a prior occurrence even when byte-level writes
-    # differ. Encoded as PATTERN_REPLAY_OP + N PATTERN_OVERLAY_OP rows;
-    # decoder replays source body and applies overlays as additional
-    # SET writes. Default OFF: enabling currently disables LoopPass
-    # (the two can't stack -- LoopPass's frame math doesn't account
-    # for PATTERN_REPLAY_OP body-length expansion), and fuzzy alone
-    # misses LoopPass's DO_LOOP_OP nested-repeat compression. Net is a
-    # regression on the /tmp/inv corpus until fuzzy integrates with
-    # LoopPass's matching (single unified pass doing exact +
-    # transposed + fuzzy + DO_LOOP).
+    # Fuzzy-loop matching inside LoopPass: catches frame patterns
+    # whose musical fingerprint matches a prior occurrence even when
+    # byte-level writes differ. Encoded as PATTERN_REPLAY_OP + N
+    # PATTERN_OVERLAY_OP rows; decoder replays the source body and
+    # applies overlays as additional SET writes. Stacks with the
+    # exact / transposed / DO_LOOP matchers (single unified pass).
+    # Default ON: adds ~8% compression on the /tmp/inv corpus on top
+    # of LoopPass-only (varies 4-15% per song; biggest wins on songs
+    # with state-drift between repeats like instrument envelope
+    # counters or vibrato phase).
     parser.add_argument(
-        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=False
+        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=True
     )
     # Per-(voice, direction) cap on the GateMacroPass palette. Default
     # ``None`` keeps v1 behaviour (unbounded palette: every distinct

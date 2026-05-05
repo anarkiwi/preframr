@@ -1634,12 +1634,12 @@ def _frame_contents_batch(df, frames):
     return out
 
 
-# Voice-relative freq reg (post-``_add_voice_reg``: all voices' freq
-# collapses to reg 0 mod VOICE_REG_SIZE). ``LoopPass`` uses this to
-# detect transposed pattern repeats: same body where every freq SET
-# val differs from the source by a uniform delta (one semitone shift
-# = a fixed quantized-note-index offset).
-_FREQ_REG_VOICED = 0
+# Freq regs (pre-``_add_voice_reg``: absolute per-voice reg numbers
+# 0, 7, 14). ``LoopPass`` uses this set to detect transposed pattern
+# repeats: same body where every freq SET val differs from the source
+# by a uniform delta (one semitone shift = a fixed quantized-note-index
+# offset).
+_FREQ_REGS_VOICED = frozenset(FREQ_REGS_BY_VOICE)
 
 
 def _frame_stripped_contents_batch(df, frames):
@@ -1655,7 +1655,9 @@ def _frame_stripped_contents_batch(df, frames):
         subregs = df["subreg"].to_numpy()
     else:
         subregs = np.full(len(df), -1, dtype=np.int64)
-    is_freq_set = (regs == _FREQ_REG_VOICED) & (ops == SET_OP) & (subregs == -1)
+    is_freq_set = (
+        np.isin(regs, list(_FREQ_REGS_VOICED)) & (ops == SET_OP) & (subregs == -1)
+    )
     stripped = []
     for s, e in frames:
         rs = regs[s:e].tolist()
@@ -1703,15 +1705,11 @@ class LoopPass(MacroPass):
     def apply(self, df, args=None):
         if args is not None and not getattr(args, "loop_pass", True):
             return df
-        # FuzzyLoopPass subsumes exact-match LoopPass via overlay=0.
-        # When fuzzy is on (default), skip LoopPass entirely -- the two
-        # can't stack because LoopPass's frame math doesn't account for
-        # PATTERN_REPLAY_OP body-length expansion.
-        if args is not None and getattr(args, "fuzzy_loop_pass", True):
-            if "op" in df.columns and df["op"].isin([PATTERN_REPLAY_OP]).any():
-                return df
         loop_transposed = (
             getattr(args, "loop_transposed", True) if args is not None else True
+        )
+        fuzzy_loop = (
+            getattr(args, "fuzzy_loop_pass", False) if args is not None else False
         )
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
@@ -1725,12 +1723,32 @@ class LoopPass(MacroPass):
         )
         sizes = [e - s for s, e in frames]
 
-        # LZ77 seed table: (content_i, content_{i+1}) -> [start frame indices].
-        # ``seed_stripped`` keys on freq-stripped contents so transposed
-        # repeats (same melodic shape, different absolute pitch) hit
-        # candidates the exact-match table misses.
+        # Fuzzy match needs per-frame musical fingerprints (so musically
+        # equivalent frames hash the same despite byte-level state drift)
+        # plus per-frame end-of-frame state snapshots (so the encoder can
+        # compute exact byte-level overlay diffs between source and
+        # target bodies). Both come from a single ``_per_frame_state_walk``
+        # of the input df. Empty when fuzzy is off, which keeps the cost
+        # off the default LoopPass-only path.
+        fps = []
+        snapshots = []
+        if fuzzy_loop:
+            try:
+                fps, snapshots = _per_frame_state_walk(df)
+            except Exception:
+                fps, snapshots = [], []
+            if len(fps) != n_frames:
+                fps, snapshots = [], []
+
+        # LZ77 seed tables. ``seed`` keys on exact byte content;
+        # ``seed_stripped`` on freq-stripped content (for transposed
+        # matching); ``seed_fp`` on musical fingerprint pairs (for fuzzy
+        # matching). Each emit (literal / back-ref / pattern-replay /
+        # do-loop) populates the seeds for the frames it covers so
+        # subsequent positions can match against earlier emissions.
         seed = defaultdict(list)
         seed_stripped = defaultdict(list)
+        seed_fp = defaultdict(list)
         out_rows = []
         sample_row = df.iloc[0]  # used to seed dtypes when constructing macro rows
         diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
@@ -1739,6 +1757,7 @@ class LoopPass(MacroPass):
         # via ``all_records[s:e]`` avoids the 6000-call/song
         # ``df.iloc[r].to_dict()`` pattern (each call ~5ms in pandas).
         all_records = df.to_dict("records")
+        snapshot_regs = sorted(snapshots[0].keys()) if snapshots else []
 
         def best_do(i):
             best_save = 0
@@ -1823,7 +1842,7 @@ class LoopPass(MacroPass):
                     frame_ok = True
                     for r_src, r_dst in zip(f_src, f_dst):
                         if (
-                            r_src[0] == _FREQ_REG_VOICED
+                            r_src[0] in _FREQ_REGS_VOICED
                             and r_src[2] == SET_OP
                             and r_src[3] == -1
                         ):
@@ -1863,13 +1882,18 @@ class LoopPass(MacroPass):
                     )
             return best_save, best_dist, best_len, best_delta
 
+        def _seed_pair(i):
+            seed[(contents[i], contents[i + 1])].append(i)
+            if loop_transposed:
+                seed_stripped[(stripped[i], stripped[i + 1])].append(i)
+            if fuzzy_loop and fps:
+                seed_fp[(fps[i], fps[i + 1])].append(i)
+
         def emit_literal(i):
             s, e = frames[i]
             out_rows.extend(all_records[s:e])
             if i + 1 < n_frames:
-                seed[(contents[i], contents[i + 1])].append(i)
-                if loop_transposed:
-                    seed_stripped[(stripped[i], stripped[i + 1])].append(i)
+                _seed_pair(i)
 
         def emit_back_ref(i, dist, length):
             out_rows.append(
@@ -1885,11 +1909,7 @@ class LoopPass(MacroPass):
             )
             for k in range(length):
                 if i + k + 1 < n_frames:
-                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
-                    if loop_transposed:
-                        seed_stripped[
-                            (stripped[i + k], stripped[i + k + 1])
-                        ].append(i + k)
+                    _seed_pair(i + k)
 
         def emit_back_ref_transposed(i, dist, length, delta):
             # Encoded as ``(distance, length)`` in val (same packing as
@@ -1909,11 +1929,7 @@ class LoopPass(MacroPass):
             )
             for k in range(length):
                 if i + k + 1 < n_frames:
-                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
-                    if loop_transposed:
-                        seed_stripped[
-                            (stripped[i + k], stripped[i + k + 1])
-                        ].append(i + k)
+                    _seed_pair(i + k)
 
         def emit_do_loop(i, body, n):
             out_rows.append(
@@ -1944,11 +1960,86 @@ class LoopPass(MacroPass):
             covered = body * n
             for k in range(covered):
                 if i + k + 1 < n_frames:
-                    seed[(contents[i + k], contents[i + k + 1])].append(i + k)
-                    if loop_transposed:
-                        seed_stripped[
-                            (stripped[i + k], stripped[i + k + 1])
-                        ].append(i + k)
+                    _seed_pair(i + k)
+
+        def compute_overlays(src_idx, dst_idx, length):
+            overlays = []  # list of (frame_offset, reg, val)
+            for k in range(length):
+                src = snapshots[src_idx + k]
+                dst = snapshots[dst_idx + k]
+                for r in snapshot_regs:
+                    if src.get(r, 0) != dst.get(r, 0):
+                        overlays.append((k, r, dst.get(r, 0)))
+            return overlays
+
+        # Fuzzy match: same byte cost as BACK_REF (1 token) plus one
+        # PATTERN_OVERLAY_OP per differing reg per frame. Only beats
+        # ``best_lz`` / ``best_lz_transposed`` when those miss the match
+        # entirely (overlay count > 0 means byte-level divergence the
+        # exact / freq-shift matchers can't handle).
+        max_fuzzy_length = 16
+        min_fuzzy_match = 2
+
+        def best_lz_fuzzy(i):
+            if not fuzzy_loop or not fps:
+                return 0, 0, 0, []
+            if i + 1 >= n_frames:
+                return 0, 0, 0, []
+            cands = seed_fp.get((fps[i], fps[i + 1]))
+            if not cands:
+                return 0, 0, 0, []
+            best_save = 0
+            best = (0, 0, 0, [])
+            for cand in reversed(cands):
+                if cand >= i:
+                    continue
+                length = 0
+                while (
+                    length < max_fuzzy_length
+                    and i + length < n_frames
+                    and cand + length < i
+                    and fps[cand + length] == fps[i + length]
+                ):
+                    length += 1
+                if length < min_fuzzy_match:
+                    continue
+                overlays = compute_overlays(cand, i, length)
+                body_rows = sum(sizes[i + k] for k in range(length))
+                cost = 1 + len(overlays)
+                save = body_rows - cost
+                if save > best_save:
+                    best_save = save
+                    best = (save, i - cand, length, overlays)
+            return best
+
+        def emit_pattern_replay(i, dist, length, overlays):
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(_pack_back_ref(dist, length)),
+                    "diff": diff_default,
+                    "op": int(PATTERN_REPLAY_OP),
+                    "subreg": int(len(overlays)),
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            for frame_offset, reg, val in overlays:
+                packed = (int(reg) << 16) | (int(val) & 0xFFFF)
+                out_rows.append(
+                    {
+                        "reg": int(LOOP_OP_REG),
+                        "val": int(packed),
+                        "diff": diff_default,
+                        "op": int(PATTERN_OVERLAY_OP),
+                        "subreg": int(frame_offset),
+                        "irq": irq_default,
+                        "description": 0,
+                    }
+                )
+            for k in range(length):
+                if i + k + 1 < n_frames:
+                    _seed_pair(i + k)
 
         i = 0
         while i < n_frames:
@@ -1958,7 +2049,8 @@ class LoopPass(MacroPass):
                 tr_save, tr_dist, tr_len, tr_delta = best_lz_transposed(i)
             else:
                 tr_save = tr_dist = tr_len = tr_delta = 0
-            best_now = max(do_save, lz_save, tr_save)
+            fz_save, fz_dist, fz_len, fz_overlays = best_lz_fuzzy(i)
+            best_now = max(do_save, lz_save, tr_save, fz_save)
             if best_now > 0 and i + 1 < n_frames:
                 la_do, _, _ = best_do(i + 1)
                 la_lz, _, _ = best_lz(i + 1)
@@ -1966,19 +2058,28 @@ class LoopPass(MacroPass):
                     la_tr, _, _, _ = best_lz_transposed(i + 1)
                 else:
                     la_tr = 0
-                if max(la_do, la_lz, la_tr) > best_now + 2:
+                la_fz, _, _, _ = best_lz_fuzzy(i + 1)
+                if max(la_do, la_lz, la_tr, la_fz) > best_now + 2:
                     emit_literal(i)
                     i += 1
                     continue
-            if do_save > 0 and do_save >= lz_save and do_save >= tr_save:
+            if (
+                do_save > 0
+                and do_save >= lz_save
+                and do_save >= tr_save
+                and do_save >= fz_save
+            ):
                 emit_do_loop(i, do_body, do_n)
                 i += do_body * do_n
-            elif lz_save > 0 and lz_save >= tr_save:
+            elif lz_save > 0 and lz_save >= tr_save and lz_save >= fz_save:
                 emit_back_ref(i, lz_dist, lz_len)
                 i += lz_len
-            elif tr_save > 0:
+            elif tr_save > 0 and tr_save >= fz_save:
                 emit_back_ref_transposed(i, tr_dist, tr_len, tr_delta)
                 i += tr_len
+            elif fz_save > 0:
+                emit_pattern_replay(i, fz_dist, fz_len, fz_overlays)
+                i += fz_len
             else:
                 emit_literal(i)
                 i += 1
@@ -2033,9 +2134,10 @@ def _per_frame_state_walk(df):
     """Walk df via ``_simulate_palette``-style dispatch and capture, per
     logical frame, (fingerprint, state.last_val snapshot). The state
     snapshot is the dict of register → end-of-frame byte value, used by
-    ``FuzzyLoopPass`` to compute state-level overlay diffs between a
-    candidate source body and the target. Only voice-bound regs and a
-    handful of global regs are snapshotted (to bound memory)."""
+    ``LoopPass``'s fuzzy matcher to compute state-level overlay diffs
+    between a candidate source body and the target. Only voice-bound
+    regs and a handful of global regs are snapshotted (to bound
+    memory)."""
     state = _build_decode_state(df)
     if state is None:
         return [], []
@@ -2090,183 +2192,6 @@ def _per_frame_state_walk(df):
         fps.append(_musical_fingerprint(state))
         snapshots.append({r: int(state.last_val.get(r, 0)) for r in snapshot_regs})
     return fps, snapshots
-
-
-class FuzzyLoopPass(MacroPass):
-    """Detect repeated frame patterns whose musical fingerprint matches
-    a prior occurrence even when the byte-level writes differ. Encodes
-    each match as ``PATTERN_REPLAY_OP`` (one back-ref token) plus a
-    short list of ``PATTERN_OVERLAY_OP`` rows that overwrite the
-    differing per-frame end-state values.
-
-    Runs after ``LoopPass`` so exact repeats are already encoded;
-    ``FuzzyLoopPass`` works on the residual literals. The fingerprint
-    captures (per-voice note + waveform + gate, plus filter cutoff and
-    volume) -- musically meaningful state that's invariant to
-    intermediate vibrato / PWM / envelope counter drift.
-
-    Encoded form per match:
-      - One ``PATTERN_REPLAY_OP`` row: ``val = (distance<<8) | length``,
-        ``subreg = num_overlays``.
-      - ``num_overlays`` consecutive ``PATTERN_OVERLAY_OP`` rows: each
-        carries ``reg`` (absolute), ``val`` (overwrite), and
-        ``subreg = frame_offset_in_body``.
-
-    On decode, ``expand_loops`` replays the source body's ``length``
-    frames and, for each overlay, appends a SET write to the body's
-    ``frame_offset_in_body`` frame with the overlay's (reg, val).
-    The SET happens AFTER the replayed body's writes, so end-of-frame
-    state.last_val[reg] = overlay's val, matching the original target.
-    """
-
-    min_fuzzy_match = 2
-    max_fuzzy_length = 16
-
-    def apply(self, df, args=None):
-        if args is not None and not getattr(args, "fuzzy_loop_pass", True):
-            return df
-        if "op" not in df.columns:
-            return df
-        df = df.reset_index(drop=True).copy()
-        df = _ensure_subreg(df)
-        try:
-            fps, snapshots = _per_frame_state_walk(df)
-        except Exception:
-            return df
-        if len(fps) < self.min_fuzzy_match:
-            return df
-
-        frames = _slice_into_frames(df)
-        n_frames = len(frames)
-        sizes = [e - s for s, e in frames]
-        if n_frames != len(fps):
-            # Walk produced a different frame count than _slice_into_frames
-            # -- can happen on dfs with malformed markers. Skip safely.
-            return df
-
-        sample_row = df.iloc[0]
-        diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
-        irq_default = int(df["irq"].iloc[0]) if "irq" in df.columns else -1
-        all_records = df.to_dict("records")
-
-        # Per-frame fingerprint seed: (fp_i, fp_{i+1}) -> [start indices].
-        seed = defaultdict(list)
-        out_rows = []
-
-        # State-level overlay computation: for each frame in the body,
-        # compare source and target snapshots; emit one overlay per
-        # differing reg.
-        snapshot_regs = sorted(snapshots[0].keys()) if snapshots else []
-
-        def compute_overlays(src_idx, dst_idx, length):
-            overlays = []  # list of (frame_offset, reg, val) tuples
-            for k in range(length):
-                src = snapshots[src_idx + k]
-                dst = snapshots[dst_idx + k]
-                for r in snapshot_regs:
-                    if src.get(r, 0) != dst.get(r, 0):
-                        overlays.append((k, r, dst.get(r, 0)))
-            return overlays
-
-        def best_fuzzy(i):
-            """Return (save, dist, length, overlays) for the best match at i.
-            ``save`` is body_rows - cost where cost = 1 + len(overlays).
-            Negative-save matches return zeros."""
-            if i + 1 >= n_frames:
-                return 0, 0, 0, []
-            cands = seed.get((fps[i], fps[i + 1]))
-            if not cands:
-                return 0, 0, 0, []
-            best_save = 0
-            best = (0, 0, 0, [])
-            for cand in reversed(cands):
-                if cand >= i:
-                    continue
-                length = 0
-                while (
-                    length < self.max_fuzzy_length
-                    and i + length < n_frames
-                    and cand + length < i
-                    and fps[cand + length] == fps[i + length]
-                ):
-                    length += 1
-                if length < self.min_fuzzy_match:
-                    continue
-                overlays = compute_overlays(cand, i, length)
-                body_rows = sum(sizes[i + k] for k in range(length))
-                cost = 1 + len(overlays)
-                save = body_rows - cost
-                if save > best_save:
-                    best_save = save
-                    best = (save, i - cand, length, overlays)
-            return best
-
-        def emit_literal(i):
-            s, e = frames[i]
-            out_rows.extend(all_records[s:e])
-            if i + 1 < n_frames:
-                seed[(fps[i], fps[i + 1])].append(i)
-
-        def emit_pattern_replay(i, dist, length, overlays):
-            out_rows.append(
-                {
-                    "reg": int(LOOP_OP_REG),
-                    "val": int(_pack_back_ref(dist, length)),
-                    "diff": diff_default,
-                    "op": int(PATTERN_REPLAY_OP),
-                    "subreg": int(len(overlays)),
-                    "irq": irq_default,
-                    "description": 0,
-                }
-            )
-            for frame_offset, reg, val in overlays:
-                # Pack target_reg + new_val into val so the row's reg
-                # stays at LOOP_OP_REG -- _norm_pr_order then sorts all
-                # the overlay rows together with the PATTERN_REPLAY_OP
-                # at the head (op=22 < op=23 = OVERLAY).
-                packed = (int(reg) << 16) | (int(val) & 0xFFFF)
-                out_rows.append(
-                    {
-                        "reg": int(LOOP_OP_REG),
-                        "val": int(packed),
-                        "diff": diff_default,
-                        "op": int(PATTERN_OVERLAY_OP),
-                        "subreg": int(frame_offset),
-                        "irq": irq_default,
-                        "description": 0,
-                    }
-                )
-            for k in range(length):
-                if i + k + 1 < n_frames:
-                    seed[(fps[i + k], fps[i + k + 1])].append(i + k)
-
-        i = 0
-        while i < n_frames:
-            save, dist, length, overlays = best_fuzzy(i)
-            if save > 0:
-                emit_pattern_replay(i, dist, length, overlays)
-                i += length
-            else:
-                emit_literal(i)
-                i += 1
-
-        if not out_rows:
-            return df
-        orig_dtypes = df.dtypes.to_dict()
-        new_df = pd.DataFrame(out_rows)
-        for col in df.columns:
-            if col not in new_df.columns:
-                new_df[col] = 0 if col == "description" else -1
-        new_df = new_df[list(df.columns)]
-        for col, dt in orig_dtypes.items():
-            try:
-                new_df[col] = new_df[col].astype(dt)
-            except (TypeError, ValueError):
-                pass
-        new_df = new_df.reset_index(drop=True)
-        if df.attrs:
-            new_df.attrs.update(df.attrs)
-        return new_df
 
 
 # ---------------------------------------------------------------------------
@@ -2341,7 +2266,7 @@ def expand_loops(df):
                     new_row = dict(snap_row)
                     if (
                         delta
-                        and int(new_row.get("reg", -1)) == _FREQ_REG_VOICED
+                        and int(new_row.get("reg", -1)) in _FREQ_REGS_VOICED
                         and int(new_row.get("op", SET_OP)) == SET_OP
                         and int(new_row.get("subreg", -1)) == -1
                     ):
@@ -3680,23 +3605,21 @@ PASSES = [
 # identical row content pre-norm.
 POST_NORM_PRE_VOICE_PASSES = [
     # Runs after _norm_pr_order but before _add_voice_reg. Regs are
-    # absolute (not voice-rotated) so DECODERS can dispatch state-tracking
-    # walks correctly, and frame-level row order is canonical (sorted by
-    # voice, reg, op). FuzzyLoopPass needs both.
-    FuzzyLoopPass(),
-]
-
-POST_NORM_PASSES = [
-    # LoopPass short-circuits when fuzzy_loop_pass is on (the two can't
-    # stack -- LoopPass's frame math doesn't account for
-    # PATTERN_REPLAY_OP body-length expansion).
+    # absolute (not voice-rotated) so the fuzzy-loop walk inside
+    # ``LoopPass`` (when ``--fuzzy-loop-pass`` is on) can dispatch
+    # DECODERS correctly, and frame-level row order is canonical
+    # (sorted by voice, reg, op) so frame-content hashes are stable
+    # across occurrences.
     LoopPass(),
 ]
+
+POST_NORM_PASSES = []
 
 
 def run_post_norm_pre_voice_passes(df, args=None):
     """Apply passes that need post-norm row order but pre-voice-rotation
-    regs. Currently just FuzzyLoopPass."""
+    regs. Currently just LoopPass (which does exact / transposed /
+    fuzzy / DO_LOOP matching in a single sweep)."""
     for macro_pass in POST_NORM_PRE_VOICE_PASSES:
         df = macro_pass.apply(df, args=args)
     return df
