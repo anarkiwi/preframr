@@ -1451,15 +1451,28 @@ class SubregPass(MacroPass):
                 lo_changed = cur_lo != prev_lo
                 hi_changed = cur_hi != prev_hi
 
+                # Conditional split:
+                #   - one nibble changed -> emit one subreg row (same row
+                #     count as a full-byte SET, smaller-alphabet vocab)
+                #   - both nibbles changed -> keep full-byte SET (avoid
+                #     the 2x split + the SUBREG_FLUSH that follows when
+                #     the next write on this reg starts on the opposite
+                #     nibble; on ctrl-heavy songs the always-split design
+                #     blew up to 36.9% of total tokens via FLUSH alone)
+                #   - neither changed -> redundant SET, leave untouched
                 emitted_subregs = []
-                if lo_changed:
+                if lo_changed and not hi_changed:
                     emitted_subregs.append((0, cur_lo))
-                if hi_changed:
+                elif hi_changed and not lo_changed:
                     emitted_subregs.append((1, cur_hi))
+                # both-nibble change: emitted_subregs stays empty so the
+                # original SET row passes through untouched below.
 
                 if not emitted_subregs:
-                    # Redundant SET; leave untouched. Still needs to advance
-                    # state so subsequent rows see the byte as written.
+                    # Either redundant SET or both-nibble change kept as
+                    # full-byte SET. In both cases the existing row stays
+                    # in df; advance state so subsequent rows see the
+                    # post-write byte value.
                     if state is not None:
                         state.last_val[reg] = cur
                         f_writes.append(

@@ -184,16 +184,22 @@ class TestSubregPass(unittest.TestCase):
         self.assertEqual(subregs, [1, 0])
         self.assertEqual(vals, [4, 1])
 
-    def test_both_nibbles_change_splits_into_two(self):
-        # default (0) -> 0x41 changes both nibbles -> two subreg rows.
+    def test_both_nibbles_change_kept_as_full_byte_set(self):
+        # default (0) -> 0x41 changes both nibbles. Conditional-split
+        # policy (post b6cc564 design): keep as full-byte SET to avoid
+        # the 2x row split + downstream SUBREG_FLUSH that this design
+        # used to incur (~37% of corpus tokens).
         df = pd.DataFrame([_frame(), _row(4, 0x41, op=SET_OP)])
         result = SubregPass().apply(df)
         sub_rows = result[
             (result["reg"] == 4) & (result["op"] == SET_OP) & (result["subreg"] != -1)
         ]
-        self.assertEqual(len(sub_rows), 2)
-        self.assertEqual(sub_rows["subreg"].tolist(), [0, 1])
-        self.assertEqual(sub_rows["val"].tolist(), [1, 4])
+        self.assertEqual(len(sub_rows), 0)
+        full_rows = result[
+            (result["reg"] == 4) & (result["op"] == SET_OP) & (result["subreg"] == -1)
+        ]
+        self.assertEqual(len(full_rows), 1)
+        self.assertEqual(int(full_rows["val"].iloc[0]), 0x41)
 
     def test_no_change_left_alone(self):
         # Two identical SETs (an upstream squeeze should remove this case but
@@ -207,12 +213,13 @@ class TestSubregPass(unittest.TestCase):
             ]
         )
         result = SubregPass().apply(df)
-        # First SET (both nibbles change from 0): split into 2 subreg rows.
-        # Second SET (no nibbles change): stays subreg=-1.
+        # First SET (both nibbles change from 0): kept as full-byte SET
+        # under conditional-split. Second SET (no nibbles change): also
+        # stays subreg=-1. Both rows visible at subreg=-1.
         sub01 = result[(result["reg"] == 4) & (result["subreg"].isin([0, 1]))]
-        self.assertEqual(len(sub01), 2)
+        self.assertEqual(len(sub01), 0)
         full = result[(result["reg"] == 4) & (result["subreg"] == -1)]
-        self.assertEqual(len(full), 1)
+        self.assertEqual(len(full), 2)
 
     def test_unaffected_regs_pass_through(self):
         df = pd.DataFrame(
