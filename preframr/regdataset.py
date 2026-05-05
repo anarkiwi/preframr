@@ -279,28 +279,19 @@ class RegDataset(torch.utils.data.Dataset):
                                             len(seq),
                                         )
                                         break
-                                    # Block file generation is OFF by default
-                                    # while ``materialize_*_outside`` still
-                                    # produces slot-misaligned slices when
-                                    # the cut is mid-song. The materialiser
-                                    # expands out-of-slice replays into
-                                    # literal SETs at the replay's frame, but
-                                    # that grows the slice's palette
-                                    # starting from slot 0 -- the encoder's
-                                    # original slot index (which the
-                                    # GATE_REPLAY_OP / PLAY_INSTRUMENT_OP
-                                    # rows still carry) no longer matches
-                                    # the slice's local palette state.
-                                    # Decoding the slice from-scratch
-                                    # asserts on the first cross-slice
-                                    # replay. Fix requires a "definition
-                                    # preamble" prepended to each slice
-                                    # that re-creates palette slots 0..K-1
-                                    # in the encoder's order before the
-                                    # slice's content begins. Until that's
-                                    # in, gate the parse-time write behind
-                                    # ``--write-blocks`` (default off).
-                                    if getattr(self.args, "write_blocks", False):
+                                    # Self-contained block file generation
+                                    # for the BlockMapper training data path.
+                                    # ``materialize_block_array`` calls
+                                    # ``self_contain_slice`` per slice, which
+                                    # re-encodes via ``run_passes`` so each
+                                    # block is decodable standalone -- palette
+                                    # indices are slice-local and any in-slice
+                                    # PLAY_INSTRUMENT_OP / GATE_REPLAY_OP
+                                    # references resolve within the block.
+                                    # Default on; pass ``--no-write-blocks`` to
+                                    # skip and fall back to the sliding-window
+                                    # SeqMapper training path.
+                                    if getattr(self.args, "write_blocks", True):
                                         try:
                                             block_parser = RegLogParser(self.args)
                                             blocks_arr = materialize_block_array(

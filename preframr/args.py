@@ -118,14 +118,13 @@ def add_args(parser):
     parser.add_argument("--instrument-window", type=int, default=8)
     parser.add_argument("--instrument-palette-cap", type=int, default=None)
     # Parse-time generation of self-contained ``.blocks.npy`` files for
-    # the BlockMapper training data path. Off by default until the
-    # ``materialize_*_outside`` chain grows a "definition preamble"
-    # capable of reconstructing encoder palette slot ordering at slice
-    # boundaries that fall mid-song. With it off, training falls back
-    # to the SeqMapper sliding-window path; predict still uses the
-    # iterator via ``_self_contained_prompt_df`` (correctness limited
-    # to ``start_n=0`` until the preamble lands).
+    # the BlockMapper training data path. Each block is the output of
+    # ``self_contain_slice`` (literal expansion + per-slice re-encode
+    # via ``run_passes``), so palette indices are slice-local and
+    # decoding never references state defined outside the block. Pass
+    # ``--no-write-blocks`` to skip the per-rotation block file and
+    # fall back to the SeqMapper sliding-window training path.
     parser.add_argument(
-        "--write-blocks", action=argparse.BooleanOptionalAction, default=False
+        "--write-blocks", action=argparse.BooleanOptionalAction, default=True
     )
     return parser
