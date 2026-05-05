@@ -39,6 +39,21 @@ class _FastRow:
         self.Index = Index
 
 
+def _deserialize_gate_palette(attrs_value):
+    """Restore a gate_palette dict from a ``df.attrs`` payload.
+
+    ``GateMacroPass`` stores ``{(voice, dir): [list(bundle_tuple), ...]}``
+    so the structure is JSON-serialisable. Decoders need
+    ``{(voice, dir): [tuple(bundle), ...]}`` because GateReplayDecoder
+    indexes the inner list with ``palette[idx]`` and bundle-comparison
+    relies on tuple equality. This helper does the inverse conversion;
+    pass through ``None``/``{}`` unchanged.
+    """
+    if not attrs_value:
+        return None
+    return {k: [tuple(b) for b in v] for k, v in attrs_value.items()}
+
+
 def _frame_arrays(f_df):
     """Extract per-row arrays for a frame group. Used by hot pass loops
     that previously walked via ``itertuples`` (slow: per-row namedtuple +
@@ -205,6 +220,7 @@ class DecodeState:
         instrument_window=8,
         instrument_palette_cap=None,
         frozen_instrument_palette=None,
+        frozen_gate_palette=None,
     ):
         self.frame_diff = frame_diff
         self.last_val = defaultdict(int)
@@ -239,9 +255,20 @@ class DecodeState:
         # Gate-replay palette: (voice, direction) -> ordered list of bundle
         # tuples ``(ctrl_byte, ad_byte, sr_byte)``. Slot index = list index.
         # ``GateReplayDecoder`` looks up by slot; ``observe_frame`` appends
-        # newly seen bundles. Encoder and decoder both maintain palette by
-        # walking the same emitted writes, so slot indices stay in sync.
-        self.gate_palette = {}
+        # newly seen bundles when not frozen. ``frozen_gate_palette``
+        # mirrors the instrument-palette pattern: the authoritative
+        # palette is published by ``GateMacroPass`` to ``df.attrs`` and
+        # downstream walkers initialise from it, so palette indices stay
+        # aligned across walks even when intermediate passes (FuzzyLoop)
+        # reorder or re-emit the literal SETs that originally grew it.
+        if frozen_gate_palette is not None:
+            self.gate_palette = {
+                k: list(v) for k, v in frozen_gate_palette.items()
+            }
+            self.gate_palette_frozen = True
+        else:
+            self.gate_palette = {}
+            self.gate_palette_frozen = False
         # Frame index at which each palette slot was first defined.
         # Populated by ``observe_frame`` when ``frame_idx`` is provided;
         # consumed by ``materialize_gate_palette_outside``.
@@ -478,6 +505,15 @@ class DecodeState:
                 slot = None
                 if bundle in palette:
                     slot = palette.index(bundle)
+                elif self.gate_palette_frozen:
+                    # Frozen palette: the authoritative encoder published
+                    # it via ``df.attrs``; downstream walkers must not
+                    # mutate. A bundle observed here that isn't in the
+                    # palette means the walker dispatched a write the
+                    # encoder didn't account for (e.g., FuzzyLoopPass
+                    # body replay's intermediate state). Leave slot=None
+                    # so callers know there's no replay slot for it.
+                    pass
                 else:
                     if (
                         self.gate_palette_cap is None
@@ -1328,6 +1364,9 @@ class SubregPass(MacroPass):
                 strict=False,
                 gate_palette_cap=cap,
                 frozen_instrument_palette=df.attrs.get("instrument_palette"),
+                frozen_gate_palette=_deserialize_gate_palette(
+                    df.attrs.get("gate_palette")
+                ),
             )
 
         last_emitted_reg = None  # most recently emitted subreg row's reg
@@ -1958,7 +1997,10 @@ class LoopPass(MacroPass):
                 new_df[col] = new_df[col].astype(dt)
             except (TypeError, ValueError):
                 pass
-        return new_df.reset_index(drop=True)
+        new_df = new_df.reset_index(drop=True)
+        if df.attrs:
+            new_df.attrs.update(df.attrs)
+        return new_df
 
 
 def _musical_fingerprint(state):
@@ -2221,7 +2263,10 @@ class FuzzyLoopPass(MacroPass):
                 new_df[col] = new_df[col].astype(dt)
             except (TypeError, ValueError):
                 pass
-        return new_df.reset_index(drop=True)
+        new_df = new_df.reset_index(drop=True)
+        if df.attrs:
+            new_df.attrs.update(df.attrs)
+        return new_df
 
 
 # ---------------------------------------------------------------------------
@@ -2413,7 +2458,10 @@ def expand_loops(df):
             expanded[col] = expanded[col].astype(dt)
         except (TypeError, ValueError):
             pass
-    return expanded.reset_index(drop=True)
+    expanded = expanded.reset_index(drop=True)
+    if df.attrs:
+        expanded.attrs.update(df.attrs)
+    return expanded
 
 
 def materialize_back_refs_outside(df, slice_lo_frame, slice_hi_frame):
@@ -3047,7 +3095,17 @@ class GateMacroPass(MacroPass):
                     }
                 )
 
-        return _splice_rows(df, drop_idx, new_rows)
+        out = _splice_rows(df, drop_idx, new_rows)
+        # Publish the authoritative gate palette so downstream walkers
+        # (DedupSet, Subreg, FuzzyLoopPass body replay, _expand_ops,
+        # find_redundant_writes) initialise from it instead of growing
+        # via observation -- the latter diverges when intermediate
+        # passes change the order/content of gate-bundle writes.
+        # Tuples are stored as plain lists for JSON-friendly attrs.
+        out.attrs["gate_palette"] = {
+            k: [list(b) for b in v] for k, v in state.gate_palette.items()
+        }
+        return out
 
 
 class InstrumentProgramPass(MacroPass):
@@ -3477,6 +3535,9 @@ class DedupSetPass(MacroPass):
             strict=False,
             gate_palette_cap=cap,
             frozen_instrument_palette=df.attrs.get("instrument_palette"),
+            frozen_gate_palette=_deserialize_gate_palette(
+                df.attrs.get("gate_palette")
+            ),
         )
 
         arrs, frame_starts = _df_arrays_and_frames(df)

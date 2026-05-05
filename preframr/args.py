@@ -117,9 +117,15 @@ def add_args(parser):
     # fingerprint matches a prior occurrence even when byte-level writes
     # differ. Encoded as PATTERN_REPLAY_OP + N PATTERN_OVERLAY_OP rows;
     # decoder replays source body and applies overlays as additional
-    # SET writes. Default on.
+    # SET writes. Default OFF: enabling currently disables LoopPass
+    # (the two can't stack -- LoopPass's frame math doesn't account
+    # for PATTERN_REPLAY_OP body-length expansion), and fuzzy alone
+    # misses LoopPass's DO_LOOP_OP nested-repeat compression. Net is a
+    # regression on the /tmp/inv corpus until fuzzy integrates with
+    # LoopPass's matching (single unified pass doing exact +
+    # transposed + fuzzy + DO_LOOP).
     parser.add_argument(
-        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=True
+        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=False
     )
     # Per-(voice, direction) cap on the GateMacroPass palette. Default
     # ``None`` keeps v1 behaviour (unbounded palette: every distinct

@@ -28,7 +28,13 @@ import pandas as pd
 
 from preframr.args import add_args
 from preframr import macros
-from preframr.macros import DECODERS, DecodeState, _FastRow, _df_arrays_and_frames
+from preframr.macros import (
+    DECODERS,
+    DecodeState,
+    _FastRow,
+    _deserialize_gate_palette,
+    _df_arrays_and_frames,
+)
 from preframr.reglogparser import RegLogParser
 from preframr.stfconstants import (
     DELAY_REG,
@@ -69,6 +75,9 @@ def find_redundant_writes(token_df):
         last_diff=last_diff,
         strict=False,
         frozen_instrument_palette=token_df.attrs.get("instrument_palette"),
+        frozen_gate_palette=_deserialize_gate_palette(
+            token_df.attrs.get("gate_palette")
+        ),
     )
 
     df = df.copy()

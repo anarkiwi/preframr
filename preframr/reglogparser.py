@@ -8,7 +8,13 @@ import pandas as pd
 from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 from preframr import macros
-from preframr.macros import DECODERS, DecodeState, _FastRow, _df_arrays_and_frames
+from preframr.macros import (
+    DECODERS,
+    DecodeState,
+    _FastRow,
+    _deserialize_gate_palette,
+    _df_arrays_and_frames,
+)
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
@@ -397,6 +403,8 @@ class RegLogParser:
         df.loc[df["reg"] < 0, "v"] = df["reg"]
         df = df.sort_values(["f", "v", "reg", "op", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
+        if orig_df.attrs:
+            df.attrs.update(orig_df.attrs)
         return df
 
     def _add_voice_reg(self, orig_df, zero_voice_reg=True):
@@ -462,6 +470,10 @@ class RegLogParser:
         invalid_val = set(df[m]["val"].unique()) - self.valid_voiceorders
         assert not invalid_val, invalid_val
         df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+        # ``pd.concat`` of multiple dfs above drops attrs; restore the
+        # encoder-published palettes explicitly.
+        if orig_df.attrs:
+            df.attrs.update(orig_df.attrs)
         return df
 
     def _remove_voice_reg(self, orig_df, reg_widths):
@@ -490,6 +502,8 @@ class RegLogParser:
             df.loc[m, "reg"] = df[m]["reg"] + (df[m]["v"] * VOICE_REG_SIZE)
             df = df[df["reg"] != VOICE_REG]
             df = df[orig_df.columns].astype(orig_df.dtypes).reset_index(drop=True)
+            if orig_df.attrs:
+                df.attrs.update(orig_df.attrs)
             for v in range(VOICES):
                 v_offset = v * VOICE_REG_SIZE
                 for i in range(VOICE_REG_SIZE):
@@ -727,6 +741,9 @@ class RegLogParser:
             strict=strict,
             gate_palette_cap=cap,
             frozen_instrument_palette=orig_df.attrs.get("instrument_palette"),
+            frozen_gate_palette=_deserialize_gate_palette(
+                orig_df.attrs.get("gate_palette")
+            ),
         )
         sid_writes = []
 
