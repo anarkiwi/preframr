@@ -369,34 +369,30 @@ class RegLogParser:
         norm_df["vd"] = norm_df["v"].diff().astype(MODEL_PDTYPE).fillna(0)
         return norm_df
 
-    def _get_vmeta(self, df):
-        freq_df, ctrl_df = self._last_reg_val_frame(df[df["op"] == SET_OP], [0, 4])
-        cols = []
-        for xdf, reg in ((freq_df, 0), (ctrl_df, 4)):
-            c = f"reg{reg}"
-            cols.append(c)
-            sc = [str(v) + c for v in range(VOICES)]
-            for v in range(VOICES):
-                m = xdf["v"] == v
-                xdf.loc[m, str(v) + c] = xdf[m]["val"]
-            xdf = xdf.ffill().fillna(0).drop_duplicates(["f", "v"], keep="last")
-            xdf = xdf[["f", "v"] + sc]
-            df = df.merge(xdf, how="left", on=["f", "v"]).ffill().fillna(0)
-            for v in range(VOICES):
-                m = df["v"] == v
-                df.loc[m, c] = df[m][str(v) + c]
-            df = df.drop(sc, axis=1).fillna(0)
-        return df, cols
-
     def _norm_pr_order(self, orig_df, v_only=False):
+        """Sort rows within each frame by strict numeric voice order.
+
+        Within a frame: voice 0's rows first (reg-ascending, op-ascending,
+        original-index tiebreak), then voice 1's rows, then voice 2's.
+
+        The previous frequency/control-state-aware variant (via
+        ``_get_vmeta``) clustered rows whose voice was holding similar
+        pitches together, on the speculation that the LM would learn
+        cross-voice harmonic structure from the locality. That signal
+        was unmeasured and made downstream walks non-deterministic
+        relative to the encoder's pre-norm walk -- the same logical
+        frame could sort differently depending on prior frames' state.
+        Strict numeric is deterministic, makes loop / repeat detection
+        cheap, and lets ``InstrumentProgramPass`` mirror the order with
+        a single ``sort_values`` so its Phase 2 walk matches downstream.
+
+        ``v_only`` is retained for caller compatibility but is now a
+        no-op (the v-only path was always strict numeric).
+        """
+        del v_only
         df = self._norm_df(orig_df.copy())
-        cols = []
-        if not v_only:
-            df, cols = self._get_vmeta(df)
-            df.loc[df["reg"] < 0, cols] = 0
-            df.loc[(df["v"] >= VOICES), cols] = 2**16 - 1
         df.loc[df["reg"] < 0, "v"] = df["reg"]
-        df = df.sort_values(["f"] + cols + ["v", "reg", "op", "n"])
+        df = df.sort_values(["f", "v", "reg", "op", "n"])
         df = df[orig_df.columns].reset_index(drop=True)
         return df
 
@@ -676,7 +672,14 @@ class RegLogParser:
                 last_diff[reg] = MIN_DIFF
 
         frame_diff = df[df["reg"] == FRAME_REG]["diff"].iloc[0]
-        state = DecodeState(frame_diff, last_diff=last_diff, strict=strict)
+        cap = (
+            getattr(self.args, "gate_palette_cap", None)
+            if self.args is not None
+            else None
+        )
+        state = DecodeState(
+            frame_diff, last_diff=last_diff, strict=strict, gate_palette_cap=cap
+        )
         sid_writes = []
 
         df["f"] = (
@@ -687,7 +690,14 @@ class RegLogParser:
             .astype(MODEL_PDTYPE)
         )
 
-        def add_frame(writes):
+        # frame_idx counts logical frame slots (each FRAME_REG or DELAY_REG
+        # row = 1 slot), matching ``LoopPass``'s back-ref distance/length
+        # semantics and ``materialize_*_outside``'s slice coordinates. The
+        # extra audio frames produced by a DELAY_REG val>1 share the same
+        # slot index, so palette ``def_frame`` values stay in slot coords.
+        out_frame_idx = [0]
+
+        def add_frame(writes, advance=True):
             sid_writes.append(
                 pd.DataFrame(
                     writes,
@@ -695,6 +705,9 @@ class RegLogParser:
                     columns=["reg", "val", "diff", "description"],
                 ).sort_values("reg", kind="stable")
             )
+            state.observe_frame(writes, frame_idx=out_frame_idx[0])
+            if advance:
+                out_frame_idx[0] += 1
 
         for _f, f_df in df.groupby("f"):
             f_sid_writes = []
@@ -710,7 +723,7 @@ class RegLogParser:
                                 (FRAME_REG, 0, frame_diff, row.description)
                             ]
                             delay_sid_writes.extend(state.tick_frame())
-                            add_frame(delay_sid_writes)
+                            add_frame(delay_sid_writes, advance=False)
                         f_sid_writes.append((FRAME_REG, 0, frame_diff, row.description))
                     else:
                         assert False, f"unknown reg {row.reg}, {row}"
@@ -755,7 +768,15 @@ class RegLogParser:
             )
             return False
         c_df = self._norm_df(df)
-        c_df = c_df[self._ctrl_match(df)]
+        ctrl_mask = self._ctrl_match(df)
+        # Only count actual ctrl-reg SET writes; macros (GATE_REPLAY_OP,
+        # PLAY_INSTRUMENT_OP) reuse ctrl_reg as the row's ``reg`` field
+        # for voice rotation, but they don't represent independent ctrl
+        # changes that the LM must learn. The pre-encoding df lacks an
+        # ``op`` column, so apply the SET-only filter only when present.
+        if "op" in df.columns:
+            ctrl_mask = ctrl_mask & (df["op"] == SET_OP)
+        c_df = c_df[ctrl_mask]
         c_df["ccount"] = c_df.groupby(["f", "v"])["reg"].transform("size")
         c_df = c_df[c_df["f"] > 16]
         if len(c_df):

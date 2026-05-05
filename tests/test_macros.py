@@ -14,9 +14,12 @@ import pandas as pd
 
 from preframr.macros import (
     DecodeState,
+    DedupSetPass,
     EndTerminatorPass,
     FilterSweepPass,
     Flip2Pass,
+    GateMacroPass,
+    InstrumentProgramPass,
     IntervalPass,
     LoopPass,
     PwmPass,
@@ -24,8 +27,13 @@ from preframr.macros import (
     TransposePass,
     _pack_back_ref,
     expand_loops,
+    iter_self_contained_row_blocks,
     materialize_back_refs_outside,
+    materialize_gate_palette_outside,
+    materialize_instrument_palette_outside,
+    run_passes,
     validate_back_refs,
+    validate_gate_replays,
 )
 from preframr.reglogparser import RegLogParser
 from preframr.stfconstants import (
@@ -40,7 +48,9 @@ from preframr.stfconstants import (
     FLIP2_OP,
     FLIP_OP,
     FRAME_REG,
+    GATE_REPLAY_OP,
     INTERVAL_OP,
+    PLAY_INSTRUMENT_OP,
     LOOP_OP_REG,
     MODE_VOL_REG,
     MODEL_PDTYPE,
@@ -805,6 +815,555 @@ class TestValidateBackRefs(unittest.TestCase):
             ]
         )
         self.assertTrue(validate_back_refs(df, prompt_frame_count=10))
+
+
+# ---------------------------------------------------------------------------
+# GATE_REPLAY_OP
+# ---------------------------------------------------------------------------
+def _gate_on_bundle(voice=0, ctrl=0x41, ad=0xF0, sr=0x20):
+    base = voice * VOICE_REG_SIZE
+    return [
+        _row(base + 4, ctrl, op=SET_OP),
+        _row(base + 5, ad, op=SET_OP),
+        _row(base + 6, sr, op=SET_OP),
+    ]
+
+
+def _gate_off_bundle(voice=0, ctrl=0x40):
+    base = voice * VOICE_REG_SIZE
+    return [_row(base + 4, ctrl, op=SET_OP)]
+
+
+class TestGateMacroPass(unittest.TestCase):
+    def test_first_bundle_kept_literal(self):
+        df = pd.DataFrame([_frame()] + _gate_on_bundle())
+        result = GateMacroPass().apply(df)
+        # First occurrence is a new palette slot -- no replay token.
+        self.assertEqual(int((result["op"] == GATE_REPLAY_OP).sum()), 0)
+
+    def test_repeated_bundle_replays(self):
+        df = pd.DataFrame(
+            [_frame()] + _gate_on_bundle()                       # frame 0: gate-on
+            + [_frame()] + _gate_off_bundle()                    # frame 1: gate-off
+            + [_frame()] + _gate_on_bundle()                     # frame 2: gate-on (same)
+        )
+        result = GateMacroPass().apply(df)
+        replays = result[result["op"] == GATE_REPLAY_OP]
+        self.assertEqual(len(replays), 1)
+        # The replay's reg field is the voice 0 ctrl reg (4); subreg=1 (off->on);
+        # val=0 (palette slot 0).
+        self.assertEqual(int(replays.iloc[0]["reg"]), 4)
+        self.assertEqual(int(replays.iloc[0]["subreg"]), 1)
+        self.assertEqual(int(replays.iloc[0]["val"]), 0)
+        # Second gate-on's three literal SETs were spliced out.
+        ad_sets = result[(result["op"] == SET_OP) & (result["reg"] == 5)]
+        self.assertEqual(len(ad_sets), 1)
+
+    def test_distinct_bundles_get_distinct_slots(self):
+        # Two off->on transitions with different AD bytes -> two palette slots
+        # -> no replay.
+        df = pd.DataFrame(
+            [_frame()] + _gate_on_bundle(ctrl=0x41, ad=0xF0, sr=0x20)
+            + [_frame()] + _gate_off_bundle()
+            + [_frame()] + _gate_on_bundle(ctrl=0x41, ad=0x09, sr=0x20)
+        )
+        result = GateMacroPass().apply(df)
+        self.assertEqual(int((result["op"] == GATE_REPLAY_OP).sum()), 0)
+
+    def test_round_trip_against_dedup_baseline(self):
+        # GateMacroPass + DedupSetPass should produce the same SID writes as
+        # DedupSetPass alone. Otherwise the macro changes audible output.
+        df = pd.DataFrame(
+            [_frame()] + _gate_on_bundle()
+            + [_frame()] + _gate_off_bundle()
+            + [_frame()] + _gate_on_bundle()
+            + [_frame()] + _gate_off_bundle()
+            + [_frame()] + _gate_on_bundle()
+        )
+        baseline = DedupSetPass().apply(df.copy())
+        encoded = DedupSetPass().apply(GateMacroPass().apply(df.copy()))
+        self.assertGreater(int((encoded["op"] == GATE_REPLAY_OP).sum()), 0)
+        _assert_round_trip(self, baseline, encoded)
+
+    def test_round_trip_through_full_run_passes(self):
+        # Regression for the SubregPass x GATE_REPLAY interaction: SubregPass's
+        # nibble-split decisions must use the actual running register value
+        # (which GATE_REPLAY mutates), not the value of the last SET it saw.
+        df = pd.DataFrame(
+            [_frame()] + _gate_on_bundle(ctrl=0x41, ad=0xF0, sr=0x20)
+            + [_frame()] + _gate_off_bundle(ctrl=0x40)
+            + [_frame()] + _gate_on_bundle(ctrl=0x41, ad=0xF0, sr=0x20)
+            + [_frame()] + _gate_off_bundle(ctrl=0x40)
+            + [_frame()] + _gate_on_bundle(ctrl=0x41, ad=0xF0, sr=0x20)
+            # A second voice with its own palette.
+            + [_frame()]
+            + _gate_on_bundle(voice=1, ctrl=0x21, ad=0x09, sr=0xA0)
+            + [_frame()] + _gate_off_bundle(voice=1, ctrl=0x20)
+            + [_frame()]
+            + _gate_on_bundle(voice=1, ctrl=0x21, ad=0x09, sr=0xA0)
+        )
+        encoded = run_passes(df.copy(), args=FakeArgs(loop_pass=False))
+        # Round-trip must hold against just-DedupSetPass (which is what the
+        # macroless baseline collapses to under run_passes minus GateMacroPass).
+        baseline = DedupSetPass().apply(df.copy())
+        _assert_round_trip(self, baseline, encoded)
+        # And at least one GATE_REPLAY_OP must survive the chain.
+        self.assertGreater(int((encoded["op"] == GATE_REPLAY_OP).sum()), 0)
+
+    def test_palette_cap_keeps_over_cap_transitions_literal(self):
+        # Three distinct off->on bundles with cap=2 -> only the first two
+        # earn slots; the third stays literal and emits no GATE_REPLAY_OP.
+        # cap=2 also means the second occurrence of the third bundle keeps
+        # firing literally (no slot to reference).
+        bundles = [
+            (0x41, 0xF0, 0x20),  # slot 0
+            (0x21, 0x09, 0xA0),  # slot 1
+            (0x81, 0x33, 0x55),  # over cap -- stays literal
+        ]
+        rows = [_frame()]
+        for ctrl, ad, sr in bundles:
+            rows += _gate_on_bundle(ctrl=ctrl, ad=ad, sr=sr)
+            rows += [_frame()]
+            rows += _gate_off_bundle(ctrl=ctrl & ~1)
+            rows += [_frame()]
+            # Re-fire the same bundle -- if a slot was claimed it should
+            # become a GATE_REPLAY_OP; otherwise it stays literal.
+            rows += _gate_on_bundle(ctrl=ctrl, ad=ad, sr=sr)
+            rows += [_frame()]
+            rows += _gate_off_bundle(ctrl=ctrl & ~1)
+            rows += [_frame()]
+        df = pd.DataFrame(rows)
+        result = GateMacroPass().apply(df, args=FakeArgs(gate_palette_cap=2))
+        replays = result[result["op"] == GATE_REPLAY_OP]
+        # Bundles 0 and 1 each fire twice (off->on + on->off) on their
+        # second occurrence -> 4 replays. Bundle 2 never claims a slot, so
+        # neither of its second-occurrence transitions replay.
+        self.assertEqual(len(replays), 4)
+        self.assertEqual(sorted(int(r) for r in replays["val"].tolist()), [0, 0, 1, 1])
+        # All three "third bundle" SET rows still appear literally.
+        third_ctrl = result[
+            (result["op"] == SET_OP) & (result["reg"] == 4) & (result["val"] == 0x81)
+        ]
+        self.assertEqual(len(third_ctrl), 2)
+
+    def test_per_voice_palettes_are_independent(self):
+        # Voice 0 and voice 1 fire the same byte values, but each has its own
+        # palette: the first occurrence on each voice is literal; the second
+        # on each voice replays.
+        v0 = _gate_on_bundle(voice=0, ctrl=0x41, ad=0xF0, sr=0x20)
+        v1 = _gate_on_bundle(voice=1, ctrl=0x41, ad=0xF0, sr=0x20)
+        v0_off = _gate_off_bundle(voice=0)
+        v1_off = _gate_off_bundle(voice=1)
+        df = pd.DataFrame(
+            [_frame()] + v0                  # frame 0: v0 on
+            + [_frame()] + v1                # frame 1: v1 on
+            + [_frame()] + v0_off            # frame 2: v0 off
+            + [_frame()] + v1_off            # frame 3: v1 off
+            + [_frame()] + v0                # frame 4: v0 on (replay)
+            + [_frame()] + v1                # frame 5: v1 on (replay)
+        )
+        result = GateMacroPass().apply(df)
+        replays = result[result["op"] == GATE_REPLAY_OP]
+        self.assertEqual(len(replays), 2)
+        # Each replay targets a distinct voice's ctrl reg.
+        self.assertEqual(
+            sorted(int(r) for r in replays["reg"].tolist()),
+            [4, 4 + VOICE_REG_SIZE],
+        )
+
+
+class TestMaterializeGatePaletteOutside(unittest.TestCase):
+    def _three_transition_stream(self):
+        return pd.DataFrame(
+            [_frame()] + _gate_on_bundle()       # frame 0
+            + [_frame()] + _gate_off_bundle()    # frame 1
+            + [_frame()] + _gate_on_bundle()     # frame 2: replay slot 0
+        )
+
+    def test_keeps_in_slice_definition(self):
+        # Slice covers all 3 frames -- the replay's slot is defined at frame 0
+        # which is inside the slice, so leave the replay alone.
+        encoded = GateMacroPass().apply(self._three_transition_stream())
+        out = materialize_gate_palette_outside(
+            encoded, slice_lo_frame=0, slice_hi_frame=3
+        )
+        self.assertEqual(int((out["op"] == GATE_REPLAY_OP).sum()), 1)
+
+    def test_materializes_pre_slice_definition(self):
+        # Slice starts at frame 2 -- the replay's slot was defined at frame 0
+        # (before slice_lo_frame), so inline the literal SETs.
+        encoded = GateMacroPass().apply(self._three_transition_stream())
+        out = materialize_gate_palette_outside(
+            encoded, slice_lo_frame=2, slice_hi_frame=3
+        )
+        self.assertEqual(int((out["op"] == GATE_REPLAY_OP).sum()), 0)
+        # Three SET rows (ctrl, AD, SR) replace the GATE_REPLAY_OP row.
+        materialised = out[
+            (out["op"] == SET_OP) & (out["reg"].isin([4, 5, 6])) & (out["subreg"] == -1)
+        ]
+        # Frame 0 bundle (3 SETs on regs 4/5/6) + frame 1 gate-off (1 SET on
+        # reg 4) + materialised replay at frame 2 (3 SETs) = 7.
+        self.assertEqual(len(materialised), 7)
+
+
+class TestValidateGateReplays(unittest.TestCase):
+    def test_valid_passes(self):
+        df = pd.DataFrame(
+            [_frame()] + _gate_on_bundle()
+            + [_frame()] + _gate_off_bundle()
+            + [_frame()] + _gate_on_bundle()
+        )
+        encoded = GateMacroPass().apply(df)
+        self.assertTrue(validate_gate_replays(encoded))
+
+    def test_undefined_slot_raises(self):
+        # Hand-craft a stream whose only GATE_REPLAY_OP references slot 0
+        # of (voice=0, dir=1), but no prior literal bundle ever defined it.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                {
+                    "reg": 4,
+                    "subreg": 1,
+                    "val": 0,
+                    "diff": 32,
+                    "op": GATE_REPLAY_OP,
+                    "description": 0,
+                },
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            validate_gate_replays(df)
+
+
+class TestPlayInstrumentDispatch(unittest.TestCase):
+    """b.1: the dispatcher schedules a multi-frame program from a single
+    PLAY_INSTRUMENT_OP token. Decoder uses ``pending_program_writes`` and
+    ``tick_frame`` to reach across frame boundaries with no other change to
+    the per-row dispatcher.
+    """
+
+    def _build_df_with_palette(self, program, slot=0):
+        # Synthetic stream: one frame with a PLAY_INSTRUMENT_OP firing
+        # ``slot`` of voice 0, followed by 3 trailing empty frames so
+        # tick_frame has somewhere to drain the queued writes.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                {
+                    "reg": 4,  # voice 0 ctrl reg, encodes voice via // VOICE_REG_SIZE
+                    "subreg": int(len(program)),
+                    "val": int(slot),
+                    "diff": 32,
+                    "op": int(PLAY_INSTRUMENT_OP),
+                    "description": 0,
+                },
+                _frame(),
+                _frame(),
+                _frame(),
+            ]
+        )
+        # Patch _expand_ops's state seed so we control instrument_palette.
+        loader = RegLogParser()
+        # Rather than refactor the seed point, run _expand_ops once to
+        # observe what state it constructs, then inject the palette via a
+        # subclass hook. Simpler: do the dispatch ourselves.
+        from preframr.macros import expand_loops, DecodeState
+        df = expand_loops(df.copy())
+        last_diff = {int(r): 32 for r in df["reg"].unique()}
+        state = DecodeState(
+            int(df[df["reg"] == FRAME_REG]["diff"].iloc[0]),
+            last_diff=last_diff,
+            strict=False,
+        )
+        state.instrument_palette = [program]
+        df["__f"] = (
+            df["reg"]
+            .isin({-128, -127})
+            .astype(int)
+            .cumsum()
+        )
+        per_frame_writes = []
+        for _f, f_df in df.groupby("__f", sort=True):
+            f_writes = []
+            for row in f_df.itertuples():
+                reg = int(row.reg)
+                if reg < 0:
+                    continue
+                from preframr.macros import DECODERS
+                decoder = DECODERS.get(int(row.op))
+                if decoder is None:
+                    continue
+                writes = decoder.expand(row, state)
+                if writes:
+                    f_writes.extend(writes)
+            f_writes.extend(state.tick_frame())
+            per_frame_writes.append(f_writes)
+        return per_frame_writes
+
+    def test_writes_appear_at_correct_relative_frames(self):
+        # Program: write reg 4 (voice 0 ctrl) at rel_frame 0,
+        # reg 5 (AD) at rel_frame 1, reg 6 (SR) at rel_frame 3.
+        program = (
+            (0, 4, 0x41),
+            (1, 5, 0xF0),
+            (3, 6, 0x20),
+        )
+        per_frame = self._build_df_with_palette(program)
+        # First frame contains the macro and tick_frame's pop of frame-0 writes.
+        f0_writes = [(int(w[0]), int(w[1])) for w in per_frame[0] if int(w[0]) >= 0]
+        self.assertIn((4, 0x41), f0_writes)
+        self.assertNotIn((5, 0xF0), f0_writes)
+        # Frame 1: AD write surfaces.
+        f1_writes = [(int(w[0]), int(w[1])) for w in per_frame[1] if int(w[0]) >= 0]
+        self.assertIn((5, 0xF0), f1_writes)
+        # Frame 2: nothing (sparse rel_frame=2).
+        f2_writes = [(int(w[0]), int(w[1])) for w in per_frame[2] if int(w[0]) >= 0]
+        self.assertEqual(f2_writes, [])
+        # Frame 3: SR write surfaces; queue empty after this.
+        f3_writes = [(int(w[0]), int(w[1])) for w in per_frame[3] if int(w[0]) >= 0]
+        self.assertIn((6, 0x20), f3_writes)
+
+    def test_voice_offset_resolves_correctly(self):
+        # Same program, but the macro fires for voice 2: reg field is the
+        # voice's ctrl reg = 2*VOICE_REG_SIZE + 4 = 18. Resolves voice
+        # offsets to absolute regs 18, 19, 20.
+        program = (
+            (0, 4, 0x41),
+            (1, 5, 0xF0),
+        )
+        df = pd.DataFrame(
+            [
+                _frame(),
+                {
+                    "reg": 18,  # voice 2 ctrl reg
+                    "subreg": int(len(program)),
+                    "val": 0,
+                    "diff": 32,
+                    "op": int(PLAY_INSTRUMENT_OP),
+                    "description": 0,
+                },
+                _frame(),
+            ]
+        )
+        from preframr.macros import expand_loops, DECODERS, DecodeState
+        df = expand_loops(df.copy())
+        state = DecodeState(
+            int(df[df["reg"] == FRAME_REG]["diff"].iloc[0]),
+            last_diff={int(r): 32 for r in df["reg"].unique()},
+            strict=False,
+        )
+        state.instrument_palette = [program]
+        df["__f"] = df["reg"].isin({-128, -127}).astype(int).cumsum()
+        all_writes_by_frame = []
+        for _f, f_df in df.groupby("__f", sort=True):
+            fw = []
+            for row in f_df.itertuples():
+                if int(row.reg) < 0:
+                    continue
+                writes = DECODERS[int(row.op)].expand(row, state)
+                if writes:
+                    fw.extend(writes)
+            fw.extend(state.tick_frame())
+            all_writes_by_frame.append(fw)
+        # Frame 0 should have absolute reg 18 (= voice2 base 14 + offset 4).
+        f0_regs = [int(w[0]) for w in all_writes_by_frame[0] if int(w[0]) >= 0]
+        self.assertIn(18, f0_regs)
+        # Frame 1 should have absolute reg 19 (= voice2 base + offset 5).
+        f1_regs = [int(w[0]) for w in all_writes_by_frame[1] if int(w[0]) >= 0]
+        self.assertIn(19, f1_regs)
+
+
+class TestInstrumentProgramPass(unittest.TestCase):
+    """b.2 encoder pass: collapse repeated multi-frame instrument programs
+    into a single PLAY_INSTRUMENT_OP token. Verified end-to-end with the
+    full ``run_passes`` chain so palette alignment between encoder and
+    downstream simulators stays correct.
+    """
+
+    def _gate_on(self, voice, ctrl=0x41, ad=0xF0, sr=0x20):
+        base = voice * VOICE_REG_SIZE
+        return [
+            _row(base + 4, ctrl, op=SET_OP),
+            _row(base + 5, ad, op=SET_OP),
+            _row(base + 6, sr, op=SET_OP),
+        ]
+
+    def _gate_off(self, voice, ctrl=0x40):
+        base = voice * VOICE_REG_SIZE
+        return [_row(base + 4, ctrl, op=SET_OP)]
+
+    def _two_repeats(self):
+        # voice 0: gate-on, gate-off, gate-on (replay), gate-off, gate-on (replay)
+        rows = [_frame()]
+        for _ in range(3):
+            rows += self._gate_on(0)
+            rows += [_frame()]
+            rows += self._gate_off(0)
+            rows += [_frame()]
+        return pd.DataFrame(rows)
+
+    def test_first_occurrence_left_literal(self):
+        df = pd.DataFrame([_frame()] + self._gate_on(0))
+        out = InstrumentProgramPass().apply(df, args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+        ))
+        self.assertEqual(int((out["op"] == PLAY_INSTRUMENT_OP).sum()), 0)
+
+    def test_round_trip_through_run_passes(self):
+        df = self._two_repeats()
+        encoded = run_passes(df.copy(), args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+            loop_pass=False,
+        ))
+        baseline = DedupSetPass().apply(df.copy())
+        _assert_round_trip(self, baseline, encoded)
+
+    def test_burst_in_window_aborts_capture(self):
+        # PWM_OP within a voice's window should taint the capture so the
+        # encoder doesn't drop rows whose burst state we can't replay.
+        df = pd.DataFrame(
+            [_frame()]
+            + self._gate_on(0)
+            + [_row(2, 32, op=PWM_OP, subreg=4)]  # 4-frame PWM burst on voice 0 PWM
+            + [_frame()]
+            + self._gate_off(0)
+            + [_frame()]
+            + self._gate_on(0)
+            + [_row(2, 32, op=PWM_OP, subreg=4)]
+            + [_frame()]
+            + self._gate_off(0)
+        )
+        encoded = run_passes(df.copy(), args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+            loop_pass=False,
+        ))
+        # Round-trip remains correct regardless of whether the burst
+        # case produces a PLAY_INSTRUMENT_OP -- the abort is correctness,
+        # not a count assertion.
+        baseline = DedupSetPass().apply(df.copy())
+        _assert_round_trip(self, baseline, encoded)
+
+
+class TestMaterializeInstrumentPaletteOutside(unittest.TestCase):
+    """Mirror of TestMaterializeGatePaletteOutside for instrument programs.
+    Programs are post-bundle-decoupling so they exclude ctrl/AD/SR; the
+    materialised expansion is voice-confined to non-bundle regs.
+    """
+
+    def _gate_on(self, voice, ctrl=0x41, ad=0xF0, sr=0x20):
+        base = voice * VOICE_REG_SIZE
+        return [
+            _row(base + 4, ctrl, op=SET_OP),
+            _row(base + 5, ad, op=SET_OP),
+            _row(base + 6, sr, op=SET_OP),
+        ]
+
+    def _gate_off(self, voice, ctrl=0x40):
+        base = voice * VOICE_REG_SIZE
+        return [_row(base + 4, ctrl, op=SET_OP)]
+
+    def _two_freq_program(self):
+        # voice 0 program with non-bundle freq writes that observe_frame
+        # will capture into instrument_palette. Three repeats of:
+        #   gate-on + freq write at frame 0
+        #   freq write at frame 1
+        #   gate-off
+        rows = [_frame()]
+        for _ in range(3):
+            rows += self._gate_on(0)
+            rows += [_row(0, 100, op=SET_OP)]  # freq_lo at rel_frame=0
+            rows += [_frame()]
+            rows += [_row(0, 200, op=SET_OP)]  # freq_lo at rel_frame=1
+            rows += [_frame()]
+            rows += self._gate_off(0)
+            rows += [_frame()]
+        return pd.DataFrame(rows)
+
+    def test_in_slice_definition_kept(self):
+        df = self._two_freq_program()
+        encoded = run_passes(df.copy(), args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+            loop_pass=False,
+        ))
+        # Slice covering everything -- no PLAY_INSTRUMENT_OP should be
+        # expanded (its slot is defined within the slice).
+        play_count = int((encoded["op"] == PLAY_INSTRUMENT_OP).sum())
+        out = materialize_instrument_palette_outside(
+            encoded, slice_lo_frame=0, slice_hi_frame=100
+        )
+        self.assertEqual(int((out["op"] == PLAY_INSTRUMENT_OP).sum()), play_count)
+
+
+class TestIterSelfContainedRowBlocks(unittest.TestCase):
+    """Both training and inference funnel through this iterator. Each
+    yielded block is self-contained: tokenizing and decoding it does not
+    require any frames outside the block.
+    """
+
+    def _gate_on(self, voice, ctrl=0x41, ad=0xF0, sr=0x20):
+        base = voice * VOICE_REG_SIZE
+        return [
+            _row(base + 4, ctrl, op=SET_OP),
+            _row(base + 5, ad, op=SET_OP),
+            _row(base + 6, sr, op=SET_OP),
+        ]
+
+    def _gate_off(self, voice, ctrl=0x40):
+        base = voice * VOICE_REG_SIZE
+        return [_row(base + 4, ctrl, op=SET_OP)]
+
+    def _multi_replay_song(self):
+        # Six gate cycles on voice 0 -- generates GATE_REPLAY_OPs and
+        # potentially PLAY_INSTRUMENT_OPs, so block boundaries crossing
+        # mid-song must rewrite cross-block refs.
+        rows = [_frame()]
+        for _ in range(6):
+            rows += self._gate_on(0)
+            rows += [_frame()]
+            rows += self._gate_off(0)
+            rows += [_frame()]
+        return pd.DataFrame(rows)
+
+    def test_blocks_cover_all_frames(self):
+        df = self._multi_replay_song()
+        encoded = run_passes(df.copy(), args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+            loop_pass=False,
+        ))
+        n_frames = int(
+            encoded["reg"].isin([FRAME_REG, -127]).sum()  # FRAME_REG + DELAY_REG
+        )
+        total_block_frames = 0
+        for block in iter_self_contained_row_blocks(encoded, frames_per_block=4):
+            total_block_frames += int(
+                block["reg"].isin([FRAME_REG, -127]).sum()
+            )
+        self.assertEqual(total_block_frames, n_frames)
+
+    def test_each_block_validates(self):
+        # Every yielded block must pass validate_gate_replays (no
+        # undefined slot refs) and validate_back_refs.
+        df = self._multi_replay_song()
+        encoded = run_passes(df.copy(), args=FakeArgs(
+            gate_palette_cap=None,
+            instrument_window=8,
+            instrument_palette_cap=None,
+            loop_pass=False,
+        ))
+        for block in iter_self_contained_row_blocks(encoded, frames_per_block=3):
+            self.assertTrue(validate_gate_replays(block))
+            self.assertTrue(validate_back_refs(block))
 
 
 if __name__ == "__main__":

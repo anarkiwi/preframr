@@ -11,10 +11,22 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 import zstandard as zstd
+from preframr.macros import (
+    iter_self_contained_row_blocks,
+    materialize_back_refs_outside,
+    materialize_gate_palette_outside,
+    materialize_instrument_palette_outside,
+    self_contain_slice,
+)
 from preframr.reglogparser import RegLogParser
 from preframr.regtokenizer import RegTokenizer
-from preframr.seq_mapper import SeqMapper, SeqMeta
-from preframr.stfconstants import DUMP_SUFFIX, PARSED_SUFFIX
+from preframr.seq_mapper import BlockMapper, SeqMapper, SeqMeta
+from preframr.stfconstants import (
+    DELAY_REG,
+    DUMP_SUFFIX,
+    FRAME_REG,
+    PARSED_SUFFIX,
+)
 
 
 def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
@@ -37,6 +49,70 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
         dump_files.extend(globbed[:max_globbed])
     random.seed()
     return dump_files
+
+
+def materialize_block_array(
+    tokenizer, raw_df, seq_len, parser, reg_widths, frames_per_block=None
+):
+    """Materialise the encoded ``raw_df`` (post-voice-reg, post-LoopPass)
+    into a fixed-size 2D array of self-contained blocks.
+
+    Block storage size is ``seq_len + 1`` so ``BlockMapper`` can split each
+    row into ``input = block[:-1]`` and shifted target ``target = block[1:]``.
+    Longer blocks are truncated; shorter ones pad with zero (which encodes
+    the unk/pad slot in the tokenizer's vocabulary).
+
+    Internally calls ``parser._remove_voice_reg`` to strip the voice-
+    rotation markers so the simulator inside ``self_contain_slice`` sees
+    absolute regs (the same form the predict path passes to
+    ``_self_contained_prompt_df``). After block extraction, the absolute-
+    reg block is round-tripped through ``parser._add_voice_reg`` to
+    restore the LM's view; without that, every block would lose voice
+    rotation and the tokenizer would fail to merge.
+
+    The materialiser shares ``iter_self_contained_row_blocks`` with the
+    predict path so a block produced at parse time decodes identically
+    to one produced on-the-fly during inference.
+    """
+    block_size = seq_len + 1
+    if frames_per_block is None:
+        # Default: a generous frame budget that almost always tokenizes
+        # under ``block_size``. Bin-search refinement is a future
+        # optimisation; for now a 2-tokens-per-frame estimate works for
+        # the post-bundle-decoupling encoding.
+        frames_per_block = max(1, seq_len // 2)
+
+    abs_df, _ = parser._remove_voice_reg(raw_df.copy(), reg_widths)
+
+    blocks = []
+    for block_df in iter_self_contained_row_blocks(
+        abs_df, frames_per_block, args=parser.args
+    ):
+        if block_df.empty:
+            continue
+        # Re-add voice rotation so the block matches the LM's input form.
+        # _add_voice_reg recomputes per-frame VOICE_REG markers from the
+        # block's absolute regs alone, so a block produced this way is
+        # byte-identical to the corresponding slice of the full-song
+        # voice-reg'd form.
+        try:
+            voiced = parser._add_voice_reg(block_df.copy(), zero_voice_reg=True)
+        except Exception:
+            continue
+        merged = tokenizer.merge_token_df(tokenizer.tokens, voiced.copy())
+        if merged is None or "n" not in merged.columns:
+            continue
+        n = merged["n"].astype(np.int16).to_numpy()
+        seq = tokenizer.encode(n).astype(np.int16)
+        if len(seq) >= block_size:
+            blocks.append(seq[:block_size])
+        else:
+            padded = np.zeros(block_size, dtype=np.int16)
+            padded[: len(seq)] = seq
+            blocks.append(padded)
+    if not blocks:
+        return np.zeros((0, block_size), dtype=np.int16)
+    return np.stack(blocks)
 
 
 def parser_worker(args, logger, dump_file, max_perm):
@@ -82,7 +158,48 @@ def get_prompt(args, dataset, logger):
         for r in preamble_df["reg"].unique()
         if r >= 0
     }
-    return seq_meta.irq, n, prompt, prompt_compare, reg_start
+    # Slice the prompt's frame range out of the full sequence and
+    # materialise any BACK_REF / GATE_REPLAY whose target lies before the
+    # slice so the prompt's df is self-contained at decode time.
+    prompt_df_self_contained = _self_contained_prompt_df(
+        loader, dataset, seq, start, args.prompt_seq_len, seq_meta.irq
+    )
+    return (
+        seq_meta.irq,
+        n,
+        prompt,
+        prompt_compare,
+        reg_start,
+        prompt_df_self_contained,
+    )
+
+
+def _self_contained_prompt_df(loader, dataset, seq, start, prompt_seq_len, irq):
+    """Return a row-level prompt df where BACK_REF / GATE_REPLAY rows whose
+    targets fall before the prompt have been materialised into literal
+    frames. Decoders can then expand the df without the preamble in scope.
+
+    Coordinates are *logical frame slots* (each FRAME_REG / DELAY_REG row is
+    one slot), matching ``materialize_back_refs_outside``."""
+    full_states = dataset.tokenizer.decode(seq.numpy())
+    full_df = loader._state_df(full_states, dataset, irq)
+    full_df, _ = loader._remove_voice_reg(full_df, dataset.reg_widths)
+    if "op" not in full_df.columns:
+        # Tokenizer produced a df without op metadata (no macros possible);
+        # nothing to materialise.
+        return full_df.iloc[start : start + prompt_seq_len].reset_index(drop=True)
+    is_marker = full_df["reg"].isin({FRAME_REG, DELAY_REG})
+    slice_lo = int(is_marker.iloc[:start].sum())
+    slice_hi = slice_lo + int(
+        is_marker.iloc[start : start + prompt_seq_len].sum()
+    )
+    # Same materialisation chain the training-time block iterator uses
+    # (parse-time block_array generation funnels through
+    # ``self_contain_slice`` too), so a prompt produced here matches the
+    # corresponding block byte-for-byte. Passing args triggers the
+    # re-encode path so palette indices in the prompt are slice-local
+    # and never reference slots defined before slice_lo.
+    return self_contain_slice(full_df, slice_lo, slice_hi, args=dataset.args)
 
 
 class RegDataset(torch.utils.data.Dataset):
@@ -93,6 +210,11 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_words = 0
         self.reg_widths = {}
         self.seq_mapper = SeqMapper(args.seq_len)
+        # Self-contained block storage; populated alongside seq_mapper
+        # during load() from per-rotation ``.blocks.npy`` files written
+        # at parse time. When non-empty, ``__getitem__`` reads from
+        # block_mapper so each batch sample is a self-contained block.
+        self.block_mapper = BlockMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None, logger=logger)
 
     def load_dfs(self, reglogs=None, dump_files=None, max_perm=99, encode=True):
@@ -138,6 +260,11 @@ class RegDataset(torch.utils.data.Dataset):
                             dump_files = dump_files[1:]
                         for i, df in enumerate(dfs):
                             seq = None
+                            # Preserve the pre-tokenize encoded form for
+                            # block materialisation; merge_token_df mutates
+                            # df by adding an ``n`` column that confuses
+                            # subsequent re-merges of materialised rows.
+                            raw_df = df.copy()
                             if self.tokenizer.tokens is not None:
                                 df = self.tokenizer.merge_token_df(
                                     self.tokenizer.tokens, df
@@ -152,6 +279,49 @@ class RegDataset(torch.utils.data.Dataset):
                                             len(seq),
                                         )
                                         break
+                                    # Block file generation is OFF by default
+                                    # while ``materialize_*_outside`` still
+                                    # produces slot-misaligned slices when
+                                    # the cut is mid-song. The materialiser
+                                    # expands out-of-slice replays into
+                                    # literal SETs at the replay's frame, but
+                                    # that grows the slice's palette
+                                    # starting from slot 0 -- the encoder's
+                                    # original slot index (which the
+                                    # GATE_REPLAY_OP / PLAY_INSTRUMENT_OP
+                                    # rows still carry) no longer matches
+                                    # the slice's local palette state.
+                                    # Decoding the slice from-scratch
+                                    # asserts on the first cross-slice
+                                    # replay. Fix requires a "definition
+                                    # preamble" prepended to each slice
+                                    # that re-creates palette slots 0..K-1
+                                    # in the encoder's order before the
+                                    # slice's content begins. Until that's
+                                    # in, gate the parse-time write behind
+                                    # ``--write-blocks`` (default off).
+                                    if getattr(self.args, "write_blocks", False):
+                                        try:
+                                            block_parser = RegLogParser(self.args)
+                                            blocks_arr = materialize_block_array(
+                                                self.tokenizer,
+                                                raw_df,
+                                                self.args.seq_len,
+                                                block_parser,
+                                                self.reg_widths,
+                                            )
+                                            blocks_path = dump_file.replace(
+                                                DUMP_SUFFIX, f".{i}.blocks.npy"
+                                            )
+                                            np.save(blocks_path, blocks_arr)
+                                        except Exception as e:
+                                            self.logger.info(
+                                                "block materialisation failed for "
+                                                "%s rotation %u: %s",
+                                                dump_file,
+                                                i,
+                                                e,
+                                            )
                             output_dumps.add(dump_file)
                             irq = df["irq"].iloc[0]
                             yield dump_file, i, df, seq, irq
@@ -269,7 +439,19 @@ class RegDataset(torch.utils.data.Dataset):
             self.n_words += len(seq)
             n_words += len(df)
             n_seq += 1
+            # If load_dfs wrote a .blocks.npy alongside the .npy, register
+            # it with block_mapper. Missing files are non-fatal -- the
+            # block path is opt-in and falls back to seq_mapper.
+            blocks_path = df_file.replace(DUMP_SUFFIX, f".{i}.blocks.npy")
+            if os.path.exists(blocks_path):
+                try:
+                    self.block_mapper.add(blocks_path, seq_meta)
+                except Exception as e:
+                    self.logger.info(
+                        "block_mapper add failed for %s: %s", blocks_path, e
+                    )
         self.seq_mapper.finalize()
+        self.block_mapper.finalize()
         self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
         n_frac = 0
         if n_words:
@@ -279,9 +461,17 @@ class RegDataset(torch.utils.data.Dataset):
         )
 
     def __len__(self):
+        # Prefer block_mapper when populated -- each block is a single
+        # self-contained training sample. Falls back to the flat seq
+        # sliding-window when blocks haven't been written (e.g., loading
+        # an older dataset that pre-dates the block path).
+        if len(self.block_mapper) > 0:
+            return len(self.block_mapper)
         return len(self.seq_mapper)
 
     def __getitem__(self, index):
+        if len(self.block_mapper) > 0:
+            return self.block_mapper[index]
         return self.seq_mapper[index]
 
     def getseq(self, i):

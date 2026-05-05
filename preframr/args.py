@@ -104,4 +104,28 @@ def add_args(parser):
     parser.add_argument(
         "--loop-pass", action=argparse.BooleanOptionalAction, default=False
     )
+    # Per-(voice, direction) cap on the GateMacroPass palette. Default
+    # ``None`` keeps v1 behaviour (unbounded palette: every distinct
+    # ``(ctrl, AD, SR)`` end-of-frame state earns a slot). Setting a small
+    # integer caps vocab pressure on GATE_REPLAY_OP tokens at the cost of
+    # compression on long-tail bundles -- transitions whose bundle would
+    # land in slot >= cap stay literal.
+    parser.add_argument("--gate-palette-cap", type=int, default=None)
+    # InstrumentProgramPass v2 knobs. ``instrument-window`` is the maximum
+    # number of frames captured into one program; capture closes earlier on
+    # the next gate event for that voice. ``instrument-palette-cap`` bounds
+    # the per-stream palette size; over-cap programs stay literal.
+    parser.add_argument("--instrument-window", type=int, default=8)
+    parser.add_argument("--instrument-palette-cap", type=int, default=None)
+    # Parse-time generation of self-contained ``.blocks.npy`` files for
+    # the BlockMapper training data path. Off by default until the
+    # ``materialize_*_outside`` chain grows a "definition preamble"
+    # capable of reconstructing encoder palette slot ordering at slice
+    # boundaries that fall mid-song. With it off, training falls back
+    # to the SeqMapper sliding-window path; predict still uses the
+    # iterator via ``_self_contained_prompt_df`` (correctness limited
+    # to ``start_n=0`` until the preamble lands).
+    parser.add_argument(
+        "--write-blocks", action=argparse.BooleanOptionalAction, default=False
+    )
     return parser

@@ -223,10 +223,20 @@ class TestGetPrompt(unittest.TestCase):
             def decode(self, encoded):
                 return encoded
 
+        class FakeDatasetArgs:
+            # Minimal args for ``self_contain_slice``'s ``run_passes`` call
+            # plus the RegLogParser fields ``expand_to_literal_form`` needs.
+            loop_pass = False
+            gate_palette_cap = None
+            instrument_window = 8
+            instrument_palette_cap = None
+            cents = 50
+
         class FakeDataset:
             def __init__(self):
                 self.reg_widths = {}
                 self.tokenizer = FakeTokenizer(tokens)
+                self.args = FakeDatasetArgs()
 
             def getseq(self, i):
                 return torch.from_numpy(seq.astype(np.int64)), seq_meta
@@ -244,7 +254,7 @@ class TestGetPrompt(unittest.TestCase):
             max_seq_len = 6
             prompt_seq_len = 4
 
-        irq, n, prompt, prompt_compare, reg_start = get_prompt(
+        irq, n, prompt, prompt_compare, reg_start, prompt_df = get_prompt(
             PromptArgs(), dataset, logging
         )
         self.assertEqual(irq, 19000)
@@ -255,6 +265,9 @@ class TestGetPrompt(unittest.TestCase):
         self.assertEqual(prompt.shape[1], 4)
         # start_n=0 -> empty preamble -> no reg_start entries
         self.assertEqual(reg_start, {})
+        # prompt_df is a row-level df with at least one frame marker so the
+        # decoder can later expand it.
+        self.assertGreater(len(prompt_df), 0)
 
     def test_max_seq_len_too_short_raises(self):
         seq = np.array([0, 1, 0, 1], dtype=np.int16)
@@ -282,12 +295,13 @@ class TestGetPrompt(unittest.TestCase):
             max_seq_len = 10
             prompt_seq_len = 6
 
-        irq, n, prompt, prompt_compare, reg_start = get_prompt(
+        irq, n, prompt, prompt_compare, reg_start, prompt_df = get_prompt(
             PromptArgs(), dataset, logging
         )
         self.assertEqual(irq, 19000)
         self.assertEqual(n, 4)
         self.assertEqual(prompt.shape[0], 1)
+        self.assertGreaterEqual(len(prompt_df), 0)
 
 
 class TestPreload(unittest.TestCase):

@@ -16,7 +16,7 @@ import torch
 import torchmetrics
 
 from preframr.args import add_args, MODEL_PRECISION
-from preframr.macros import validate_back_refs
+from preframr.macros import validate_back_refs, validate_gate_replays
 from preframr.model import get_device, Model
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
@@ -61,11 +61,19 @@ def add_ext(path, p):
 
 
 def generate_sequence(args, logger, dataset, predictor, p):
-    irq, n, prompt, prompt_compare, reg_start = get_prompt(args, dataset, logger)
+    (
+        irq,
+        n,
+        prompt,
+        prompt_compare,
+        reg_start,
+        prompt_df,
+    ) = get_prompt(args, dataset, logger)
     states = prompt.squeeze(0).tolist()
-    decoded_prompt = dataset.tokenizer.decode(states)
     loader = RegLogParser(args)
-    prompt_df = loader._state_df(decoded_prompt, dataset, irq)
+    # prompt_df came back from get_prompt with BACK_REF / GATE_REPLAY rows
+    # whose targets fell before the slice already materialised, so the
+    # decoder can expand it without the preamble in scope.
     prompt_df_audio, _reg_widths = prepare_df_for_audio(
         prompt_df, dataset.reg_widths, irq, sidq(), strict=False
     )
@@ -82,16 +90,26 @@ def generate_sequence(args, logger, dataset, predictor, p):
         prompt, n, temperature=args.temperature, top_k=args.top_k
     )
     states.extend(predict_states.tolist())
-    df = loader._state_df(dataset.tokenizer.decode(states), dataset, irq)
+    completion_df = loader._state_df(
+        dataset.tokenizer.decode(predict_states.tolist()), dataset, irq
+    )
+    # ``prompt_df`` is already post-``_remove_voice_reg`` (absolute regs); put
+    # the completion in the same coordinate system before concat so the
+    # combined stream is decoder-ready in one form. Subsequent
+    # ``prepare_df_for_audio`` will see no VOICE_REG rows and skip the
+    # internal call (it's a no-op when ``len(df[df["reg"] == VOICE_REG]) == 0``).
+    completion_df, _ = loader._remove_voice_reg(completion_df, dataset.reg_widths)
+    df = pd.concat([prompt_df, completion_df], ignore_index=True)
     # Case-B safety net: scan the full prompt+generated row stream for any
-    # BACK_REF that escapes its bounds. The LM should be predicting only
-    # in-bounds back-refs, but this catches the bug rather than letting it
-    # corrupt the audio render. (A proper sampling-time logit guard belongs
-    # in predictor.predict; tracked as a follow-up.)
+    # BACK_REF or GATE_REPLAY that escapes its bounds. The LM should
+    # predict only in-bounds refs, but this catches the bug rather than
+    # letting it corrupt the audio render. (A proper sampling-time logit
+    # guard belongs in predictor.predict; tracked as a follow-up.)
     try:
         validate_back_refs(df, prompt_frame_count=0)
+        validate_gate_replays(df)
     except AssertionError as e:
-        logger.error("generated stream contains an escapee BACK_REF: %s", e)
+        logger.error("generated stream contains an escapee macro ref: %s", e)
         if args.min_acc:
             sys.exit(-1)
     predicted_compare = prompt_compare[args.prompt_seq_len :]

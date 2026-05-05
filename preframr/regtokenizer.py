@@ -44,6 +44,27 @@ class RegTokenizer:
             self.tkmodel = Tokenizer.from_str(tkmodel)
 
     def encode_unicode(self, tokens, dtype=np.uint16):
+        # Token ids ``< self.splitters`` are mapped to ASCII punctuation
+        # chars. Combined with ``pre_tokenizers.Punctuation()`` in the
+        # unigram/BPE trainer, this guarantees those ids never appear
+        # inside merged subwords -- i.e., they are *atomic* and split
+        # the corpus at every occurrence. ``make_tokens`` numbers
+        # FRAME_REG/DELAY_REG markers first so they fall in this range,
+        # which is what makes the block iterator's frame-boundary cuts
+        # tokenizer-safe (a block produced standalone tokenizes
+        # identically to the same frames sliced from the full corpus).
+        #
+        # Future: extend the atomic range to cover END_REPEAT_OP,
+        # END_FLIP_OP, SUBREG_FLUSH_OP, PLAY_INSTRUMENT_OP,
+        # GATE_REPLAY_OP. These ops *can* currently merge with
+        # neighbours, which is fine for block correctness (blocks split
+        # on FRAME markers, not these ops) but may cost a small amount
+        # of LM-side learnability post-bundle-decoupling: PLAY_INSTRUMENT
+        # programs are now smaller and more uniform, so the unigram
+        # model is more likely to merge ``PLAY_INSTRUMENT_OP`` with
+        # following SETs into long sub-words. If LM convergence shows
+        # this, bump SPLITTERS / pre-allocate punctuation slots for
+        # these ops in ``make_tokens``.
         t = np.array(tokens, dtype=dtype)
         m = t >= self.splitters
         t[m] += UNICODE_BASE
