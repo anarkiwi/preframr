@@ -83,7 +83,7 @@ if [[ -n "${NVGPUS}" ]] ; then
 fi
 
 ./build.sh
-CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE}"
+CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} --max-perm 1 --no-fuzzy-loop-pass --no-loop-transposed"
 # train to the stop loss. ``-ti`` is dropped because we redirect output
 # through ``tee``; the log file is the sole record if the container is
 # OOM-killed by the kernel.
