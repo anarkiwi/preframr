@@ -1553,9 +1553,43 @@ def _slice_into_frames(df):
 def _frame_content(df, start, end):
     """Hashable, comparable content tuple for a frame -- ignores diff and irq
     columns so that sequential identical-content frames at different stream
-    times still match."""
+    times still match.
+
+    Per-call pandas indexing is the dominant cost in ``LoopPass`` for any
+    real song; ``_frame_contents_batch`` below builds all frames' tuples
+    in one numpy pass and is what ``LoopPass.apply`` actually uses.
+    """
     cols = ["reg", "val", "op", "subreg"]
     return tuple(tuple(int(v) for v in df.iloc[r][cols]) for r in range(start, end))
+
+
+def _frame_contents_batch(df, frames):
+    """Vectorised version of ``_frame_content`` for a whole frame list.
+
+    Extracts the four content columns as numpy arrays once, then slices
+    per frame -- avoids 1000s of per-row pandas indexing calls (the
+    ``df.iloc[r][cols]`` pattern is ~3ms per row, dominating LoopPass).
+    """
+    regs = df["reg"].to_numpy()
+    vals = df["val"].to_numpy()
+    ops = df["op"].to_numpy()
+    if "subreg" in df.columns:
+        subregs = df["subreg"].to_numpy()
+    else:
+        subregs = np.full(len(df), -1, dtype=np.int64)
+    out = []
+    for s, e in frames:
+        out.append(
+            tuple(
+                zip(
+                    regs[s:e].tolist(),
+                    vals[s:e].tolist(),
+                    ops[s:e].tolist(),
+                    subregs[s:e].tolist(),
+                )
+            )
+        )
+    return out
 
 
 class LoopPass(MacroPass):
@@ -1594,7 +1628,7 @@ class LoopPass(MacroPass):
         n_frames = len(frames)
         if n_frames < self.min_lz_match:
             return df
-        contents = [_frame_content(df, s, e) for s, e in frames]
+        contents = _frame_contents_batch(df, frames)
         sizes = [e - s for s, e in frames]
 
         # LZ77 seed table: (content_i, content_{i+1}) -> [start frame indices]
@@ -1603,6 +1637,10 @@ class LoopPass(MacroPass):
         sample_row = df.iloc[0]  # used to seed dtypes when constructing macro rows
         diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
         irq_default = int(df["irq"].iloc[0]) if "irq" in df.columns else -1
+        # Pre-extract all rows as plain dicts once. Per-emission slicing
+        # via ``all_records[s:e]`` avoids the 6000-call/song
+        # ``df.iloc[r].to_dict()`` pattern (each call ~5ms in pandas).
+        all_records = df.to_dict("records")
 
         def best_do(i):
             best_save = 0
@@ -1656,8 +1694,7 @@ class LoopPass(MacroPass):
 
         def emit_literal(i):
             s, e = frames[i]
-            for r in range(s, e):
-                out_rows.append(df.iloc[r].to_dict())
+            out_rows.extend(all_records[s:e])
             if i + 1 < n_frames:
                 seed[(contents[i], contents[i + 1])].append(i)
 
@@ -1691,8 +1728,7 @@ class LoopPass(MacroPass):
             )
             for k in range(body):
                 s, e = frames[i + k]
-                for r in range(s, e):
-                    out_rows.append(df.iloc[r].to_dict())
+                out_rows.extend(all_records[s:e])
             out_rows.append(
                 {
                     "reg": int(LOOP_OP_REG),
