@@ -170,6 +170,15 @@ def _unpack_back_ref(val):
     return val >> 8, val & _BACK_REF_LEN_MASK
 
 
+# PATTERN_OVERLAY target_reg sentinels (signalling body-wide modes).
+# Real reg values are 0..24, so any value > 0xFE is free as a sentinel.
+# Body-wide modes are emitted with subreg=-1 (no specific frame_offset);
+# the decoder applies them across the whole replayed body.
+OVERLAY_BODY_FREQ_DELTA = 0xFE  # subsumes BACK_REF_TRANSPOSED: signed delta
+                                # (in val's low 16 bits) added to every freq
+                                # SET in the body
+
+
 # Per-voice register *bases* (relative to voice slot) whose byte value
 # carries two semantically-independent nibbles. SubregPass runs before
 # _add_voice_reg, so we expand to the absolute per-voice instances
@@ -1883,12 +1892,12 @@ class LoopPass(MacroPass):
                     continue
                 # Need at least one freq-SET row that participates -- if
                 # delta is None we matched exact (best_lz handles).
-                # Cost: BACK_REF_TRANSPOSED is a single token, same as
-                # BACK_REF, but vocab pressure is one extra slot per
-                # distinct delta. Conservative save accounting: same as
-                # back-ref minus the additional metadata token.
+                # Cost: PATTERN_REPLAY (1 row) + 1 body-wide-delta
+                # PATTERN_OVERLAY = 2 rows. Vocab pressure now folds
+                # into the existing PATTERN_REPLAY/PATTERN_OVERLAY
+                # classes (subsuming the old BACK_REF_TRANSPOSED_OP).
                 body_rows = sum(sizes[i + k] for k in range(length))
-                save = body_rows - self.ref_cost
+                save = body_rows - (self.ref_cost + 1)
                 if save > best_save:
                     best_save, best_dist, best_len, best_delta = (
                         save, i - cand, length, delta,
@@ -1925,17 +1934,31 @@ class LoopPass(MacroPass):
                     _seed_pair(i + k)
 
         def emit_back_ref_transposed(i, dist, length, delta):
-            # Encoded as ``(distance, length)`` in val (same packing as
-            # BACK_REF_OP) and the freq delta in subreg (signed). The
-            # decoder copies frames cand..cand+length-1 and adds delta
-            # to every freq SET val it dispatches.
+            # Subsumed: emitted as a PATTERN_REPLAY_OP with one
+            # body-wide-mode PATTERN_OVERLAY_OP carrying the freq delta.
+            # The body-wide mode is signalled by ``subreg=-1`` and a
+            # sentinel ``target_reg=OVERLAY_BODY_FREQ_DELTA`` packed
+            # into val's high bits. The decoder copies frames
+            # cand..cand+length-1 and adds delta to every freq SET val.
             out_rows.append(
                 {
                     "reg": int(LOOP_OP_REG),
                     "val": int(_pack_back_ref(dist, length)),
                     "diff": diff_default,
-                    "op": int(BACK_REF_TRANSPOSED_OP),
-                    "subreg": int(delta),
+                    "op": int(PATTERN_REPLAY_OP),
+                    "subreg": 1,  # one overlay row follows
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            packed = (OVERLAY_BODY_FREQ_DELTA << 16) | (int(delta) & 0xFFFF)
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(packed),
+                    "diff": diff_default,
+                    "op": int(PATTERN_OVERLAY_OP),
+                    "subreg": -1,  # body-wide mode marker
                     "irq": irq_default,
                     "description": 0,
                 }
@@ -2226,7 +2249,7 @@ def expand_loops(df):
     if "op" not in df.columns:
         return df
     has_loops = df["op"].isin(
-        [BACK_REF_OP, DO_LOOP_OP, BACK_REF_TRANSPOSED_OP, PATTERN_REPLAY_OP]
+        [BACK_REF_OP, DO_LOOP_OP, PATTERN_REPLAY_OP]
     ).any()
     if not has_loops:
         return df
@@ -2246,17 +2269,8 @@ def expand_loops(df):
     while i < n:
         row = df.iloc[i]
         op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
-        if op == BACK_REF_OP or op == BACK_REF_TRANSPOSED_OP:
+        if op == BACK_REF_OP:
             distance, length = _unpack_back_ref(row["val"])
-            delta = 0
-            if op == BACK_REF_TRANSPOSED_OP:
-                # ``subreg`` carries the (signed) freq-val delta. Pandas
-                # may store it as nullable int; coerce to plain int.
-                d_raw = row["subreg"]
-                if pd.isna(d_raw):
-                    delta = 0
-                else:
-                    delta = int(d_raw)
             cur_frame = len(output_frame_starts)
             target = cur_frame - distance
             assert target >= 0, (
@@ -2276,15 +2290,7 @@ def expand_loops(df):
                 )
                 snapshot = list(out[src_lo:src_hi])
                 for snap_row in snapshot:
-                    new_row = dict(snap_row)
-                    if (
-                        delta
-                        and int(new_row.get("reg", -1)) in _FREQ_REGS_VOICED
-                        and int(new_row.get("op", SET_OP)) == SET_OP
-                        and int(new_row.get("subreg", -1)) == -1
-                    ):
-                        new_row["val"] = int(new_row["val"]) + delta
-                    append_row(new_row)
+                    append_row(dict(snap_row))
             i += 1
             continue
         if op == DO_LOOP_OP:
@@ -2325,7 +2331,15 @@ def expand_loops(df):
             # contiguous), with target_reg and new_val packed into val:
             # ``val = (target_reg << 16) | (new_val & 0xFFFF)``.
             # ``subreg = frame_offset_in_body``.
-            overlays = []  # list of (frame_offset, reg, val)
+            # Per-frame overlays (subreg >= 0): applied as SET rows to
+            # the matching frame_offset in the body.
+            # Body-wide overlays (subreg == -1): mode-encoded patches
+            # applied to all body rows. Currently the only body-wide
+            # mode is OVERLAY_BODY_FREQ_DELTA -- subsumes the old
+            # BACK_REF_TRANSPOSED_OP. Mode is signalled by target_reg
+            # = OVERLAY_BODY_FREQ_DELTA in the packed val.
+            overlays = []  # list of (frame_offset, reg, val) per-frame
+            body_freq_delta = 0
             for k in range(num_overlays):
                 ov = df.iloc[i + 1 + k]
                 ov_op = int(ov["op"]) if not pd.isna(ov["op"]) else SET_OP
@@ -2335,20 +2349,25 @@ def expand_loops(df):
                 )
                 packed = int(ov["val"])
                 target_reg = (packed >> 16) & 0xFF
-                new_val = packed & 0xFFFF
-                overlays.append(
-                    (
-                        int(ov["subreg"]),
-                        target_reg,
-                        new_val,
-                    )
+                ov_subreg = (
+                    int(ov["subreg"]) if not pd.isna(ov["subreg"]) else 0
                 )
+                if ov_subreg < 0 and target_reg == OVERLAY_BODY_FREQ_DELTA:
+                    # Sign-extend the 16-bit delta.
+                    delta = packed & 0xFFFF
+                    if delta >= 0x8000:
+                        delta -= 0x10000
+                    body_freq_delta = delta
+                    continue
+                new_val = packed & 0xFFFF
+                overlays.append((ov_subreg, target_reg, new_val))
             # Group overlays by frame_offset for fast lookup during
             # body replay.
             ov_by_frame = defaultdict(list)
             for fo, r, v in overlays:
                 ov_by_frame[fo].append((r, v))
-            # Replay source body, applying overlays per frame.
+            # Replay source body, applying overlays per frame and the
+            # body-wide freq delta to every freq SET in the body.
             for f in range(target, target + length):
                 src_lo = output_frame_starts[f]
                 src_hi = (
@@ -2358,11 +2377,16 @@ def expand_loops(df):
                 )
                 snapshot = list(out[src_lo:src_hi])
                 for snap_row in snapshot:
-                    append_row(dict(snap_row))
-                # Append overlay writes for this frame, AFTER the body's
-                # writes. Each overlay becomes a SET row so the
-                # downstream simulator's last_val[reg] ends at the
-                # overlay's value.
+                    new_row = dict(snap_row)
+                    if (
+                        body_freq_delta
+                        and int(new_row.get("reg", -1)) in _FREQ_REGS_VOICED
+                        and int(new_row.get("op", SET_OP)) == SET_OP
+                        and int(new_row.get("subreg", -1)) == -1
+                    ):
+                        new_row["val"] = int(new_row["val"]) + body_freq_delta
+                    append_row(new_row)
+                # Per-frame SET overlays AFTER the body's writes.
                 frame_offset = f - target
                 for r, v in ov_by_frame.get(frame_offset, ()):
                     template = dict(snapshot[0]) if snapshot else {}
