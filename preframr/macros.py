@@ -120,6 +120,7 @@ def _df_arrays_and_frames(df):
     }
     return arrs, frame_starts
 
+
 from preframr.stfconstants import (
     BACK_REF_OP,
     BACK_REF_TRANSPOSED_OP,
@@ -175,8 +176,8 @@ def _unpack_back_ref(val):
 # Body-wide modes are emitted with subreg=-1 (no specific frame_offset);
 # the decoder applies them across the whole replayed body.
 OVERLAY_BODY_FREQ_DELTA = 0xFE  # subsumes BACK_REF_TRANSPOSED: signed delta
-                                # (in val's low 16 bits) added to every freq
-                                # SET in the body
+# (in val's low 16 bits) added to every freq
+# SET in the body
 
 
 # Per-voice register *bases* (relative to voice slot) whose byte value
@@ -199,9 +200,7 @@ GATE_REGS_BY_VOICE = tuple(
     (CTRL_REGS_BY_VOICE[v], AD_REGS_BY_VOICE[v], SR_REGS_BY_VOICE[v])
     for v in range(VOICES)
 )
-_GATE_REG_TO_VOICE = {
-    r: v for v in range(VOICES) for r in GATE_REGS_BY_VOICE[v]
-}
+_GATE_REG_TO_VOICE = {r: v for v in range(VOICES) for r in GATE_REGS_BY_VOICE[v]}
 # Flat set of all gate-bundle regs across all voices. Instrument captures
 # exclude these because gate-bundle writes are handled by GateMacroPass
 # (literal SETs grow ``gate_palette``; replays go through GATE_REPLAY_OP).
@@ -271,9 +270,7 @@ class DecodeState:
         # aligned across walks even when intermediate passes (FuzzyLoop)
         # reorder or re-emit the literal SETs that originally grew it.
         if frozen_gate_palette is not None:
-            self.gate_palette = {
-                k: list(v) for k, v in frozen_gate_palette.items()
-            }
+            self.gate_palette = {k: list(v) for k, v in frozen_gate_palette.items()}
             self.gate_palette_frozen = True
         else:
             self.gate_palette = {}
@@ -532,13 +529,9 @@ class DecodeState:
                         slot = len(palette) - 1
                         was_added = True
                         if frame_idx is not None:
-                            self.gate_palette_def_frames[
-                                (v, d, slot)
-                            ] = int(frame_idx)
+                            self.gate_palette_def_frames[(v, d, slot)] = int(frame_idx)
                     # else: over cap, leave palette alone.
-                self.last_gate_transitions.append(
-                    (v, d, bundle, was_added, slot)
-                )
+                self.last_gate_transitions.append((v, d, bundle, was_added, slot))
 
                 # Instrument capture: close any open capture for this voice
                 # (its program is what got us up to but not including this
@@ -596,9 +589,9 @@ class DecodeState:
             or len(self.instrument_palette) < self.instrument_palette_cap
         ):
             self.instrument_palette.append(program)
-            self.instrument_palette_def_frames[
-                len(self.instrument_palette) - 1
-            ] = cap["start_frame"]
+            self.instrument_palette_def_frames[len(self.instrument_palette) - 1] = cap[
+                "start_frame"
+            ]
         return program
 
 
@@ -1364,9 +1357,7 @@ class SubregPass(MacroPass):
             for reg in df["reg"].unique():
                 sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
                 last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
-            cap = (
-                getattr(args, "gate_palette_cap", None) if args is not None else None
-            )
+            cap = getattr(args, "gate_palette_cap", None) if args is not None else None
             state = DecodeState(
                 int(frame_rows.iloc[0]),
                 last_diff=last_diff,
@@ -1428,8 +1419,13 @@ class SubregPass(MacroPass):
                     # the SUBREG_FLUSH bookkeeping (decoder flushes naturally
                     # when the next subreg row arrives on a different reg).
                     fast_row = _FastRow(
-                        reg=reg, val=row_val, op=op, subreg=subreg,
-                        diff=row_diff, description=row_desc, Index=row_idx,
+                        reg=reg,
+                        val=row_val,
+                        op=op,
+                        subreg=subreg,
+                        diff=row_diff,
+                        description=row_desc,
+                        Index=row_idx,
                     )
                     writes = dispatch(fast_row)
                     if writes:
@@ -1440,8 +1436,13 @@ class SubregPass(MacroPass):
                 if subreg != -1:
                     # Already-split row: dispatch and remember nibble.
                     fast_row = _FastRow(
-                        reg=reg, val=row_val, op=op, subreg=subreg,
-                        diff=row_diff, description=row_desc, Index=row_idx,
+                        reg=reg,
+                        val=row_val,
+                        op=op,
+                        subreg=subreg,
+                        diff=row_diff,
+                        description=row_desc,
+                        Index=row_idx,
                     )
                     writes = dispatch(fast_row)
                     if writes:
@@ -1484,9 +1485,7 @@ class SubregPass(MacroPass):
                     # post-write byte value.
                     if state is not None:
                         state.last_val[reg] = cur
-                        f_writes.append(
-                            (reg, cur, state.diff_for(reg), row_desc)
-                        )
+                        f_writes.append((reg, cur, state.diff_for(reg), row_desc))
                     last_emitted_reg = None
                     last_emitted_nib = None
                     continue
@@ -1525,9 +1524,7 @@ class SubregPass(MacroPass):
                     # decision (and any GATE_REPLAY palette comparison) sees
                     # the post-SET register value.
                     state.last_val[reg] = cur
-                    f_writes.append(
-                        (reg, cur, state.diff_for(reg), row_desc)
-                    )
+                    f_writes.append((reg, cur, state.diff_for(reg), row_desc))
                 last_emitted_reg = reg
                 last_emitted_nib = emitted_subregs[-1][0]
             if state is not None:
@@ -1689,10 +1686,7 @@ def _frame_stripped_contents_batch(df, frames):
         is_fs = is_freq_set[s:e]
         # placeholder val 0 for freq SETs -- vals[i] is dropped.
         stripped.append(
-            tuple(
-                (rs[k], 0 if is_fs[k] else vs[k], os[k], ss[k])
-                for k in range(e - s)
-            )
+            tuple((rs[k], 0 if is_fs[k] else vs[k], os[k], ss[k]) for k in range(e - s))
         )
     return stripped
 
@@ -1900,7 +1894,10 @@ class LoopPass(MacroPass):
                 save = body_rows - (self.ref_cost + 1)
                 if save > best_save:
                     best_save, best_dist, best_len, best_delta = (
-                        save, i - cand, length, delta,
+                        save,
+                        i - cand,
+                        length,
+                        delta,
                     )
             return best_save, best_dist, best_len, best_delta
 
@@ -2216,8 +2213,13 @@ def _per_frame_state_walk(df):
             if decoder is None:
                 continue
             row = _FastRow(
-                reg=reg, val=int(vals[i]), op=op, subreg=int(subregs[i]),
-                diff=int(diffs[i]), description=int(descs[i]), Index=int(indices[i]),
+                reg=reg,
+                val=int(vals[i]),
+                op=op,
+                subreg=int(subregs[i]),
+                diff=int(diffs[i]),
+                description=int(descs[i]),
+                Index=int(indices[i]),
             )
             writes = decoder.expand(row, state)
             if writes:
@@ -2248,9 +2250,7 @@ def expand_loops(df):
     """
     if "op" not in df.columns:
         return df
-    has_loops = df["op"].isin(
-        [BACK_REF_OP, DO_LOOP_OP, PATTERN_REPLAY_OP]
-    ).any()
+    has_loops = df["op"].isin([BACK_REF_OP, DO_LOOP_OP, PATTERN_REPLAY_OP]).any()
     if not has_loops:
         return df
 
@@ -2349,9 +2349,7 @@ def expand_loops(df):
                 )
                 packed = int(ov["val"])
                 target_reg = (packed >> 16) & 0xFF
-                ov_subreg = (
-                    int(ov["subreg"]) if not pd.isna(ov["subreg"]) else 0
-                )
+                ov_subreg = int(ov["subreg"]) if not pd.isna(ov["subreg"]) else 0
                 if ov_subreg < 0 and target_reg == OVERLAY_BODY_FREQ_DELTA:
                     # Sign-extend the 16-bit delta.
                     delta = packed & 0xFFFF
@@ -2404,9 +2402,7 @@ def expand_loops(df):
         if op == PATTERN_OVERLAY_OP:
             # Should have been consumed by a preceding PATTERN_REPLAY_OP;
             # if reached as a top-level row the encoder is broken.
-            raise AssertionError(
-                f"orphan PATTERN_OVERLAY_OP at row {i}"
-            )
+            raise AssertionError(f"orphan PATTERN_OVERLAY_OP at row {i}")
         # Literal row.
         append_row({c: row[c] for c in cols})
         i += 1
@@ -2538,14 +2534,10 @@ def _simulate_palette(literal_df):
             f_writes.append((marker_reg, marker_val, marker_diff, description_default))
         elif marker_reg == DELAY_REG:
             for _ in range(marker_val - 1):
-                delay_writes = [
-                    (FRAME_REG, 0, state.frame_diff, description_default)
-                ]
+                delay_writes = [(FRAME_REG, 0, state.frame_diff, description_default)]
                 delay_writes.extend(state.tick_frame())
                 finalize(delay_writes, advance=False)
-            f_writes.append(
-                (FRAME_REG, 0, state.frame_diff, description_default)
-            )
+            f_writes.append((FRAME_REG, 0, state.frame_diff, description_default))
         for i in range(start + 1, end):
             reg = int(regs[i])
             if reg < 0:
@@ -2628,11 +2620,7 @@ def materialize_gate_palette_outside(df, slice_lo_frame, slice_hi_frame):
             # replay's own frame index is one less than the running count.
             replay_frame = output_frame_count - 1
             in_slice = slice_lo_frame <= replay_frame < slice_hi_frame
-            if (
-                in_slice
-                and def_frame is not None
-                and def_frame < slice_lo_frame
-            ):
+            if in_slice and def_frame is not None and def_frame < slice_lo_frame:
                 bundle = sim.gate_palette[(v, d)][idx]
                 ctrl_reg, ad_reg, sr_reg = GATE_REGS_BY_VOICE[v]
                 # Emit literal SETs in (ctrl, AD, SR) order. SubregPass-
@@ -2839,9 +2827,7 @@ def self_contain_slice(df, slice_lo_frame, slice_hi_frame, args=None):
     return run_passes(slice_df, args=args)
 
 
-def iter_self_contained_row_blocks(
-    df, frames_per_block, args=None, stride=None
-):
+def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None):
     """Yield row-DataFrames each covering ``frames_per_block`` logical
     frame slots (= FRAME_REG/DELAY_REG markers) of ``df``. Every block
     has its out-of-block references (BACK_REF_OP, GATE_REPLAY_OP,
@@ -2885,9 +2871,7 @@ def iter_self_contained_row_blocks(
         for lo in range(0, n_frames, stride):
             hi = min(lo + frames_per_block, n_frames)
             row_lo = marker_idx[lo]
-            row_hi = (
-                marker_idx[hi] if hi < n_frames else len(df)
-            )
+            row_hi = marker_idx[hi] if hi < n_frames else len(df)
             yield df.iloc[row_lo:row_hi].reset_index(drop=True).copy()
         return
 
@@ -3025,8 +3009,12 @@ class GateMacroPass(MacroPass):
                 decoder = DECODERS.get(op)
                 if decoder is not None:
                     row = _FastRow(
-                        reg=reg, val=int(vals_all[i]), op=op, subreg=subreg,
-                        diff=int(diffs_all[i]), description=int(descs_all[i]),
+                        reg=reg,
+                        val=int(vals_all[i]),
+                        op=op,
+                        subreg=subreg,
+                        diff=int(diffs_all[i]),
+                        description=int(descs_all[i]),
                         Index=int(indices_all[i]),
                     )
                     writes = decoder.expand(row, state)
@@ -3039,9 +3027,7 @@ class GateMacroPass(MacroPass):
             # bundle (first occurrence) or matched an existing slot
             # (replay). track_instruments=False keeps state.instrument_*
             # untouched -- this pass doesn't care about them.
-            state.observe_frame(
-                f_writes, frame_idx=cur_frame, track_instruments=False
-            )
+            state.observe_frame(f_writes, frame_idx=cur_frame, track_instruments=False)
 
             for v, d, bundle, was_added, slot in state.last_gate_transitions:
                 cand_rows = voice_candidate_idx.get(v, [])
@@ -3110,19 +3096,21 @@ class InstrumentProgramPass(MacroPass):
     line up by construction.
     """
 
-    _voice_confined_ops = frozenset({
-        SET_OP,
-        DIFF_OP,
-        REPEAT_OP,
-        FLIP_OP,
-        PWM_OP,
-        FLIP2_OP,
-        INTERVAL_OP,
-        GATE_REPLAY_OP,
-        SUBREG_FLUSH_OP,
-        END_REPEAT_OP,
-        END_FLIP_OP,
-    })
+    _voice_confined_ops = frozenset(
+        {
+            SET_OP,
+            DIFF_OP,
+            REPEAT_OP,
+            FLIP_OP,
+            PWM_OP,
+            FLIP2_OP,
+            INTERVAL_OP,
+            GATE_REPLAY_OP,
+            SUBREG_FLUSH_OP,
+            END_REPEAT_OP,
+            END_FLIP_OP,
+        }
+    )
     # Burst-style ops carry per-reg state (last_repeat / last_flip /
     # pending_diffs) that crosses frame boundaries, with terminators
     # (val=0) that depend on the matching opener's run-time scheduling.
@@ -3130,14 +3118,16 @@ class InstrumentProgramPass(MacroPass):
     # corrupt the burst's running state, causing the terminator to fire on
     # an empty pending state and emit a redundant write at decode time.
     # Abort captures whose window touches one of these ops.
-    _burst_ops = frozenset({
-        REPEAT_OP,
-        FLIP_OP,
-        PWM_OP,
-        FILTER_SWEEP_OP,
-        FLIP2_OP,
-        INTERVAL_OP,
-    })
+    _burst_ops = frozenset(
+        {
+            REPEAT_OP,
+            FLIP_OP,
+            PWM_OP,
+            FILTER_SWEEP_OP,
+            FLIP2_OP,
+            INTERVAL_OP,
+        }
+    )
 
     @staticmethod
     def _sort_strict_voice_order(df):
@@ -3190,16 +3180,10 @@ class InstrumentProgramPass(MacroPass):
             sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
             last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
 
-        gate_cap = (
-            getattr(args, "gate_palette_cap", None) if args is not None else None
-        )
-        instr_window = (
-            getattr(args, "instrument_window", 8) if args is not None else 8
-        )
+        gate_cap = getattr(args, "gate_palette_cap", None) if args is not None else None
+        instr_window = getattr(args, "instrument_window", 8) if args is not None else 8
         instr_cap = (
-            getattr(args, "instrument_palette_cap", None)
-            if args is not None
-            else None
+            getattr(args, "instrument_palette_cap", None) if args is not None else None
         )
 
         # ----- Phase 1: collect candidate captures from a clean walk ------
@@ -3316,9 +3300,7 @@ class InstrumentProgramPass(MacroPass):
             fire_candidates(float("inf"))
 
             f_writes.extend(state.tick_frame())
-            state.observe_frame(
-                f_writes, frame_idx=cur_frame, track_instruments=True
-            )
+            state.observe_frame(f_writes, frame_idx=cur_frame, track_instruments=True)
         out = _splice_rows(df, list(drop_idx_set), new_rows)
         # Publish the authoritative palette so downstream passes
         # (DedupSetPass, SubregPass) and the final decoder walk
@@ -3420,9 +3402,7 @@ class InstrumentProgramPass(MacroPass):
                 if v in transpose_voices or v in burst_voices:
                     voice_open_rows[v]["aborted"] = True
 
-            state.observe_frame(
-                f_writes, frame_idx=cur_frame, track_instruments=True
-            )
+            state.observe_frame(f_writes, frame_idx=cur_frame, track_instruments=True)
 
             # observe_frame closed some captures -- finalise their row
             # trackers as candidates.
@@ -3453,15 +3433,10 @@ class InstrumentProgramPass(MacroPass):
                 if v not in voice_open_rows:
                     base = v * VOICE_REG_SIZE
                     voice_regs = set(range(base, base + VOICE_REG_SIZE))
-                    has_pending_burst = any(
-                        bool(state.pending_diffs.get(r))
-                        for r in voice_regs
-                    ) or any(
-                        state.last_repeat.get(r, 0)
-                        for r in voice_regs
-                    ) or any(
-                        state.last_flip.get(r, 0)
-                        for r in voice_regs
+                    has_pending_burst = (
+                        any(bool(state.pending_diffs.get(r)) for r in voice_regs)
+                        or any(state.last_repeat.get(r, 0) for r in voice_regs)
+                        or any(state.last_flip.get(r, 0) for r in voice_regs)
                     )
                     voice_open_rows[v] = {
                         "start_frame": state.open_instr_captures[v]["start_frame"],
@@ -3510,9 +3485,7 @@ class DedupSetPass(MacroPass):
             strict=False,
             gate_palette_cap=cap,
             frozen_instrument_palette=df.attrs.get("instrument_palette"),
-            frozen_gate_palette=_deserialize_gate_palette(
-                df.attrs.get("gate_palette")
-            ),
+            frozen_gate_palette=_deserialize_gate_palette(df.attrs.get("gate_palette")),
         )
 
         arrs, frame_starts = _df_arrays_and_frames(df)
@@ -3542,19 +3515,19 @@ class DedupSetPass(MacroPass):
                 op = int(ops[i])
                 subreg = int(subregs[i])
                 val = int(vals[i])
-                if (
-                    op == SET_OP
-                    and subreg == -1
-                    and state.last_val[reg] == val
-                ):
+                if op == SET_OP and subreg == -1 and state.last_val[reg] == val:
                     drop_idx.append(int(indices[i]))
                     continue
                 decoder = DECODERS.get(op)
                 if decoder is None:
                     continue
                 row = _FastRow(
-                    reg=reg, val=val, op=op, subreg=subreg,
-                    diff=int(diffs[i]), description=int(descs[i]),
+                    reg=reg,
+                    val=val,
+                    op=op,
+                    subreg=subreg,
+                    diff=int(diffs[i]),
+                    description=int(descs[i]),
                     Index=int(indices[i]),
                 )
                 writes = decoder.expand(row, state)

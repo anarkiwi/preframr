@@ -12,6 +12,7 @@ per-pattern state drift dominates.
 Run after parsing with ``--no-loop-pass`` so we see what LoopPass
 itself missed.
 """
+
 import argparse, glob, os, random, sys
 from collections import Counter, defaultdict
 
@@ -42,6 +43,7 @@ def compute_fingerprints(df):
     gate bit) + global filter-cutoff high nibble + volume low nibble.
     """
     from preframr.macros import expand_loops, _build_decode_state
+
     literal_df = expand_loops(df.copy())
     state = _build_decode_state(literal_df)
     if state is None:
@@ -75,9 +77,7 @@ def compute_fingerprints(df):
             f_writes.append((marker_reg, marker_val, marker_diff, description_default))
         elif marker_reg == DELAY_REG:
             for _ in range(marker_val - 1):
-                delay_writes = [
-                    (FRAME_REG, 0, state.frame_diff, description_default)
-                ]
+                delay_writes = [(FRAME_REG, 0, state.frame_diff, description_default)]
                 delay_writes.extend(state.tick_frame())
                 state.observe_frame(delay_writes, frame_idx=out_frame_idx)
             f_writes.append((FRAME_REG, 0, state.frame_diff, description_default))
@@ -90,8 +90,13 @@ def compute_fingerprints(df):
             if decoder is None:
                 continue
             row = _FastRow(
-                reg=reg, val=int(vals[i]), op=op, subreg=int(subregs[i]),
-                diff=int(diffs[i]), description=int(descs[i]), Index=int(indices[i]),
+                reg=reg,
+                val=int(vals[i]),
+                op=op,
+                subreg=int(subregs[i]),
+                diff=int(diffs[i]),
+                description=int(descs[i]),
+                Index=int(indices[i]),
             )
             writes = decoder.expand(row, state)
             if writes:
@@ -130,9 +135,17 @@ def compute_overlay(df_arrs, frame_starts, src_idx, dst_idx, length):
     n_frames = len(frame_starts)
     for k in range(length):
         s_lo = int(frame_starts[src_idx + k])
-        s_hi = int(frame_starts[src_idx + k + 1]) if src_idx + k + 1 < n_frames else len(regs)
+        s_hi = (
+            int(frame_starts[src_idx + k + 1])
+            if src_idx + k + 1 < n_frames
+            else len(regs)
+        )
         d_lo = int(frame_starts[dst_idx + k])
-        d_hi = int(frame_starts[dst_idx + k + 1]) if dst_idx + k + 1 < n_frames else len(regs)
+        d_hi = (
+            int(frame_starts[dst_idx + k + 1])
+            if dst_idx + k + 1 < n_frames
+            else len(regs)
+        )
         # Compare row-by-row up to common length; mismatched rows + length-diff = overlay.
         s_len = s_hi - s_lo
         d_len = d_hi - d_lo
@@ -192,7 +205,9 @@ def study_song(df, max_match=16, max_candidates_per_pos=8):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     add_args(ap)
-    ap.add_argument("--dump-dir", default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/")
+    ap.add_argument(
+        "--dump-dir", default="/scratch/preframr/training-dumps/MUSICIANS/G/Goto80/"
+    )
     ap.add_argument("--sample", type=int, default=10)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
@@ -238,7 +253,9 @@ def main():
             f"max_save={max(saves) if saves else 0}",
             flush=True,
         )
-        per_file_stats.append((os.path.basename(f), len(triples), len(positive), total_save))
+        per_file_stats.append(
+            (os.path.basename(f), len(triples), len(positive), total_save)
+        )
         all_triples.extend(triples)
 
     print()
@@ -249,16 +266,16 @@ def main():
         ratios = [o / max(1, b) for (_, o, b) in all_triples]
         for thresh in (0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0):
             cnt = sum(1 for r in ratios if r <= thresh)
-            print(
-                f"  overlay/body <= {thresh}: {cnt} ({100*cnt/len(ratios):.1f}%)"
-            )
+            print(f"  overlay/body <= {thresh}: {cnt} ({100*cnt/len(ratios):.1f}%)")
         # Length distribution.
         lengths = [l for (l, _, _) in all_triples]
         print(f"  match length avg={sum(lengths)/len(lengths):.1f} max={max(lengths)}")
         # Total potential save.
         total_save = sum(max(0, b - 1 - o) for (_, o, b) in all_triples)
         total_body = sum(b for (_, _, b) in all_triples)
-        print(f"  total potential save: {total_save} / total body {total_body} = {100*total_save/max(1,total_body):.1f}%")
+        print(
+            f"  total potential save: {total_save} / total body {total_body} = {100*total_save/max(1,total_body):.1f}%"
+        )
 
 
 if __name__ == "__main__":

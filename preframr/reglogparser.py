@@ -543,7 +543,7 @@ class RegLogParser:
         out_dfs = [df[df["v"] >= VOICES]]
         vals = df["val"].to_numpy()
         n_arr = df["n"].to_numpy()
-        v_arr = (regs // VOICE_REG_SIZE)
+        v_arr = regs // VOICE_REG_SIZE
 
         for v in range(VOICES):
             v_offset = v * VOICE_REG_SIZE
@@ -561,9 +561,7 @@ class RegLogParser:
             # old code stored ``pd.NA`` and didn't fillna(0), so leading
             # rows whose p flag isn't yet defined keep their original val
             # (the override condition compares as False against NaN).
-            pcm_col = np.where(
-                v_regs == pcm_reg, v_vals.astype(np.float64), np.nan
-            )
+            pcm_col = np.where(v_regs == pcm_reg, v_vals.astype(np.float64), np.nan)
             pcm_running = pd.Series(pcm_col).ffill().to_numpy()
 
             # Running p flag: 1 if last ctrl write had bit 6 set, 0
@@ -793,14 +791,10 @@ class RegLogParser:
             marker_diff = int(diffs[start])
             marker_desc = int(descs[start])
             if marker_reg == FRAME_REG:
-                f_sid_writes.append(
-                    (marker_reg, marker_val, marker_diff, marker_desc)
-                )
+                f_sid_writes.append((marker_reg, marker_val, marker_diff, marker_desc))
             elif marker_reg == DELAY_REG:
                 for _i in range(marker_val - 1):
-                    delay_sid_writes = [
-                        (FRAME_REG, 0, frame_diff, marker_desc)
-                    ]
+                    delay_sid_writes = [(FRAME_REG, 0, frame_diff, marker_desc)]
                     delay_sid_writes.extend(state.tick_frame())
                     add_frame(delay_sid_writes, advance=False)
                 f_sid_writes.append((FRAME_REG, 0, frame_diff, marker_desc))

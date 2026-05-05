@@ -51,8 +51,13 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
 
 
 def materialize_block_array(
-    tokenizer, raw_df, seq_len, parser, reg_widths,
-    frames_per_block=None, stride=None,
+    tokenizer,
+    raw_df,
+    seq_len,
+    parser,
+    reg_widths,
+    frames_per_block=None,
+    stride=None,
 ):
     """Materialise the encoded ``raw_df`` (post-voice-reg, post-LoopPass)
     into a fixed-size 2D array of self-contained blocks.
@@ -195,9 +200,7 @@ def _self_contained_prompt_df(loader, dataset, seq, start, prompt_seq_len, irq):
         return full_df.iloc[start : start + prompt_seq_len].reset_index(drop=True)
     is_marker = full_df["reg"].isin({FRAME_REG, DELAY_REG})
     slice_lo = int(is_marker.iloc[:start].sum())
-    slice_hi = slice_lo + int(
-        is_marker.iloc[start : start + prompt_seq_len].sum()
-    )
+    slice_hi = slice_lo + int(is_marker.iloc[start : start + prompt_seq_len].sum())
     # Same materialisation chain the training-time block iterator uses
     # (parse-time block_array generation funnels through
     # ``self_contain_slice`` too), so a prompt produced here matches the
@@ -277,9 +280,7 @@ class RegDataset(torch.utils.data.Dataset):
                                 if encode:
                                     n = df["n"].astype(np.int16).to_numpy()
                                     seq = self.tokenizer.encode(n).astype(np.int16)
-                                    min_seq = getattr(
-                                        self.args, "min_song_tokens", 256
-                                    )
+                                    min_seq = getattr(self.args, "min_song_tokens", 256)
                                     if len(seq) < min_seq:
                                         self.logger.info(
                                             "rejecting sequence from %s too short %u (< %u)",

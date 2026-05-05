@@ -151,9 +151,7 @@ class BlockMapper(torch.utils.data.Dataset):
 
     def _get_arr(self, path):
         if path not in self.loaded:
-            self.loaded[path] = np.load(
-                path, mmap_mode="r" if self.mmap else None
-            )
+            self.loaded[path] = np.load(path, mmap_mode="r" if self.mmap else None)
         return self.loaded[path]
 
     def __getitem__(self, index):

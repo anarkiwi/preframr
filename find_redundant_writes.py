@@ -220,6 +220,7 @@ def main():
     args = ap.parse_args()
 
     import random
+
     dump_files = sorted(glob.glob(os.path.join(args.dump_dir, "*.dump.parquet")))
     if not dump_files:
         print(f"no dump files under {args.dump_dir}", file=sys.stderr)
@@ -284,8 +285,7 @@ def main():
         files_with_redundancy += 1
         grand_total += len(events)
         print(
-            f"{dump}: {len(events)} redundant writes  "
-            f"(tokens={len(token_df)})",
+            f"{dump}: {len(events)} redundant writes  " f"(tokens={len(token_df)})",
             flush=True,
         )
         if files_scanned % args.report_every == 0:
@@ -297,12 +297,10 @@ def main():
         for ev in events:
             per_reg[ev["write_reg"]] += 1
             per_source[ev["source"].split()[0]] += 1
-        print("  by reg : " + ", ".join(
-            f"{r}={n}" for r, n in sorted(per_reg.items())
-        ))
-        print("  by src : " + ", ".join(
-            f"{s}={n}" for s, n in sorted(per_source.items())
-        ))
+        print("  by reg : " + ", ".join(f"{r}={n}" for r, n in sorted(per_reg.items())))
+        print(
+            "  by src : " + ", ".join(f"{s}={n}" for s, n in sorted(per_source.items()))
+        )
         head = events[:10]
         for ev in head:
             print(
