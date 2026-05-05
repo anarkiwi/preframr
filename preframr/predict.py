@@ -79,10 +79,10 @@ def generate_sequence(args, logger, dataset, predictor, p):
     )
     prompt_cycles = prompt_df_audio["diff"].sum()
     logger.info(
-        "prompt lasts %s %u tokens (%u decoded tokens), predicting %u tokens",
+        "prompt lasts %s %u tokens (%u decoded rows), predicting %u tokens",
         describe_cycles(prompt_cycles),
         args.prompt_seq_len,
-        len(decoded_prompt),
+        len(prompt_df),
         n,
     )
 
