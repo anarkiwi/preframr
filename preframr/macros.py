@@ -111,6 +111,8 @@ from preframr.stfconstants import (
     DELAY_REG,
     DIFF_OP,
     DO_LOOP_OP,
+    PATTERN_OVERLAY_OP,
+    PATTERN_REPLAY_OP,
     END_FLIP_OP,
     END_REPEAT_OP,
     FC_LO_REG,
@@ -1662,6 +1664,13 @@ class LoopPass(MacroPass):
     def apply(self, df, args=None):
         if args is not None and not getattr(args, "loop_pass", True):
             return df
+        # FuzzyLoopPass subsumes exact-match LoopPass via overlay=0.
+        # When fuzzy is on (default), skip LoopPass entirely -- the two
+        # can't stack because LoopPass's frame math doesn't account for
+        # PATTERN_REPLAY_OP body-length expansion.
+        if args is not None and getattr(args, "fuzzy_loop_pass", True):
+            if "op" in df.columns and df["op"].isin([PATTERN_REPLAY_OP]).any():
+                return df
         loop_transposed = (
             getattr(args, "loop_transposed", True) if args is not None else True
         )
@@ -1952,6 +1961,269 @@ class LoopPass(MacroPass):
         return new_df.reset_index(drop=True)
 
 
+def _musical_fingerprint(state):
+    """Compact 64-bit musical-state fingerprint from a ``DecodeState``.
+
+    Strips per-frame transient state (PWM phase, AD/SR counter, vibrato
+    intermediate freqs) and keeps only the fields that distinguish
+    "musically distinct" frames: per-voice (active note bucket,
+    waveform high nibble, gate bit) + global filter cutoff bucket +
+    volume nibble. Two frames with the same fingerprint are candidates
+    for fuzzy-loop matching even if their byte-level register writes
+    differ (e.g., from instrument-state drift).
+    """
+    fp = 0
+    for v in range(VOICES):
+        base = v * VOICE_REG_SIZE
+        ctrl = int(state.last_val.get(base + 4, 0))
+        freq = int(state.last_val.get(base + 0, 0))
+        gate = ctrl & 0x01
+        wave = (ctrl & 0xF0) >> 4
+        note = freq & 0xFF if gate else 0xFF
+        fp = (fp << 13) | (note << 5) | (wave << 1) | gate
+    cutoff = (int(state.last_val.get(22, 0)) >> 4) & 0x0F
+    modevol = int(state.last_val.get(24, 0)) & 0x0F
+    fp = (fp << 8) | (cutoff << 4) | modevol
+    return fp
+
+
+def _per_frame_state_walk(df):
+    """Walk df via ``_simulate_palette``-style dispatch and capture, per
+    logical frame, (fingerprint, state.last_val snapshot). The state
+    snapshot is the dict of register → end-of-frame byte value, used by
+    ``FuzzyLoopPass`` to compute state-level overlay diffs between a
+    candidate source body and the target. Only voice-bound regs and a
+    handful of global regs are snapshotted (to bound memory)."""
+    state = _build_decode_state(df)
+    if state is None:
+        return [], []
+    arrs, frame_starts = _df_arrays_and_frames(df)
+    regs = arrs["reg"]
+    vals = arrs["val"]
+    ops = arrs["op"]
+    subregs = arrs["subreg"]
+    diffs = arrs["diff"]
+    descs = arrs["description"]
+    indices = arrs["Index"]
+    n_total = len(df)
+    n_frames = len(frame_starts)
+    description_default = 0
+    fps = []
+    snapshots = []  # one dict per frame: reg -> end-of-frame val
+    out_frame_idx = 0
+    snapshot_regs = list(range(VOICES * VOICE_REG_SIZE)) + [22, 23, 24]
+    for fi in range(n_frames):
+        start = int(frame_starts[fi])
+        end = int(frame_starts[fi + 1]) if fi + 1 < n_frames else n_total
+        f_writes = []
+        marker_reg = int(regs[start])
+        marker_val = int(vals[start])
+        marker_diff = int(diffs[start])
+        if marker_reg == FRAME_REG:
+            f_writes.append((marker_reg, marker_val, marker_diff, description_default))
+        elif marker_reg == DELAY_REG:
+            for _ in range(marker_val - 1):
+                delay_writes = [(FRAME_REG, 0, state.frame_diff, description_default)]
+                delay_writes.extend(state.tick_frame())
+                state.observe_frame(delay_writes, frame_idx=out_frame_idx)
+            f_writes.append((FRAME_REG, 0, state.frame_diff, description_default))
+        for i in range(start + 1, end):
+            reg = int(regs[i])
+            if reg < 0:
+                continue
+            op = int(ops[i])
+            decoder = DECODERS.get(op)
+            if decoder is None:
+                continue
+            row = _FastRow(
+                reg=reg, val=int(vals[i]), op=op, subreg=int(subregs[i]),
+                diff=int(diffs[i]), description=int(descs[i]), Index=int(indices[i]),
+            )
+            writes = decoder.expand(row, state)
+            if writes:
+                f_writes.extend(writes)
+        f_writes.extend(state.tick_frame())
+        state.observe_frame(f_writes, frame_idx=out_frame_idx)
+        out_frame_idx += 1
+        fps.append(_musical_fingerprint(state))
+        snapshots.append({r: int(state.last_val.get(r, 0)) for r in snapshot_regs})
+    return fps, snapshots
+
+
+class FuzzyLoopPass(MacroPass):
+    """Detect repeated frame patterns whose musical fingerprint matches
+    a prior occurrence even when the byte-level writes differ. Encodes
+    each match as ``PATTERN_REPLAY_OP`` (one back-ref token) plus a
+    short list of ``PATTERN_OVERLAY_OP`` rows that overwrite the
+    differing per-frame end-state values.
+
+    Runs after ``LoopPass`` so exact repeats are already encoded;
+    ``FuzzyLoopPass`` works on the residual literals. The fingerprint
+    captures (per-voice note + waveform + gate, plus filter cutoff and
+    volume) -- musically meaningful state that's invariant to
+    intermediate vibrato / PWM / envelope counter drift.
+
+    Encoded form per match:
+      - One ``PATTERN_REPLAY_OP`` row: ``val = (distance<<8) | length``,
+        ``subreg = num_overlays``.
+      - ``num_overlays`` consecutive ``PATTERN_OVERLAY_OP`` rows: each
+        carries ``reg`` (absolute), ``val`` (overwrite), and
+        ``subreg = frame_offset_in_body``.
+
+    On decode, ``expand_loops`` replays the source body's ``length``
+    frames and, for each overlay, appends a SET write to the body's
+    ``frame_offset_in_body`` frame with the overlay's (reg, val).
+    The SET happens AFTER the replayed body's writes, so end-of-frame
+    state.last_val[reg] = overlay's val, matching the original target.
+    """
+
+    min_fuzzy_match = 2
+    max_fuzzy_length = 16
+
+    def apply(self, df, args=None):
+        if args is not None and not getattr(args, "fuzzy_loop_pass", True):
+            return df
+        if "op" not in df.columns:
+            return df
+        df = df.reset_index(drop=True).copy()
+        df = _ensure_subreg(df)
+        try:
+            fps, snapshots = _per_frame_state_walk(df)
+        except Exception:
+            return df
+        if len(fps) < self.min_fuzzy_match:
+            return df
+
+        frames = _slice_into_frames(df)
+        n_frames = len(frames)
+        sizes = [e - s for s, e in frames]
+        if n_frames != len(fps):
+            # Walk produced a different frame count than _slice_into_frames
+            # -- can happen on dfs with malformed markers. Skip safely.
+            return df
+
+        sample_row = df.iloc[0]
+        diff_default = int(sample_row["diff"]) if "diff" in df.columns else 0
+        irq_default = int(df["irq"].iloc[0]) if "irq" in df.columns else -1
+        all_records = df.to_dict("records")
+
+        # Per-frame fingerprint seed: (fp_i, fp_{i+1}) -> [start indices].
+        seed = defaultdict(list)
+        out_rows = []
+
+        # State-level overlay computation: for each frame in the body,
+        # compare source and target snapshots; emit one overlay per
+        # differing reg.
+        snapshot_regs = sorted(snapshots[0].keys()) if snapshots else []
+
+        def compute_overlays(src_idx, dst_idx, length):
+            overlays = []  # list of (frame_offset, reg, val) tuples
+            for k in range(length):
+                src = snapshots[src_idx + k]
+                dst = snapshots[dst_idx + k]
+                for r in snapshot_regs:
+                    if src.get(r, 0) != dst.get(r, 0):
+                        overlays.append((k, r, dst.get(r, 0)))
+            return overlays
+
+        def best_fuzzy(i):
+            """Return (save, dist, length, overlays) for the best match at i.
+            ``save`` is body_rows - cost where cost = 1 + len(overlays).
+            Negative-save matches return zeros."""
+            if i + 1 >= n_frames:
+                return 0, 0, 0, []
+            cands = seed.get((fps[i], fps[i + 1]))
+            if not cands:
+                return 0, 0, 0, []
+            best_save = 0
+            best = (0, 0, 0, [])
+            for cand in reversed(cands):
+                if cand >= i:
+                    continue
+                length = 0
+                while (
+                    length < self.max_fuzzy_length
+                    and i + length < n_frames
+                    and cand + length < i
+                    and fps[cand + length] == fps[i + length]
+                ):
+                    length += 1
+                if length < self.min_fuzzy_match:
+                    continue
+                overlays = compute_overlays(cand, i, length)
+                body_rows = sum(sizes[i + k] for k in range(length))
+                cost = 1 + len(overlays)
+                save = body_rows - cost
+                if save > best_save:
+                    best_save = save
+                    best = (save, i - cand, length, overlays)
+            return best
+
+        def emit_literal(i):
+            s, e = frames[i]
+            out_rows.extend(all_records[s:e])
+            if i + 1 < n_frames:
+                seed[(fps[i], fps[i + 1])].append(i)
+
+        def emit_pattern_replay(i, dist, length, overlays):
+            out_rows.append(
+                {
+                    "reg": int(LOOP_OP_REG),
+                    "val": int(_pack_back_ref(dist, length)),
+                    "diff": diff_default,
+                    "op": int(PATTERN_REPLAY_OP),
+                    "subreg": int(len(overlays)),
+                    "irq": irq_default,
+                    "description": 0,
+                }
+            )
+            for frame_offset, reg, val in overlays:
+                # Pack target_reg + new_val into val so the row's reg
+                # stays at LOOP_OP_REG -- _norm_pr_order then sorts all
+                # the overlay rows together with the PATTERN_REPLAY_OP
+                # at the head (op=22 < op=23 = OVERLAY).
+                packed = (int(reg) << 16) | (int(val) & 0xFFFF)
+                out_rows.append(
+                    {
+                        "reg": int(LOOP_OP_REG),
+                        "val": int(packed),
+                        "diff": diff_default,
+                        "op": int(PATTERN_OVERLAY_OP),
+                        "subreg": int(frame_offset),
+                        "irq": irq_default,
+                        "description": 0,
+                    }
+                )
+            for k in range(length):
+                if i + k + 1 < n_frames:
+                    seed[(fps[i + k], fps[i + k + 1])].append(i + k)
+
+        i = 0
+        while i < n_frames:
+            save, dist, length, overlays = best_fuzzy(i)
+            if save > 0:
+                emit_pattern_replay(i, dist, length, overlays)
+                i += length
+            else:
+                emit_literal(i)
+                i += 1
+
+        if not out_rows:
+            return df
+        orig_dtypes = df.dtypes.to_dict()
+        new_df = pd.DataFrame(out_rows)
+        for col in df.columns:
+            if col not in new_df.columns:
+                new_df[col] = 0 if col == "description" else -1
+        new_df = new_df[list(df.columns)]
+        for col, dt in orig_dtypes.items():
+            try:
+                new_df[col] = new_df[col].astype(dt)
+            except (TypeError, ValueError):
+                pass
+        return new_df.reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------
 # Loop-back expansion (decode-side pre-pass for _expand_ops)
 # ---------------------------------------------------------------------------
@@ -1971,7 +2243,7 @@ def expand_loops(df):
     if "op" not in df.columns:
         return df
     has_loops = df["op"].isin(
-        [BACK_REF_OP, DO_LOOP_OP, BACK_REF_TRANSPOSED_OP]
+        [BACK_REF_OP, DO_LOOP_OP, BACK_REF_TRANSPOSED_OP, PATTERN_REPLAY_OP]
     ).any()
     if not has_loops:
         return df
@@ -2051,6 +2323,83 @@ def expand_loops(df):
                     do_stack.pop()
                 i += 1
             continue
+        if op == PATTERN_REPLAY_OP:
+            distance, length = _unpack_back_ref(row["val"])
+            num_overlays = int(row["subreg"]) if not pd.isna(row["subreg"]) else 0
+            cur_frame = len(output_frame_starts)
+            target = cur_frame - distance
+            assert target >= 0, (
+                f"PATTERN_REPLAY target frame {target} reaches before output "
+                f"start (cur_frame={cur_frame}, distance={distance})"
+            )
+            assert target + length <= cur_frame, (
+                f"PATTERN_REPLAY target range [{target},{target+length}) "
+                f"overlaps present frame {cur_frame}"
+            )
+            # Read the overlay block: ``num_overlays`` rows immediately
+            # following the PATTERN_REPLAY_OP. Each overlay row carries
+            # reg=LOOP_OP_REG (so _norm_pr_order keeps the block
+            # contiguous), with target_reg and new_val packed into val:
+            # ``val = (target_reg << 16) | (new_val & 0xFFFF)``.
+            # ``subreg = frame_offset_in_body``.
+            overlays = []  # list of (frame_offset, reg, val)
+            for k in range(num_overlays):
+                ov = df.iloc[i + 1 + k]
+                ov_op = int(ov["op"]) if not pd.isna(ov["op"]) else SET_OP
+                assert ov_op == PATTERN_OVERLAY_OP, (
+                    f"PATTERN_REPLAY at row {i} expected {num_overlays} "
+                    f"overlay rows but row {i + 1 + k} has op={ov_op}"
+                )
+                packed = int(ov["val"])
+                target_reg = (packed >> 16) & 0xFF
+                new_val = packed & 0xFFFF
+                overlays.append(
+                    (
+                        int(ov["subreg"]),
+                        target_reg,
+                        new_val,
+                    )
+                )
+            # Group overlays by frame_offset for fast lookup during
+            # body replay.
+            ov_by_frame = defaultdict(list)
+            for fo, r, v in overlays:
+                ov_by_frame[fo].append((r, v))
+            # Replay source body, applying overlays per frame.
+            for f in range(target, target + length):
+                src_lo = output_frame_starts[f]
+                src_hi = (
+                    output_frame_starts[f + 1]
+                    if f + 1 < len(output_frame_starts)
+                    else len(out)
+                )
+                snapshot = list(out[src_lo:src_hi])
+                for snap_row in snapshot:
+                    append_row(dict(snap_row))
+                # Append overlay writes for this frame, AFTER the body's
+                # writes. Each overlay becomes a SET row so the
+                # downstream simulator's last_val[reg] ends at the
+                # overlay's value.
+                frame_offset = f - target
+                for r, v in ov_by_frame.get(frame_offset, ()):
+                    template = dict(snapshot[0]) if snapshot else {}
+                    template.update(
+                        {
+                            "reg": int(r),
+                            "val": int(v),
+                            "op": int(SET_OP),
+                            "subreg": -1,
+                        }
+                    )
+                    append_row(template)
+            i += 1 + num_overlays
+            continue
+        if op == PATTERN_OVERLAY_OP:
+            # Should have been consumed by a preceding PATTERN_REPLAY_OP;
+            # if reached as a top-level row the encoder is broken.
+            raise AssertionError(
+                f"orphan PATTERN_OVERLAY_OP at row {i}"
+            )
         # Literal row.
         append_row({c: row[c] for c in cols})
         i += 1
@@ -3269,6 +3618,10 @@ PASSES = [
 # post-norm (different voice ordering, different VOICE_REG layout) can have
 # identical row content pre-norm.
 POST_NORM_PASSES = [
+    # FuzzyLoopPass runs first; LoopPass short-circuits when fuzzy_loop_pass
+    # is on (the two can't stack -- LoopPass's frame math doesn't account
+    # for PATTERN_REPLAY_OP body-length expansion).
+    FuzzyLoopPass(),
     LoopPass(),
 ]
 

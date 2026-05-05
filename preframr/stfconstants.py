@@ -23,6 +23,8 @@ SUBREG_FLUSH_OP = 18
 GATE_REPLAY_OP = 19
 PLAY_INSTRUMENT_OP = 20
 BACK_REF_TRANSPOSED_OP = 21  # BACK_REF + uniform freq delta on the source body
+PATTERN_REPLAY_OP = 22  # FuzzyLoopPass: replay back-ref body + N overlay rows
+PATTERN_OVERLAY_OP = 23  # FuzzyLoopPass: overlay (frame_offset, reg, val)
 # GATE_TOGGLE_OP (=6), FILTER_ROUTE_OP (=12), MASTER_VOL_OP (=13),
 # FILTER_MODE_OP (=14) were retired when SubregPass took over the byte
 # splitting they hand-rolled. Their op codes are deliberately not reused

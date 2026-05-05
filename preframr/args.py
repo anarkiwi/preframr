@@ -113,6 +113,14 @@ def add_args(parser):
     parser.add_argument(
         "--loop-transposed", action=argparse.BooleanOptionalAction, default=True
     )
+    # Fuzzy-loop matching: catches frame patterns whose musical
+    # fingerprint matches a prior occurrence even when byte-level writes
+    # differ. Encoded as PATTERN_REPLAY_OP + N PATTERN_OVERLAY_OP rows;
+    # decoder replays source body and applies overlays as additional
+    # SET writes. Default on.
+    parser.add_argument(
+        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=True
+    )
     # Per-(voice, direction) cap on the GateMacroPass palette. Default
     # ``None`` keeps v1 behaviour (unbounded palette: every distinct
     # ``(ctrl, AD, SR)`` end-of-frame state earns a slot). Setting a small

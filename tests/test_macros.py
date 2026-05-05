@@ -712,7 +712,7 @@ class TestLoopPass(unittest.TestCase):
                 _row(5, 10, op=SET_OP),
             ]
         )
-        result = LoopPass().apply(df, args=FakeArgs(loop_pass=False))
+        result = LoopPass().apply(df, args=FakeArgs(loop_pass=False, fuzzy_loop_pass=False))
         self.assertEqual(int((result["op"] == BACK_REF_OP).sum()), 0)
         self.assertEqual(int((result["op"] == DO_LOOP_OP).sum()), 0)
         self.assertEqual(len(result), len(df))
@@ -902,7 +902,7 @@ class TestGateMacroPass(unittest.TestCase):
             + [_frame()]
             + _gate_on_bundle(voice=1, ctrl=0x21, ad=0x09, sr=0xA0)
         )
-        encoded = run_passes(df.copy(), args=FakeArgs(loop_pass=False))
+        encoded = run_passes(df.copy(), args=FakeArgs(loop_pass=False, fuzzy_loop_pass=False))
         # Round-trip must hold against just-DedupSetPass (which is what the
         # macroless baseline collapses to under run_passes minus GateMacroPass).
         baseline = DedupSetPass().apply(df.copy())
@@ -1218,7 +1218,7 @@ class TestInstrumentProgramPass(unittest.TestCase):
             gate_palette_cap=None,
             instrument_window=8,
             instrument_palette_cap=None,
-            loop_pass=False,
+            loop_pass=False, fuzzy_loop_pass=False,
         ))
         baseline = DedupSetPass().apply(df.copy())
         _assert_round_trip(self, baseline, encoded)
@@ -1242,7 +1242,7 @@ class TestInstrumentProgramPass(unittest.TestCase):
             gate_palette_cap=None,
             instrument_window=8,
             instrument_palette_cap=None,
-            loop_pass=False,
+            loop_pass=False, fuzzy_loop_pass=False,
         ))
         # Round-trip remains correct regardless of whether the burst
         # case produces a PLAY_INSTRUMENT_OP -- the abort is correctness,
@@ -1292,7 +1292,7 @@ class TestMaterializeInstrumentPaletteOutside(unittest.TestCase):
             gate_palette_cap=None,
             instrument_window=8,
             instrument_palette_cap=None,
-            loop_pass=False,
+            loop_pass=False, fuzzy_loop_pass=False,
         ))
         # Slice covering everything -- no PLAY_INSTRUMENT_OP should be
         # expanded (its slot is defined within the slice).
@@ -1339,7 +1339,7 @@ class TestIterSelfContainedRowBlocks(unittest.TestCase):
             gate_palette_cap=None,
             instrument_window=8,
             instrument_palette_cap=None,
-            loop_pass=False,
+            loop_pass=False, fuzzy_loop_pass=False,
         ))
         n_frames = int(
             encoded["reg"].isin([FRAME_REG, -127]).sum()  # FRAME_REG + DELAY_REG
@@ -1359,7 +1359,7 @@ class TestIterSelfContainedRowBlocks(unittest.TestCase):
             gate_palette_cap=None,
             instrument_window=8,
             instrument_palette_cap=None,
-            loop_pass=False,
+            loop_pass=False, fuzzy_loop_pass=False,
         ))
         for block in iter_self_contained_row_blocks(encoded, frames_per_block=3):
             self.assertTrue(validate_gate_replays(block))
