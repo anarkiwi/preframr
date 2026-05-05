@@ -31,7 +31,7 @@ fi
 
 mkdir -p "${ROOT}"
 
-# obtain test SID, extract no more than 60s
+# obtain test SID, extract up to LIMITCYCLES (full song)
 for sid in ${TEST_SIDS} ; do
     bsid=$(basename "${sid}")
     localsid=${LOCAL_HVSC}/${sid}
