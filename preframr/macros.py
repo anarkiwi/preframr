@@ -201,6 +201,7 @@ class DecodeState:
         gate_palette_cap=None,
         instrument_window=8,
         instrument_palette_cap=None,
+        frozen_instrument_palette=None,
     ):
         self.frame_diff = frame_diff
         self.last_val = defaultdict(int)
@@ -247,7 +248,20 @@ class DecodeState:
         # voice-relative (0..VOICE_REG_SIZE-1); the macro's ``reg`` field
         # carries the voice's ctrl reg, so absolute regs are reconstructed
         # at decode time by adding ``voice * VOICE_REG_SIZE``.
-        self.instrument_palette = []
+        # ``frozen_instrument_palette``: when non-None, the encoder has
+        # already determined the authoritative palette and downstream
+        # walkers initialise from it. ``_close_instr_capture`` then never
+        # appends -- captures still resolve via ``last_closed_instr_captures``
+        # for any caller that needs them, but palette indices are fixed.
+        # This breaks the cross-pass observation divergence that previously
+        # made InstrumentProgramPass unreliable: every walker sees the same
+        # palette regardless of its local dispatch choices.
+        if frozen_instrument_palette is not None:
+            self.instrument_palette = list(frozen_instrument_palette)
+            self.instrument_palette_frozen = True
+        else:
+            self.instrument_palette = []
+            self.instrument_palette_frozen = False
         self.instrument_palette_def_frames = {}
         # Per-voice queue of pending future-frame writes scheduled by
         # ``PlayInstrumentDecoder``. Each list entry is one frame's worth
@@ -518,6 +532,15 @@ class DecodeState:
         # Always announce the closure with start_frame so encoder passes
         # can decide replay-vs-literal independently of the palette.
         self.last_closed_instr_captures[voice] = (program, cap["start_frame"])
+        if self.instrument_palette_frozen:
+            # Palette is authoritative (set by the encoder); downstream
+            # walks must not mutate it -- their captures may differ from
+            # the encoder's captures because of local dispatch choices
+            # (DedupSet drops, Subreg splits) but that doesn't change
+            # which slot a PLAY_INSTRUMENT_OP in the row stream
+            # references. Returning the program lets ``last_closed_instr_captures``
+            # stay populated for callers that consume it.
+            return program
         if program in self.instrument_palette:
             return program
         if (
@@ -900,6 +923,9 @@ def _splice_rows(df, drop_idx, new_rows):
     """
     if not new_rows:
         return df
+    # Capture df.attrs before any concat -- ``pd.concat`` over multiple
+    # dfs drops attrs, so we re-attach after.
+    orig_attrs = dict(df.attrs)
     df = _ensure_subreg(df)
     irq_value = (
         int(df["irq"].iloc[0])
@@ -930,6 +956,8 @@ def _splice_rows(df, drop_idx, new_rows):
             combined[col] = combined[col].astype(dt)
         except (TypeError, ValueError):
             pass
+    if orig_attrs:
+        combined.attrs.update(orig_attrs)
     return combined
 
 
@@ -1296,6 +1324,7 @@ class SubregPass(MacroPass):
                 last_diff=last_diff,
                 strict=False,
                 gate_palette_cap=cap,
+                frozen_instrument_palette=df.attrs.get("instrument_palette"),
             )
 
         last_emitted_reg = None  # most recently emitted subreg row's reg
@@ -1901,9 +1930,6 @@ def _simulate_palette(literal_df):
     if state is None:
         return None
     df = literal_df.copy().reset_index(drop=True)
-    df["__f"] = (
-        df["reg"].isin({FRAME_REG, DELAY_REG}).astype(int).cumsum().astype(int)
-    )
     out_frame_idx = 0
     description_default = 0
 
@@ -1913,31 +1939,52 @@ def _simulate_palette(literal_df):
         if advance:
             out_frame_idx += 1
 
-    for _f, f_df in df.groupby("__f", sort=True):
+    arrs, frame_starts = _df_arrays_and_frames(df)
+    regs = arrs["reg"]
+    vals = arrs["val"]
+    ops = arrs["op"]
+    subregs = arrs["subreg"]
+    diffs = arrs["diff"]
+    descs = arrs["description"]
+    indices = arrs["Index"]
+    n_total = len(df)
+    n_frames = len(frame_starts)
+    for fi in range(n_frames):
+        start = int(frame_starts[fi])
+        end = int(frame_starts[fi + 1]) if fi + 1 < n_frames else n_total
         f_writes = []
-        for i, row in enumerate(f_df.itertuples()):
-            reg = int(row.reg)
+        marker_reg = int(regs[start])
+        marker_val = int(vals[start])
+        marker_diff = int(diffs[start])
+        if marker_reg == FRAME_REG:
+            f_writes.append((marker_reg, marker_val, marker_diff, description_default))
+        elif marker_reg == DELAY_REG:
+            for _ in range(marker_val - 1):
+                delay_writes = [
+                    (FRAME_REG, 0, state.frame_diff, description_default)
+                ]
+                delay_writes.extend(state.tick_frame())
+                finalize(delay_writes, advance=False)
+            f_writes.append(
+                (FRAME_REG, 0, state.frame_diff, description_default)
+            )
+        for i in range(start + 1, end):
+            reg = int(regs[i])
             if reg < 0:
-                if reg == FRAME_REG:
-                    f_writes.append(
-                        (reg, int(row.val), int(row.diff), description_default)
-                    )
-                elif reg == DELAY_REG:
-                    # DELAY_REG val>1 produces extra audio frames that share
-                    # this slot's logical index, matching _expand_ops.
-                    for _ in range(int(row.val) - 1):
-                        delay_writes = [
-                            (FRAME_REG, 0, state.frame_diff, description_default)
-                        ]
-                        delay_writes.extend(state.tick_frame())
-                        finalize(delay_writes, advance=False)
-                    f_writes.append(
-                        (FRAME_REG, 0, state.frame_diff, description_default)
-                    )
                 continue
-            decoder = DECODERS.get(int(row.op))
+            op = int(ops[i])
+            decoder = DECODERS.get(op)
             if decoder is None:
                 continue
+            row = _FastRow(
+                reg=reg,
+                val=int(vals[i]),
+                op=op,
+                subreg=int(subregs[i]),
+                diff=int(diffs[i]),
+                description=int(descs[i]),
+                Index=int(indices[i]),
+            )
             writes = decoder.expand(row, state)
             if writes:
                 f_writes.extend(writes)
@@ -2554,11 +2601,6 @@ class InstrumentProgramPass(MacroPass):
             else None
         )
 
-        f_idx = (
-            df["reg"].isin({DELAY_REG, FRAME_REG}).astype(int).cumsum().astype(int)
-        )
-        df["__f"] = f_idx
-
         # ----- Phase 1: collect candidate captures from a clean walk ------
         candidates = self._collect_candidates(
             df, frame_diff, last_diff, gate_cap, instr_window, instr_cap
@@ -2578,30 +2620,36 @@ class InstrumentProgramPass(MacroPass):
         )
         drop_idx_set = set()
         new_rows = []
-        from types import SimpleNamespace
 
-        for _f, f_df in df.groupby("__f", sort=True):
-            cur_frame = int(_f) - 1
+        arrs, frame_starts = _df_arrays_and_frames(df)
+        regs_all = arrs["reg"]
+        vals_all = arrs["val"]
+        ops_all = arrs["op"]
+        subregs_all = arrs["subreg"]
+        diffs_all = arrs["diff"]
+        descs_all = arrs["description"]
+        indices_all = arrs["Index"]
+        n_total = len(df)
+        n_frames = len(frame_starts)
+
+        for fi in range(n_frames):
+            start = int(frame_starts[fi])
+            end = int(frame_starts[fi + 1]) if fi + 1 < n_frames else n_total
+            cur_frame = fi
             f_writes = []
-            # Sort candidates starting this frame by the row position
-            # where their PLAY_INSTRUMENT_OP would slot in (= smallest
-            # drop_row index). Interleave their dispatch with the row
-            # walk so state evolution matches what the downstream sees
-            # on the rewritten df.
             starting = sorted(
                 candidates_by_start.get(cur_frame, []),
                 key=lambda c: min(c["drop_rows"]),
             )
-            cand_idx = 0
+            cand_idx = [0]
 
             def fire_candidates(threshold):
-                nonlocal cand_idx
-                while cand_idx < len(starting):
-                    c = starting[cand_idx]
+                while cand_idx[0] < len(starting):
+                    c = starting[cand_idx[0]]
                     cstart = min(c["drop_rows"])
                     if cstart > threshold:
                         break
-                    cand_idx += 1
+                    cand_idx[0] += 1
                     program = c["program"]
                     if program not in state.instrument_palette:
                         continue
@@ -2620,7 +2668,7 @@ class InstrumentProgramPass(MacroPass):
                             "__pos": int(cstart),
                         }
                     )
-                    synthetic = SimpleNamespace(
+                    synthetic = _FastRow(
                         reg=int(ctrl_reg),
                         val=int(slot),
                         subreg=int(L),
@@ -2633,13 +2681,13 @@ class InstrumentProgramPass(MacroPass):
                     if writes:
                         f_writes.extend(writes)
 
-            for row in f_df.itertuples():
-                reg = int(row.reg)
-                row_idx = int(row.Index)
+            for i in range(start, end):
+                reg = int(regs_all[i])
+                row_idx = int(indices_all[i])
                 if reg < 0:
                     fire_candidates(row_idx)
                     if reg == DELAY_REG:
-                        for _ in range(int(row.val) - 1):
+                        for _ in range(int(vals_all[i]) - 1):
                             state.tick_frame()
                             state.observe_frame(
                                 [], frame_idx=cur_frame, track_instruments=True
@@ -2648,22 +2696,37 @@ class InstrumentProgramPass(MacroPass):
                 fire_candidates(row_idx)
                 if row_idx in drop_idx_set:
                     continue
-                decoder = DECODERS.get(int(row.op))
+                op = int(ops_all[i])
+                decoder = DECODERS.get(op)
                 if decoder is None:
                     continue
+                row = _FastRow(
+                    reg=reg,
+                    val=int(vals_all[i]),
+                    op=op,
+                    subreg=int(subregs_all[i]),
+                    diff=int(diffs_all[i]),
+                    description=int(descs_all[i]),
+                    Index=row_idx,
+                )
                 writes = decoder.expand(row, state)
                 if writes:
                     f_writes.extend(writes)
-            # Drain remaining candidates that fall after the last row.
             fire_candidates(float("inf"))
 
             f_writes.extend(state.tick_frame())
             state.observe_frame(
                 f_writes, frame_idx=cur_frame, track_instruments=True
             )
-
-        df = df.drop(columns=["__f"])
-        return _splice_rows(df, list(drop_idx_set), new_rows)
+        out = _splice_rows(df, list(drop_idx_set), new_rows)
+        # Publish the authoritative palette so downstream passes
+        # (DedupSetPass, SubregPass) and the final decoder walk
+        # (_expand_ops, find_redundant_writes) initialise their
+        # ``DecodeState.instrument_palette`` from it instead of
+        # re-deriving by observation -- which would diverge because of
+        # those passes' local dispatch choices.
+        out.attrs["instrument_palette"] = list(state.instrument_palette)
+        return out
 
     def _collect_candidates(
         self, df, frame_diff, last_diff, gate_cap, instr_window, instr_cap
@@ -2684,50 +2747,65 @@ class InstrumentProgramPass(MacroPass):
         # indices instead of the bytes observe_frame appends.
         voice_open_rows = {}
         candidates = []
-        for _f, f_df in df.groupby("__f", sort=True):
-            cur_frame = int(_f) - 1
+        arrs, frame_starts = _df_arrays_and_frames(df)
+        regs_all = arrs["reg"]
+        vals_all = arrs["val"]
+        ops_all = arrs["op"]
+        subregs_all = arrs["subreg"]
+        diffs_all = arrs["diff"]
+        descs_all = arrs["description"]
+        indices_all = arrs["Index"]
+        n_total = len(df)
+        n_frames_collected = len(frame_starts)
+
+        for fi in range(n_frames_collected):
+            start = int(frame_starts[fi])
+            end = int(frame_starts[fi + 1]) if fi + 1 < n_frames_collected else n_total
+            cur_frame = fi
             f_writes = []
             voice_drops_this_frame = defaultdict(list)
             transpose_voices = set()
             burst_voices = set()
-            for row in f_df.itertuples():
-                reg = int(row.reg)
+            for i in range(start, end):
+                reg = int(regs_all[i])
                 if reg < 0:
                     if reg == DELAY_REG:
-                        for _ in range(int(row.val) - 1):
+                        for _ in range(int(vals_all[i]) - 1):
                             state.tick_frame()
                             state.observe_frame(
                                 [], frame_idx=cur_frame, track_instruments=True
                             )
                     continue
-                op = int(row.op)
+                op = int(ops_all[i])
                 if op == TRANSPOSE_OP:
-                    mask = int(row.subreg)
+                    mask = int(subregs_all[i])
                     for v in range(VOICES):
                         if mask & (1 << v):
                             transpose_voices.add(v)
                 if 0 <= reg < VOICES * VOICE_REG_SIZE:
                     v = reg // VOICE_REG_SIZE
-                    # Don't drop gate-bundle rows or GATE_REPLAY_OP rows --
-                    # they evolve gate_palette downstream and must remain
-                    # in the row stream for slot indices to align.
                     if (
                         op in self._voice_confined_ops
                         and reg not in _BUNDLE_REGS_FLAT
                         and op != GATE_REPLAY_OP
                     ):
-                        voice_drops_this_frame[v].append(int(row.Index))
+                        voice_drops_this_frame[v].append(int(indices_all[i]))
                     if op in self._burst_ops:
                         burst_voices.add(v)
-                # FILTER_SWEEP_OP touches FC_LO_REG (global) but its run-time
-                # scheduling can also corrupt captures spanning multiple
-                # voices' windows; treat conservatively as tainting all
-                # currently-open captures.
                 if op == FILTER_SWEEP_OP:
                     for v in range(VOICES):
                         burst_voices.add(v)
                 decoder = DECODERS.get(op)
                 if decoder is not None:
+                    row = _FastRow(
+                        reg=reg,
+                        val=int(vals_all[i]),
+                        op=op,
+                        subreg=int(subregs_all[i]),
+                        diff=int(diffs_all[i]),
+                        description=int(descs_all[i]),
+                        Index=int(indices_all[i]),
+                    )
                     writes = decoder.expand(row, state)
                     if writes:
                         f_writes.extend(writes)
@@ -2826,7 +2904,11 @@ class DedupSetPass(MacroPass):
             last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
         cap = getattr(args, "gate_palette_cap", None) if args is not None else None
         state = DecodeState(
-            frame_diff, last_diff=last_diff, strict=False, gate_palette_cap=cap
+            frame_diff,
+            last_diff=last_diff,
+            strict=False,
+            gate_palette_cap=cap,
+            frozen_instrument_palette=df.attrs.get("instrument_palette"),
         )
 
         arrs, frame_starts = _df_arrays_and_frames(df)
@@ -2951,18 +3033,13 @@ PASSES = [
     # ordering. The shadow walk approach is therefore a dead-end for
     # determining real slot indices.
     #
-    # InstrumentProgramPass remains disabled. The palette-by-observation
-    # design diverges between Phase 2 and any post-IPP pass that drops
-    # rows (DedupSetPass) or splits SETs (SubregPass), because each
-    # downstream walk's local choices change which writes flow into
-    # ``observe_frame``'s instrument capture, so captured-program
-    # tuples land at different palette indices. The strict numeric
-    # voice ordering above (replacing the vmeta-aware sort) is a
-    # prerequisite for a robust IPP fix; the remaining work is to
-    # communicate the palette explicitly (preamble or out-of-band)
-    # rather than re-derive it via observation in every walker.
-    # InstrumentProgramPass(),
-    # DedupSetPass(),
+    # InstrumentProgramPass publishes its authoritative palette via
+    # ``df.attrs["instrument_palette"]``. DedupSetPass / SubregPass /
+    # ``_expand_ops`` each initialise their ``DecodeState`` with that
+    # frozen palette, so palette indices are aligned across all walks
+    # by construction (instead of fragile observation-based growth).
+    InstrumentProgramPass(),
+    DedupSetPass(),
     SubregPass(),
 ]
 

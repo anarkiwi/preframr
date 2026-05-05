@@ -8,7 +8,7 @@ import pandas as pd
 from pyarrow.parquet import ParquetFile
 import pyarrow as pa
 from preframr import macros
-from preframr.macros import DECODERS, DecodeState
+from preframr.macros import DECODERS, DecodeState, _FastRow, _df_arrays_and_frames
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
@@ -678,7 +678,11 @@ class RegLogParser:
             else None
         )
         state = DecodeState(
-            frame_diff, last_diff=last_diff, strict=strict, gate_palette_cap=cap
+            frame_diff,
+            last_diff=last_diff,
+            strict=strict,
+            gate_palette_cap=cap,
+            frozen_instrument_palette=orig_df.attrs.get("instrument_palette"),
         )
         sid_writes = []
 
@@ -709,28 +713,53 @@ class RegLogParser:
             if advance:
                 out_frame_idx[0] += 1
 
-        for _f, f_df in df.groupby("f"):
+        arrs, frame_starts = _df_arrays_and_frames(df)
+        regs = arrs["reg"]
+        vals = arrs["val"]
+        ops = arrs["op"]
+        subregs = arrs["subreg"]
+        diffs = arrs["diff"]
+        descs = arrs["description"]
+        indices = arrs["Index"]
+        n_total = len(df)
+        n_frames = len(frame_starts)
+        for fi in range(n_frames):
+            start = int(frame_starts[fi])
+            end = int(frame_starts[fi + 1]) if fi + 1 < n_frames else n_total
             f_sid_writes = []
-            for i, row in enumerate(f_df.itertuples()):
-                if row.reg < 0:
-                    if row.reg == FRAME_REG:
-                        f_sid_writes.append(
-                            (row.reg, row.val, row.diff, row.description)
-                        )
-                    elif row.reg == DELAY_REG:
-                        for _i in range(row.val - 1):
-                            delay_sid_writes = [
-                                (FRAME_REG, 0, frame_diff, row.description)
-                            ]
-                            delay_sid_writes.extend(state.tick_frame())
-                            add_frame(delay_sid_writes, advance=False)
-                        f_sid_writes.append((FRAME_REG, 0, frame_diff, row.description))
-                    else:
-                        assert False, f"unknown reg {row.reg}, {row}"
-                    assert i == 0
-                    continue
-                decoder = DECODERS.get(row.op)
-                assert decoder is not None, f"unknown op {row.op}, {row}"
+            marker_reg = int(regs[start])
+            marker_val = int(vals[start])
+            marker_diff = int(diffs[start])
+            marker_desc = int(descs[start])
+            if marker_reg == FRAME_REG:
+                f_sid_writes.append(
+                    (marker_reg, marker_val, marker_diff, marker_desc)
+                )
+            elif marker_reg == DELAY_REG:
+                for _i in range(marker_val - 1):
+                    delay_sid_writes = [
+                        (FRAME_REG, 0, frame_diff, marker_desc)
+                    ]
+                    delay_sid_writes.extend(state.tick_frame())
+                    add_frame(delay_sid_writes, advance=False)
+                f_sid_writes.append((FRAME_REG, 0, frame_diff, marker_desc))
+            else:
+                assert False, f"unknown reg {marker_reg}"
+            for i in range(start + 1, end):
+                reg = int(regs[i])
+                assert reg >= 0, (i, reg)
+                op = int(ops[i])
+                decoder = DECODERS.get(op)
+                assert decoder is not None, f"unknown op {op} reg {reg}"
+                row = _FastRow(
+                    reg=reg,
+                    val=int(vals[i]),
+                    op=op,
+                    subreg=int(subregs[i]),
+                    diff=int(diffs[i]),
+                    description=int(descs[i]),
+                    Index=int(indices[i]),
+                )
                 writes = decoder.expand(row, state)
                 if writes:
                     f_sid_writes.extend(writes)
