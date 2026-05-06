@@ -1,4 +1,3 @@
-from collections import defaultdict
 import itertools
 import glob
 import logging
@@ -553,7 +552,6 @@ class RegLogParser:
 
         out_dfs = [df[df["v"] >= VOICES]]
         vals = df["val"].to_numpy()
-        n_arr = df["n"].to_numpy()
         v_arr = regs // VOICE_REG_SIZE
 
         for v in range(VOICES):
@@ -1011,7 +1009,7 @@ class RegLogParser:
         df = df[list(orig_df.columns) + ["subreg"]]
         return df
 
-    def parse(self, name, diffmax=512, max_perm=99, require_pq=False, reparse=False):
+    def parse(self, name, max_perm=99, require_pq=False, reparse=False):
         if not reparse:
             parquet_glob = glob.glob(name.replace(DUMP_SUFFIX, PARSED_SUFFIX))
             if parquet_glob:
@@ -1020,7 +1018,14 @@ class RegLogParser:
                     #     Path(parquet_name).stat().st_mtime > PY_MTIME
                     # ), f"pre-parsed {parquet_name} out of date"
                     pf = ParquetFile(parquet_name)
-                    sample_rows = next(pf.iter_batches(batch_size=1))
+                    # Guard against an empty parquet (no batches): treat
+                    # as a non-match rather than letting StopIteration
+                    # bubble up (PEP 479 turns it into a RuntimeError
+                    # inside a generator).
+                    try:
+                        sample_rows = next(pf.iter_batches(batch_size=1))
+                    except StopIteration:
+                        continue
                     df = pa.Table.from_batches([sample_rows]).to_pandas()
                     if self._filter_irq(df, parquet_name):
                         df = pd.read_parquet(parquet_name)

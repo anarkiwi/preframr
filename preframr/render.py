@@ -5,7 +5,7 @@ from preframr.args import add_args
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
 from preframr.stfconstants import MODEL_PDTYPE
-from preframr.sidwav import default_sid, sidq, write_samples
+from preframr.sidwav import sidq, write_samples
 from preframr.utils import get_logger
 
 

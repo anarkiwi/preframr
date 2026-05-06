@@ -50,7 +50,6 @@ from preframr.stfconstants import (
     SET_OP,
     VOICES,
     VOICE_REG,
-    VOICE_REG_SIZE,
 )
 
 

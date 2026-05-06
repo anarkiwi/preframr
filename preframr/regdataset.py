@@ -1,7 +1,6 @@
 import concurrent.futures
 import logging
 import glob
-import io
 import multiprocessing
 import os
 import random
@@ -272,7 +271,6 @@ class RegDataset(torch.utils.data.Dataset):
                 for dump_file in dump_files[:max_workers]
             ]
             dump_files = dump_files[max_workers:]
-            done = False
             with tqdm(total=max_files) as pbar:
                 while futures and len(output_dumps) < max_files:
                     new_futures = []
@@ -291,11 +289,6 @@ class RegDataset(torch.utils.data.Dataset):
                             dump_files = dump_files[1:]
                         for i, (df, blocks) in enumerate(dfs_with_blocks):
                             seq = None
-                            # Preserve the pre-tokenize encoded form for
-                            # block materialisation; merge_token_df mutates
-                            # df by adding an ``n`` column that confuses
-                            # subsequent re-merges of materialised rows.
-                            raw_df = df.copy()
                             if self.tokenizer.tokens is not None:
                                 df = self.tokenizer.merge_token_df(
                                     self.tokenizer.tokens, df

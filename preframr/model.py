@@ -272,7 +272,7 @@ class Model(LightningModule):
             persistent=False,
         )
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx):  # pylint: disable=unused-argument
         x, y = batch
         preds = self.model(x)
         swapped_preds = preds.swapaxes(1, 2)
@@ -314,7 +314,7 @@ class Model(LightningModule):
     def on_before_backward(self, loss):
         self.log("train_loss", loss, on_epoch=True, on_step=True)
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx):  # pylint: disable=unused-argument
         """Clean CE + per-token accuracy on held-out blocks.
 
         No focal scaling, no audio-frame weighting, no label smoothing
@@ -393,7 +393,7 @@ def get_model(dataset, args, logger, args_override=None):
     return model_compiler(args, model)
 
 
-def cpu_compile(args, model, option_keys=[]):
+def cpu_compile(args, model, option_keys=[]):  # pylint: disable=unused-argument
     return torch.compile(
         model,
         options={k: True for k in option_keys},

@@ -11,7 +11,7 @@ here as decoders. New macro ops plug in by adding a ``MacroPass`` to
 """
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -2505,7 +2505,6 @@ def expand_loops(df):
     col_arrays = {c: df[c].to_numpy() for c in cols}
     op_arr = col_arrays["op"]
     val_arr = col_arrays["val"]
-    reg_arr = col_arrays["reg"]
     subreg_arr = col_arrays["subreg"] if "subreg" in cols else None
 
     def _row_to_dict(i):
@@ -3089,7 +3088,7 @@ class GateMacroPass(MacroPass):
             # untouched -- this pass doesn't care about them.
             state.observe_frame(f_writes, frame_idx=cur_frame, track_instruments=False)
 
-            for v, d, bundle, was_added, slot in state.last_gate_transitions:
+            for v, d, _bundle, was_added, slot in state.last_gate_transitions:
                 cand_rows = voice_candidate_idx.get(v, [])
                 if was_added or slot is None:
                     # First occurrence (or over-cap): leave literal so
@@ -3294,6 +3293,12 @@ class InstrumentProgramPass(MacroPass):
             )
             cand_idx = [0]
 
+            # The closure captures ``starting`` / ``cand_idx`` / ``f_writes``
+            # from the enclosing per-frame loop body. The function is also
+            # invoked inside that same iteration so the per-frame state is
+            # the intended capture; pylint's cell-var-from-loop warning
+            # would only be a real bug if the function escaped the loop.
+            # pylint: disable=cell-var-from-loop
             def fire_candidates(threshold):
                 while cand_idx[0] < len(starting):
                     c = starting[cand_idx[0]]
@@ -3475,7 +3480,7 @@ class InstrumentProgramPass(MacroPass):
 
             # observe_frame closed some captures -- finalise their row
             # trackers as candidates.
-            for v, (program, start_frame) in state.last_closed_instr_captures.items():
+            for v, (program, _start_frame) in state.last_closed_instr_captures.items():
                 vor = voice_open_rows.pop(v, None)
                 if vor is None or vor.get("aborted"):
                     continue

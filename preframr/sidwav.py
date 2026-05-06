@@ -5,20 +5,14 @@ from tqdm import tqdm
 from scipy.io import wavfile
 from pyresidfp import SoundInterfaceDevice
 from pyresidfp.sound_interface_device import ChipModel
-import pandas as pd
 import mido
 import numpy as np
 from preframr.reg_mappers import FreqMapper
 from preframr.stfconstants import (
     DELAY_REG,
-    DIFF_OP,
     FC_LO_REG,
-    FLIP_OP,
     FRAME_REG,
-    MAX_REG,
     MODE_VOL_REG,
-    REPEAT_OP,
-    SET_OP,
     VOICES,
     VOICE_REG_SIZE,
 )
@@ -91,7 +85,7 @@ class AsidProxy:
         self.start()
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback):
         self.stop()
 
     def cue_frame(self):

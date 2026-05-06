@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import zstandard as zstd
 from tokenizers import (
     Tokenizer,
