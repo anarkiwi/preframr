@@ -72,7 +72,6 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     /preframr/train.py ${CARGS} \
     --model=llama3_2 \
     --shuffle 32 \
-    --min-dump-size 1 \
     --accumulate-grad-batches 2 --batch-size 16 \
     --learning-rate 5e-4 --l1-lambda 0 --weight-decay 0.01 \
     --layers 10 --heads 8 --kv-heads 4 --embed 384 --intermediate 1024 \

@@ -50,7 +50,6 @@ class FakeArgs:
         self.min_irq = min_irq
         self.max_irq = max_irq
         self.require_pq = False
-        self.min_dump_size = 0
         self.shuffle = shuffle
         self.batch_size = batch_size
         self.max_perm = 1
@@ -74,47 +73,37 @@ class TestGlobDumps(unittest.TestCase):
         return path
 
     def test_no_match(self):
-        result = glob_dumps(os.path.join(self.tmpdir, "*.dump.parquet"), 10, 0, False)
+        result = glob_dumps(os.path.join(self.tmpdir, "*.dump.parquet"), 10, False)
         self.assertEqual(result, [])
 
     def test_basic_match(self):
         f = self._make_file("test.dump.parquet")
-        result = glob_dumps(f, 10, 0, False)
+        result = glob_dumps(f, 10, False)
         self.assertEqual(result, [f])
 
     def test_max_files(self):
         for i in range(3):
             self._make_file(f"test{i}.dump.parquet")
-        result = glob_dumps(os.path.join(self.tmpdir, "*.dump.parquet"), 2, 0, False)
+        result = glob_dumps(os.path.join(self.tmpdir, "*.dump.parquet"), 2, False)
         self.assertEqual(len(result), 2)
-
-    def test_min_dump_size_exclude(self):
-        f = self._make_file("small.dump.parquet", size=10)
-        result = glob_dumps(f, 10, 100, False)
-        self.assertEqual(result, [])
-
-    def test_min_dump_size_include(self):
-        f = self._make_file("big.dump.parquet", size=200)
-        result = glob_dumps(f, 10, 100, False)
-        self.assertEqual(result, [f])
 
     def test_require_pq_excluded(self):
         # No matching parsed parquet -> excluded when require_pq=True
         f = self._make_file("test.dump.parquet")
-        result = glob_dumps(f, 10, 0, True)
+        result = glob_dumps(f, 10, True)
         self.assertEqual(result, [])
 
     def test_require_pq_included(self):
         # Matching parsed file (test.0.parquet matches PARSED_SUFFIX .[0-9]*.parquet)
         f = self._make_file("test.dump.parquet")
         self._make_file("test.0.parquet")
-        result = glob_dumps(f, 10, 0, True)
+        result = glob_dumps(f, 10, True)
         self.assertEqual(result, [f])
 
     def test_comma_separated(self):
         f1 = self._make_file("a.dump.parquet")
         f2 = self._make_file("b.dump.parquet")
-        result = glob_dumps(f"{f1},{f2}", 10, 0, False)
+        result = glob_dumps(f"{f1},{f2}", 10, False)
         self.assertIn(f1, result)
         self.assertIn(f2, result)
 
@@ -122,7 +111,7 @@ class TestGlobDumps(unittest.TestCase):
         # max_files=1 stops after the first pattern fills the quota
         f1 = self._make_file("c.dump.parquet")
         f2 = self._make_file("d.dump.parquet")
-        result = glob_dumps(f"{f1},{f2}", 1, 0, False)
+        result = glob_dumps(f"{f1},{f2}", 1, False)
         self.assertEqual(len(result), 1)
 
 

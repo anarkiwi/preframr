@@ -25,7 +25,7 @@ from preframr.stfconstants import (
 )
 
 
-def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
+def glob_dumps(reglogs, max_files, require_pq, seed=0):
     random.seed(seed)
     dump_files = []
     for r in reglogs.split(","):
@@ -36,9 +36,7 @@ def glob_dumps(reglogs, max_files, min_dump_size, require_pq, seed=0):
         random.shuffle(pre_globbed)
         globbed = []
         for f in pre_globbed:
-            if os.path.getsize(f) >= min_dump_size and (
-                not require_pq or glob.glob(f.replace(DUMP_SUFFIX, PARSED_SUFFIX))
-            ):
+            if not require_pq or glob.glob(f.replace(DUMP_SUFFIX, PARSED_SUFFIX)):
                 globbed.append(f)
                 if len(globbed) >= max_globbed:
                     break
@@ -258,7 +256,6 @@ class RegDataset(torch.utils.data.Dataset):
             dump_files = glob_dumps(
                 reglogs,
                 int(self.args.max_files * 1.25),
-                self.args.min_dump_size,
                 self.args.require_pq,
                 seed=0,
             )

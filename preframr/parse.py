@@ -38,7 +38,6 @@ def main():
             for name in glob_dumps(
                 args.reglogs,
                 args.max_files,
-                args.min_dump_size,
                 require_pq=False,
             ):
                 futures.append(executor.submit(write_df, args, name))
