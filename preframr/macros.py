@@ -2946,6 +2946,10 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
     marker_idx = literal.index[lit_is_marker].tolist()
     n_lit_frames = len(marker_idx)
 
+    # Local import to avoid the module-load circular dep with reglogparser.
+    from preframr.reglogparser import RegLogParser
+
+    consolidator = RegLogParser(args)
     for lo_frame in range(0, marker_count, stride):
         if lo_frame >= n_lit_frames:
             break
@@ -2956,8 +2960,21 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         if slice_df.empty:
             continue
         block = run_passes(slice_df, args=args) if args is not None else slice_df
-        if not block.empty:
-            yield block
+        if block.empty:
+            continue
+        # Re-pack runs of FRAME_REG back into DELAY_REG so the block's
+        # token shape matches what the full-song stream produces.
+        # ``expand_to_literal_form`` (above) destructured DELAY_REG into
+        # N FRAME_REGs to make per-frame state simulation simple, but
+        # the LM sees DELAY_REG tokens at inference (via SeqMapper);
+        # without consolidation the model trained on blocks would
+        # never have seen DELAY_REG and would treat them as
+        # out-of-distribution at inference.
+        try:
+            block = consolidator._consolidate_frames(block)
+        except Exception:
+            pass
+        yield block
 
 
 def validate_gate_replays(df):
