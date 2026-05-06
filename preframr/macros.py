@@ -2459,8 +2459,6 @@ def _per_frame_state_walk(df):
     ops = arrs["op"]
     subregs = arrs["subreg"]
     diffs = arrs["diff"]
-    descs = arrs["description"]
-    indices = arrs["Index"]
     n_total = len(df)
     n_frames = len(frame_starts)
     description_default = 0

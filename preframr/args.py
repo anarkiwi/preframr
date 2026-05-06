@@ -140,6 +140,16 @@ def add_args(parser):
     parser.add_argument(
         "--max-autotune", action=argparse.BooleanOptionalAction, default=True
     )
+    # ``--compile`` controls torch.compile on the model. On by default
+    # (faster training and inference) but the Inductor compilation
+    # pass + cudagraphs holds GBs of host RAM, which is what blows
+    # past the 16g container cap on resource-constrained predict
+    # targets (Jetson Orin NX, the 50/12 generalize int test). Disable
+    # for inference on small hosts; eager-mode predict is ~2x slower
+    # but fits in <4g.
+    parser.add_argument(
+        "--compile", action=argparse.BooleanOptionalAction, default=True
+    )
     # Macro pass toggles. The other macro passes (PWM, TRANSPOSE, FLIP2,
     # INTERVAL, SubregPass, FilterSweep, EndTerminator) are unconditional;
     # only LoopPass has a kill switch since it's the most aggressive

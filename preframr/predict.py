@@ -338,7 +338,7 @@ def load_model(args, logger):
         model = Model.load_from_checkpoint(ckpt, weights_only=False)
     dataset = RegDataset(args, logger=logger)
     dataset.preload(tokens=model.tokens, tkmodel=model.tkmodel)
-    dataset.load()
+    dataset.predict_load()
     device, model_compiler = get_device(args, logger)
     model.eval()
     model.model.eval()
@@ -379,12 +379,16 @@ def main():
     args = parser.parse_args()
     logger = get_logger("INFO")
     dataset, model, device, model_compiler = load_model(args, logger)
+    # Skip the deepcopy when predictions==1 (the typical case): it
+    # doubles model RAM for no reason. With >1 predictions we still
+    # copy so each iteration starts from the loaded weights.
     for p in range(args.predictions):
+        m = copy.deepcopy(model) if args.predictions > 1 else model
         run_predict(
             args,
             logger,
             dataset,
-            copy.deepcopy(model),
+            m,
             device,
             model_compiler,
             p,

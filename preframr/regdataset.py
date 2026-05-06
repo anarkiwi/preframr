@@ -553,6 +553,77 @@ class RegDataset(torch.utils.data.Dataset):
             f"n_vocab: {self.n_vocab}, n_words {n_words}, n_encoded_words {self.n_words} ({n_frac}), reg widths {sorted(self.reg_widths.items())}, {n_seq} sequences"
         )
 
+    def predict_load(self):
+        """Lean load path for predict.py.
+
+        ``load()`` walks every file in df_map.csv with encode=True,
+        spinning up a ProcessPoolExecutor of min(cpu_count, n_files)
+        parser workers in parallel just to (a) re-derive reg_widths
+        and (b) register .blocks.npy paths in the mappers. For predict
+        the only thing that matters is *one* block from *one* file,
+        selected by --start-seq / --predict-set, so we parse just that
+        file (1 worker) and skip the rest. Required to fit predict on
+        16g containers (and on Jetson Orin NX) for the 50/12 generalize
+        corpus -- the full ``load()`` was OOMKilled at exit 137.
+        """
+        assert self.tokenizer.tokens is not None
+        assert os.path.exists(self.args.df_map_csv), "predict_load needs df-map-csv"
+        df_map = pd.read_csv(self.args.df_map_csv)
+        if "kind" not in df_map.columns:
+            df_map = df_map.assign(kind="train")
+        df_map = df_map.drop_duplicates("dump_file").reset_index(drop=True)
+        predict_set = getattr(self.args, "predict_set", "train")
+        kind_df = df_map[df_map["kind"] == predict_set].reset_index(drop=True)
+        if kind_df.empty:
+            raise ValueError(
+                f"df_map.csv has no '{predict_set}' files; check --predict-set"
+            )
+        start_seq = getattr(self.args, "start_seq", 0)
+        if start_seq >= len(kind_df):
+            raise ValueError(
+                f"--start-seq {start_seq} out of range "
+                f"({len(kind_df)} {predict_set} files)"
+            )
+        target_file = kind_df.iloc[start_seq]["dump_file"]
+        self.logger.info(
+            "predict_load: parsing only %s (1/%u %s files in df_map.csv)",
+            target_file,
+            len(kind_df),
+            predict_set,
+        )
+        self.n_vocab = len(self.tokenizer.tokens["n"])
+        if self.args.tkvocab:
+            self.n_vocab = self.args.tkvocab
+        self.n_words = 0
+        n_seq = 0
+        reg_max = {}
+        target = self.val_block_mapper if predict_set == "val" else self.block_mapper
+        for df_file, i, df, seq, irq, _blocks in self.load_dfs(
+            dump_files=[target_file],
+            max_perm=self.args.max_perm,
+            encode=True,
+        ):
+            seq_meta = SeqMeta(irq=irq, df_file=df_file, i=i)
+            reg_max = self.tokenizer.get_reg_max(df, reg_max)
+            self.n_words += len(seq) if seq is not None else 0
+            n_seq += 1
+            blocks_path = df_file.replace(DUMP_SUFFIX, f".{i}.blocks.npy")
+            if os.path.exists(blocks_path):
+                target.add(blocks_path, seq_meta)
+        self.block_mapper.finalize()
+        self.val_block_mapper.finalize()
+        self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
+        # Mapper now has only the target file; remap --start-seq to 0.
+        self.args.start_seq = 0
+        self.logger.info(
+            "predict-only lean load: n_vocab=%u, n_words=%u, %u sequences, "
+            "reg widths %s",
+            self.n_vocab,
+            self.n_words,
+            n_seq,
+            sorted(self.reg_widths.items()),
+        )
+
     def __len__(self):
         # Training and inference both read from BlockMapper -- each
         # block is self-contained (palettes, back-refs, loop bodies

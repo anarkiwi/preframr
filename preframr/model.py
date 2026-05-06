@@ -393,7 +393,9 @@ def get_model(dataset, args, logger, args_override=None):
     return model_compiler(args, model)
 
 
-def cpu_compile(args, model, option_keys=[]):  # pylint: disable=unused-argument
+def cpu_compile(args, model, option_keys=[]):
+    if not getattr(args, "compile", True):
+        return model
     return torch.compile(
         model,
         options={k: True for k in option_keys},
@@ -401,6 +403,8 @@ def cpu_compile(args, model, option_keys=[]):  # pylint: disable=unused-argument
 
 
 def cuda_compile(args, model):
+    if not getattr(args, "compile", True):
+        return model
     option_keys = ["epilogue_fusion"]
     if args.max_autotune:
         option_keys.append("max_autotune")
