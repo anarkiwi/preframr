@@ -1102,4 +1102,10 @@ class RegLogParser:
                     xdf[k] = int(-1)
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
+            # Attach palettes RIGHT BEFORE yield so the pandas-heavy
+            # passes above (_norm_pr_order, _add_voice_reg, the dtype
+            # casts) ran with empty attrs -- previously each
+            # ``__finalize__`` call inside those ops deep-copied the
+            # ~10K-tuple palette, ~30s self on Skybox.
+            macros.attach_palettes_to_attrs(xdf, palettes)
             yield xdf

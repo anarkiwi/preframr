@@ -3730,18 +3730,18 @@ POST_NORM_PRE_VOICE_PASSES = [
 ]
 
 
-def _attach_palettes_to_attrs(df, palettes):
+def attach_palettes_to_attrs(df, palettes):
     """Publish ``palettes`` to ``df.attrs`` so callers outside the
     orchestrator (e.g. ``iter_self_contained_row_blocks`` ->
     ``expand_to_literal_form`` -> ``_expand_ops``) can read them via
     the existing attrs path.
 
-    Inside ``run_passes`` palettes are threaded explicitly to producers
-    and consumers, so attrs aren't populated during the matcher pipeline
-    (where pandas ``__finalize__`` deep-copy was previously the
-    dominant cost). This one-time write at end of run_passes pays at
-    most a few attrs-deep-copies per downstream call, vs the prior
-    11K+ during the inner sequence.
+    NOT called from ``run_passes`` directly anymore -- between
+    ``run_passes`` and the eventual ``_expand_ops`` consumer there are
+    pandas-heavy ops (``_norm_pr_order``, ``_add_voice_reg``) that
+    would deep-copy a populated attrs on every ``__finalize__``. The
+    parse loop now calls this explicitly right before yield, so the
+    intermediate phase runs with empty attrs.
     """
     if palettes is None:
         return df
@@ -3758,7 +3758,7 @@ def run_post_norm_pre_voice_passes(df, args=None, palettes=None):
     fuzzy / DO_LOOP matching in a single sweep)."""
     for macro_pass in POST_NORM_PRE_VOICE_PASSES:
         df = macro_pass.apply(df, args=args, palettes=palettes)
-    return _attach_palettes_to_attrs(df, palettes)
+    return df
 
 
 def run_passes(df, args=None, palettes=None):
@@ -3770,4 +3770,4 @@ def run_passes(df, args=None, palettes=None):
     each downstream walk."""
     for macro_pass in PASSES:
         df = macro_pass.apply(df, args=args, palettes=palettes)
-    return _attach_palettes_to_attrs(df, palettes)
+    return df
