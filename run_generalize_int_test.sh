@@ -24,28 +24,28 @@ source "$(dirname "$0")/int_test_common.sh"
 # ----- generalize-specific config -----
 # 16/4 train/eval split. Train spans Goto80's career; eval is held back
 # from across the same span so the test rewards style learning, not
-# tracker-fingerprinting on a single era. The split should be
-# re-validated against ``goto80_breakdown.py``'s token-count
-# distribution before locking in -- pick songs near the median
-# (~11K tokens) for both splits so neither is dominated by long-form
-# outliers.
+# tracker-fingerprinting on a single era. The 6 picks below the first
+# 10 (Blox..Knark) are the 6 SIDs nearest the 147s catalogue-median
+# duration that are NOT variants/previews and NOT in eval -- generated
+# deterministically by ``untracked/pick_train_replacements.py``. Run
+# that script if HVSC's mirror changes and the picks need refreshing.
 TRAIN_SIDS="
   MUSICIANS/G/Goto80/Truth.sid
   MUSICIANS/G/Goto80/Acid_10000.sid
   MUSICIANS/G/Goto80/CBM_85.sid
   MUSICIANS/G/Goto80/Skybox.sid
-  MUSICIANS/G/Goto80/Adventures_of_Pippin_Tom.sid
-  MUSICIANS/G/Goto80/Apollo_Launch_2x.sid
-  MUSICIANS/G/Goto80/424.sid
-  MUSICIANS/G/Goto80/80squares.sid
   MUSICIANS/G/Goto80/20_Years_Is_Nothing.sid
-  MUSICIANS/G/Goto80/Aeppelepsi_Gubbjaevel.sid
   MUSICIANS/G/Goto80/Italic_Disco.sid
   MUSICIANS/G/Goto80/Honolulu.sid
   MUSICIANS/G/Goto80/Lollipop.sid
   MUSICIANS/G/Goto80/Ponky.sid
   MUSICIANS/G/Goto80/Superman.sid
-  MUSICIANS/G/Goto80/Italo_Disco_Trash.sid
+  MUSICIANS/G/Goto80/Blox.sid
+  MUSICIANS/G/Goto80/Techno_Aha.sid
+  MUSICIANS/G/Goto80/Boys_Say_Go.sid
+  MUSICIANS/G/Goto80/Hairy.sid
+  MUSICIANS/G/Goto80/Clark_O.sid
+  MUSICIANS/G/Goto80/Knark.sid
 "
 EVAL_SIDS="
   MUSICIANS/G/Goto80/Robinson.sid
