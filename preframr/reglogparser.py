@@ -169,6 +169,14 @@ class RegLogParser:
         tokens.loc[tokens["reg"] < -MAX_REG, "diff"] = 0
         tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
         df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
+        # Tokens have no ``description`` field but downstream walkers
+        # (``_simulate_palette``, ``_FastRow``) cast ``description`` to
+        # ``int`` per row. Default to 0 so a concat with a
+        # ``description``-bearing prompt df doesn't produce NaN rows
+        # that crash validate_gate_replays / validate_back_refs in the
+        # predict path's safety net.
+        if "description" not in df.columns:
+            df["description"] = 0
         return df
 
     def _reset_diffs(self, orig_df, irq, sidq):

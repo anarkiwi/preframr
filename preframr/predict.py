@@ -108,8 +108,13 @@ def generate_sequence(args, logger, dataset, predictor, p):
     try:
         validate_back_refs(df, prompt_frame_count=0)
         validate_gate_replays(df)
-    except AssertionError as e:
-        logger.error("generated stream contains an escapee macro ref: %s", e)
+    except (AssertionError, ValueError) as e:
+        # AssertionError: an escaped macro ref the LM predicted that
+        # reaches before the start of the generated frames.
+        # ValueError: a malformed row (e.g. NaN in description) that
+        # the simulator can't dispatch -- usually means concat shapes
+        # mismatched between prompt_df and completion_df.
+        logger.error("generated stream rejected by safety net: %s", e)
         if args.min_acc:
             sys.exit(-1)
     predicted_compare = prompt_compare[args.prompt_seq_len :]
