@@ -16,7 +16,19 @@ import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 
-from find_redundant_writes import find_redundant_writes  # noqa: E402
+try:
+    from find_redundant_writes import find_redundant_writes  # noqa: E402
+except ModuleNotFoundError:  # pragma: no cover
+    # The CLI script lives at the repo root and is not copied into the
+    # Docker image (which only ships ``preframr/`` and ``tests/``); skip
+    # rather than fail when the module isn't importable.
+    import pytest
+
+    pytest.skip(
+        "find_redundant_writes.py not on path (Docker image build)",
+        allow_module_level=True,
+    )
+
 from preframr.stfconstants import FRAME_REG, MIN_DIFF, SET_OP  # noqa: E402
 
 
