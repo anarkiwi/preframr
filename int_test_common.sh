@@ -23,9 +23,16 @@ SONGLENGTHS_DB=${SONGLENGTHS_DB:-${LOCAL_HVSC}/DOCUMENTS/Songlengths.md5}
 # host this way).
 DUMP_MAX_MEM=${DUMP_MAX_MEM:-4g}
 TRAIN_MAX_MEM=${TRAIN_MAX_MEM:-12g}
+# Predict needs more RAM than train: Lightning streams train batches and
+# frees them, but predict materialises the val-block mapper + checkpoint
+# + KV cache + torch.compile artifacts simultaneously. The 50/12 corpus
+# pushes a bare 16g cap into OOMKilled=true (exit 137) right after the
+# "prompt palette" log line; 32g leaves slack.
+PREDICT_MAX_MEM=${PREDICT_MAX_MEM:-32g}
 SHM_SIZE=${SHM_SIZE:-2g}                   # PyTorch DataLoader workers
 LIMITS_DUMP="--memory=${DUMP_MAX_MEM} --memory-swap=${DUMP_MAX_MEM}"
 LIMITS_TRAIN="--memory=${TRAIN_MAX_MEM} --memory-swap=${TRAIN_MAX_MEM} --shm-size=${SHM_SIZE} --oom-kill-disable=false"
+LIMITS_PREDICT="--memory=${PREDICT_MAX_MEM} --memory-swap=${PREDICT_MAX_MEM} --shm-size=${SHM_SIZE} --oom-kill-disable=false"
 
 # ----- Helpers -----
 

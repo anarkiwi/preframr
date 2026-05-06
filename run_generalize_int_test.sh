@@ -208,7 +208,7 @@ for _sid in ${EVAL_SIDS}; do
     if [ "${i}" -ge "${MAX_QUAL_PREDICTS}" ]; then
         break
     fi
-    docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test-${i} \
+    docker run ${FLAGS} ${LIMITS_PREDICT} --rm --name preframr-predict-test-${i} \
         -v "${ROOT}":/scratch/preframr ${IMG} \
         /preframr/predict.py ${CARGS} \
         --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} \

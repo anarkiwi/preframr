@@ -89,7 +89,7 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
 # --start-block 0 anchors the prompt to the model's first trained
 # block of rotation 0; without it the random offset in get_prompt
 # almost never hits a block boundary the model trained on.
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test \
+docker run ${FLAGS} ${LIMITS_PREDICT} --rm --name preframr-predict-test \
     -v "${ROOT}":/scratch/preframr ${IMG} \
     /preframr/predict.py ${CARGS} \
     --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} \
