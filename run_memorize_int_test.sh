@@ -176,4 +176,12 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/
 # tokens; this is also what makes the safety-net in predict.py (which
 # rejects out-of-bounds BACK_REF / PATTERN_REPLAY payloads) the
 # right shape for a memorise-back test.
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 --temperature 0.1 --top-k 1 2>&1 | tee "${LOG_DIR}/predict.log"
+#
+# --start-n 0 anchors the prompt to the first prompt_seq_len tokens of
+# the song. The default ``random.randint(0, len(seq) - max_seq_len)``
+# picks a mid-song offset that almost certainly does not coincide with
+# any block boundary the BlockMapper trained on, so even a perfectly
+# memorising model produces near-chance accuracy. Block 0 of every
+# training song starts at frame 0, so a start-0 prompt is the closest
+# we can get to "test exactly what the model trained on".
+docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 --temperature 0.1 --top-k 1 --start-n 0 2>&1 | tee "${LOG_DIR}/predict.log"
