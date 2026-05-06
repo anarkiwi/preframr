@@ -26,10 +26,13 @@ TEST_SIDS="
   MUSICIANS/G/Goto80/CBM_85.sid
   MUSICIANS/G/Goto80/Skybox.sid
 "
-# train_loss EarlyStopping: stop_loss caps total wall-time, stop_delta
-# is the per-epoch improvement floor.
-STOP_LOSS=0.02
-STOP_DELTA=0.001
+# train_loss EarlyStopping. With macro passes enabled the encoded
+# vocab is ~10K (vs ~3K under literal SETs); same train_loss => lower
+# per-token confidence, so memorise-back greedy reconstruction needs
+# a tighter target. 0.005 ⇒ per-token p ≈ 99.5%, giving a workable
+# probability of nailing 512 contiguous tokens.
+STOP_LOSS=0.005
+STOP_DELTA=0.0005
 MAX_EPOCHS=500
 MIN_ACC=0.2
 SLEN=1024
