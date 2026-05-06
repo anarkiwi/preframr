@@ -1833,6 +1833,61 @@ def _best_lz_njit(
 
 
 @njit(cache=True)
+def _best_lz_fuzzy_match_njit(
+    i,
+    cands_arr,
+    fps_arr,
+    snap_arr,
+    sizes_cumsum,
+    max_fuzzy_length,
+    n_frames,
+    min_fuzzy_match,
+    ref_cost,
+):
+    """Inner walk + overlay-count for LoopPass.best_lz_fuzzy.
+
+    Returns ``(save, dist, length)`` for the best candidate -- save is
+    computed as ``body_rows - (ref_cost + n_overlay_diffs)`` where
+    ``n_overlay_diffs`` is the count of cells where ``snap_arr`` differs
+    between the candidate and target ranges. The Python wrapper then
+    calls ``compute_overlays`` ONCE on the winner to materialise the
+    overlay list, instead of paying that cost per candidate.
+    """
+    best_save = 0
+    best_dist = 0
+    best_len = 0
+    n_cands = cands_arr.shape[0]
+    n_regs = snap_arr.shape[1]
+    for c_idx in range(n_cands - 1, -1, -1):
+        cand = cands_arr[c_idx]
+        if cand >= i:
+            continue
+        length = 0
+        while (
+            length < max_fuzzy_length
+            and i + length < n_frames
+            and cand + length < i
+            and fps_arr[i + length] == fps_arr[cand + length]
+        ):
+            length += 1
+        if length < min_fuzzy_match:
+            continue
+        # Count overlay diffs inline on the snap_arr slices.
+        n_overlays = 0
+        for k in range(length):
+            for r in range(n_regs):
+                if snap_arr[i + k, r] != snap_arr[cand + k, r]:
+                    n_overlays += 1
+        body_rows = sizes_cumsum[i + length] - sizes_cumsum[i]
+        save = body_rows - (ref_cost + n_overlays)
+        if save > best_save:
+            best_save = save
+            best_dist = i - cand
+            best_len = length
+    return best_save, best_dist, best_len
+
+
+@njit(cache=True)
 def _best_lz_transposed_njit(
     i,
     cands_arr,
@@ -2051,6 +2106,11 @@ class LoopPass(MacroPass):
                     snap_arr[fi, ri] = int(snap.get(r, 0))
         else:
             snap_arr = np.zeros((0, 0), dtype=np.int64)
+        # ``fps`` is a list of 64-bit musical fingerprints; numba's
+        # JIT'd matcher takes them as an ndarray.
+        fps_arr = (
+            np.asarray(fps, dtype=np.int64) if fps else np.zeros(0, dtype=np.int64)
+        )
 
         def best_do(i):
             best_save = 0
@@ -2244,29 +2304,25 @@ class LoopPass(MacroPass):
             cands = seed_fp.get((fps[i], fps[i + 1]))
             if not cands:
                 return 0, 0, 0, []
-            best_save = 0
-            best = (0, 0, 0, [])
-            for cand in reversed(cands):
-                if cand >= i:
-                    continue
-                length = 0
-                while (
-                    length < max_fuzzy_length
-                    and i + length < n_frames
-                    and cand + length < i
-                    and fps[cand + length] == fps[i + length]
-                ):
-                    length += 1
-                if length < min_fuzzy_match:
-                    continue
-                overlays = compute_overlays(cand, i, length)
-                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
-                cost = 1 + len(overlays)
-                save = body_rows - cost
-                if save > best_save:
-                    best_save = save
-                    best = (save, i - cand, length, overlays)
-            return best
+            cands_arr = np.asarray(cands, dtype=np.int64)
+            # Pick the best candidate via numba (counts overlay diffs
+            # via snap_arr without materialising the overlay tuple list).
+            save, dist, length = _best_lz_fuzzy_match_njit(
+                i,
+                cands_arr,
+                fps_arr,
+                snap_arr,
+                sizes_cumsum,
+                max_fuzzy_length,
+                n_frames,
+                min_fuzzy_match,
+                self.ref_cost,
+            )
+            if save <= 0:
+                return 0, 0, 0, []
+            # Materialise the overlay list ONCE for the winning match.
+            overlays = compute_overlays(i - dist, i, length)
+            return save, dist, length, overlays
 
         def emit_pattern_replay(i, dist, length, overlays):
             out_rows.append(
