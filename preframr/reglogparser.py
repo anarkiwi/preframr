@@ -751,7 +751,19 @@ class RegLogParser:
                 orig_df.attrs.get("gate_palette")
             ),
         )
-        sid_writes = []
+        # Build the result row by row in a flat Python list and let
+        # pandas materialise the DataFrame ONCE at the end. The previous
+        # design constructed a one-row-per-frame DataFrame, sort_values
+        # 'd it, and pd.concat'd the lot at the end -- on Skybox that's
+        # 20K micro-DataFrames + a 20K-way concat, which dominated
+        # preload (80s of 90s wall) at 83% of total preload time.
+        # Single-array path drops it to ~1-3s. The per-frame reg sort
+        # is preserved by tagging each row with its add_frame() call
+        # index (NOT frame_idx -- multiple add_frame calls share a
+        # frame_idx during DELAY_REG unrolling) and doing one stable
+        # sort by (call_idx, reg) at the end.
+        all_rows = []  # list[(reg, val, diff, description, call_idx)]
+        call_idx = [0]
 
         df["f"] = (
             df["reg"]
@@ -769,14 +781,17 @@ class RegLogParser:
         out_frame_idx = [0]
 
         def add_frame(writes, advance=True):
-            sid_writes.append(
-                pd.DataFrame(
-                    writes,
-                    dtype=MODEL_PDTYPE,
-                    columns=["reg", "val", "diff", "description"],
-                ).sort_values("reg", kind="stable")
-            )
+            ci = call_idx[0]
+            for w in writes:
+                # Tuple may be (reg, val, diff) or (reg, val, diff,
+                # description). Tick-driven writes (REPEAT/FLIP/PWM
+                # bursts) often emit 3-tuples; description=NA there
+                # is intentional so the final ffill carries forward
+                # the most-recent explicit description value.
+                desc = w[3] if len(w) > 3 else pd.NA
+                all_rows.append((w[0], w[1], w[2], desc, ci))
             state.observe_frame(writes, frame_idx=out_frame_idx[0])
+            call_idx[0] += 1
             if advance:
                 out_frame_idx[0] += 1
 
@@ -830,7 +845,27 @@ class RegLogParser:
             f_sid_writes.extend(state.tick_frame())
             add_frame(f_sid_writes)
 
-        df = pd.concat(sid_writes, ignore_index=True)
+        if not all_rows:
+            return pd.DataFrame(
+                columns=["reg", "val", "diff", "description"], dtype=MODEL_PDTYPE
+            )
+        df = pd.DataFrame(
+            all_rows,
+            columns=["reg", "val", "diff", "description", "__c"],
+            dtype=MODEL_PDTYPE,
+        )
+        # One stable sort over the whole array reproduces what the old
+        # code did with N per-frame ``sort_values("reg")`` calls.
+        # Primary key = call_idx (one per add_frame call, including
+        # the multiple calls a single DELAY_REG unrolling makes) so
+        # tick-spawned frames stay in chronological order. Secondary
+        # key = reg with stable ties so insertion order is preserved
+        # within a call.
+        df = (
+            df.sort_values(["__c", "reg"], kind="stable")
+            .drop(columns="__c")
+            .reset_index(drop=True)
+        )
         df["description"] = df["description"].ffill().fillna(0)
         return df
 

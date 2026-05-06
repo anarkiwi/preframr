@@ -2313,6 +2313,24 @@ def expand_loops(df):
     output_frame_starts = []  # row idx in `out` where each output frame begins
     do_stack = []  # list of [body_start_row_in_input, remaining_iterations]
 
+    # Pre-extract every column as a numpy array once. ``df.iloc[i]`` would
+    # otherwise be called ~30K times per song and each call goes through
+    # pandas' ``__finalize__`` (deepcopying the masked-int dtype state),
+    # eating ~9ms per row -- 4-5 minutes of preload per song. Walking the
+    # raw arrays drops the loop to milliseconds.
+    col_arrays = {c: df[c].to_numpy() for c in cols}
+    op_arr = col_arrays["op"]
+    val_arr = col_arrays["val"]
+    reg_arr = col_arrays["reg"]
+    subreg_arr = col_arrays["subreg"] if "subreg" in cols else None
+
+    def _row_to_dict(i):
+        # Build a dict from the prefetched arrays. ``pd.isna`` works on
+        # numpy scalars too (handles the masked-int NA sentinel). Cheaper
+        # than the original ``{c: row[c] for c in cols}`` because no
+        # per-row Series construction.
+        return {c: col_arrays[c][i] for c in cols}
+
     def append_row(row_dict):
         out.append(row_dict)
         if row_dict["reg"] in _FRAME_MARKER_REGS:
@@ -2321,10 +2339,10 @@ def expand_loops(df):
     n = len(df)
     i = 0
     while i < n:
-        row = df.iloc[i]
-        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
+        op_raw = op_arr[i]
+        op = int(op_raw) if not pd.isna(op_raw) else SET_OP
         if op == BACK_REF_OP:
-            distance, length = _unpack_back_ref(row["val"])
+            distance, length = _unpack_back_ref(val_arr[i])
             cur_frame = len(output_frame_starts)
             target = cur_frame - distance
             assert target >= 0, (
@@ -2348,9 +2366,10 @@ def expand_loops(df):
             i += 1
             continue
         if op == DO_LOOP_OP:
-            subreg = int(row["subreg"]) if not pd.isna(row["subreg"]) else -1
+            subreg_raw = subreg_arr[i] if subreg_arr is not None else -1
+            subreg = int(subreg_raw) if not pd.isna(subreg_raw) else -1
             if subreg == 0:
-                n_iter = int(row["val"])
+                n_iter = int(val_arr[i])
                 assert n_iter >= 1, n_iter
                 # Push: record where the body starts (i+1) and remaining iters
                 do_stack.append([i + 1, n_iter - 1])
@@ -2367,8 +2386,9 @@ def expand_loops(df):
                 i += 1
             continue
         if op == PATTERN_REPLAY_OP:
-            distance, length = _unpack_back_ref(row["val"])
-            num_overlays = int(row["subreg"]) if not pd.isna(row["subreg"]) else 0
+            distance, length = _unpack_back_ref(val_arr[i])
+            sr_raw = subreg_arr[i] if subreg_arr is not None else 0
+            num_overlays = int(sr_raw) if not pd.isna(sr_raw) else 0
             cur_frame = len(output_frame_starts)
             target = cur_frame - distance
             assert target >= 0, (
@@ -2395,15 +2415,17 @@ def expand_loops(df):
             overlays = []  # list of (frame_offset, reg, val) per-frame
             body_freq_delta = 0
             for k in range(num_overlays):
-                ov = df.iloc[i + 1 + k]
-                ov_op = int(ov["op"]) if not pd.isna(ov["op"]) else SET_OP
+                ov_idx = i + 1 + k
+                ov_op_raw = op_arr[ov_idx]
+                ov_op = int(ov_op_raw) if not pd.isna(ov_op_raw) else SET_OP
                 assert ov_op == PATTERN_OVERLAY_OP, (
                     f"PATTERN_REPLAY at row {i} expected {num_overlays} "
-                    f"overlay rows but row {i + 1 + k} has op={ov_op}"
+                    f"overlay rows but row {ov_idx} has op={ov_op}"
                 )
-                packed = int(ov["val"])
+                packed = int(val_arr[ov_idx])
                 target_reg = (packed >> 16) & 0xFF
-                ov_subreg = int(ov["subreg"]) if not pd.isna(ov["subreg"]) else 0
+                ov_sr_raw = subreg_arr[ov_idx] if subreg_arr is not None else 0
+                ov_subreg = int(ov_sr_raw) if not pd.isna(ov_sr_raw) else 0
                 if ov_subreg < 0 and target_reg == OVERLAY_BODY_FREQ_DELTA:
                     # Sign-extend the 16-bit delta.
                     delta = packed & 0xFFFF
@@ -2458,7 +2480,7 @@ def expand_loops(df):
             # if reached as a top-level row the encoder is broken.
             raise AssertionError(f"orphan PATTERN_OVERLAY_OP at row {i}")
         # Literal row.
-        append_row({c: row[c] for c in cols})
+        append_row(_row_to_dict(i))
         i += 1
 
     if not out:
