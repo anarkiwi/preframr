@@ -69,11 +69,12 @@ TKVOCAB=0
 MIN_SONG_TOKENS=128
 BLOCK_STRIDE=$((SLEN / 4))
 MIN_VAL_ACC=${MIN_VAL_ACC:-0}    # 0 = report only (calibration run).
-                                 # First calibration run on this
-                                 # config plateaued at val_acc ~0.10
-                                 # in the late-training regime; a
-                                 # ~0.05 threshold leaves headroom
-                                 # for run-to-run variance.
+                                 # Observed val_acc at epoch 199 across
+                                 # runs: 0.104 (broken-PAD ckpt),
+                                 # 0.108 (post-PAD-fix). chance at
+                                 # vocab=33858 is ~3e-5; we're already
+                                 # ~3000x chance. ~0.05 leaves ample
+                                 # headroom for run-to-run variance.
 EARLY_STOP_PATIENCE=5            # epochs of no val improvement before stopping
 EARLY_STOP_MIN_DELTA=0.01        # min val_loss improvement to count
 MAX_EPOCHS=200                   # ceiling; early-stop usually fires before
@@ -141,11 +142,15 @@ docker run --rm ${LIMITS_TRAIN} \
 # ``--start-seq i`` then picks the i'th eval rotation. Predict will
 # load the best-val_loss checkpoint via ``get_ckpt``.
 #
-# Generalisation predicts often hit the safety net (model emits
-# GATE_REPLAY/BACK_REF whose payload doesn't resolve in the
-# generated stream); ``|| true`` keeps the script moving so each
-# song still gets attempted instead of failing the test on the
-# first reject.
+# ``--constrained-decode`` masks structurally-invalid macro tokens at
+# sample time -- BACK_REF / PATTERN_REPLAY whose distance reaches
+# before frame 0, orphan PATTERN_OVERLAY at top level, GATE_REPLAY /
+# PLAY_INSTRUMENT slots beyond the prompt-established palette,
+# DELAY_REG (model otherwise falls onto val=98 fallback), and
+# real-reg tokens that would overflow the per-frame IRQ budget. With
+# this on all 4 eval prompts produce playable .wav (was 0/4 before
+# constrained decode landed). ``|| true`` is kept defensively but
+# rarely fires now.
 i=0
 for _sid in ${EVAL_SIDS}; do
     docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test-${i} \
@@ -165,4 +170,9 @@ done
 # Wallclock measured on defroster: ~25-35 min end-to-end
 # (dump 5-6 min for Skybox + 4 min for the rest in parallel,
 # build 2 min cached, train ~15-25 min for 200 epochs, predict
-# 1-2 min). Suitable for nightly CI, not per-commit.
+# 1-2 min per eval song x4 = ~5 min). Suitable for nightly CI,
+# not per-commit. Train wallclock dropped after the LoopPass
+# speedups landed (compute_overlays vectorisation + cumsum sizes
+# + numba on best_lz / best_lz_transposed); Techno_Aha parse went
+# from 205s -> 47s. Skybox parse 137s -> 96s after the df.attrs
+# palette refactor (the deepcopy storm fix).
