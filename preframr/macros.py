@@ -2969,6 +2969,8 @@ class GateMacroPass(MacroPass):
     target_kinds = ("ctrl", "ad", "sr")
 
     def apply(self, df, args=None):
+        if args is not None and not getattr(args, "gate_macro_pass", True):
+            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         if "description" not in df.columns:
@@ -3178,6 +3180,8 @@ class InstrumentProgramPass(MacroPass):
         return df.reset_index(drop=True)
 
     def apply(self, df, args=None):
+        if args is not None and not getattr(args, "instrument_pass", True):
+            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         if "description" not in df.columns:

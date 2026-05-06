@@ -138,7 +138,16 @@ if [[ -n "${NVGPUS}" ]] ; then
 fi
 
 ./build.sh
-CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} --max-perm 1 --no-fuzzy-loop-pass --no-loop-transposed"
+# Disable LoopPass + InstrumentProgramPass + GateMacroPass for the
+# memorise-back smoke test. These are the per-block hot spots in
+# run_passes -- with all three off, the per-block work drops to a
+# few cheap passes (PWM, FilterSweep, Flip2, Transpose, Interval,
+# DedupSet, Subreg, EndTerminator) which run in ~1 ms each on a
+# 5K-row block. Net preload wall-time on the 4-song corpus drops
+# from ~60 s to a couple seconds. The model still trains end-to-end
+# on the resulting literal SET stream; macros are still tested
+# elsewhere (unit tests) and exercised by the production pipeline.
+CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} --max-perm 1 --no-loop-pass --no-fuzzy-loop-pass --no-loop-transposed --no-instrument-pass --no-gate-macro-pass"
 # train to the stop loss. ``-ti`` is dropped because we redirect output
 # through ``tee``; the log file is the sole record if the container is
 # OOM-killed by the kernel.

@@ -145,6 +145,18 @@ def add_args(parser):
     # the per-stream palette size; over-cap programs stay literal.
     parser.add_argument("--instrument-window", type=int, default=8)
     parser.add_argument("--instrument-palette-cap", type=int, default=None)
+    # Per-pass kill switches. Default-on (the production pipeline runs
+    # all of these). The integration test disables them to skip the
+    # per-block run_passes overhead during make_tokens, since for a
+    # memorise-back smoke test the model just needs to predict the
+    # literal token sequence -- it doesn't need to learn the macro
+    # decoders.
+    parser.add_argument(
+        "--instrument-pass", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument(
+        "--gate-macro-pass", action=argparse.BooleanOptionalAction, default=True
+    )
     # Parse-time generation of self-contained ``.blocks.npy`` files for
     # the BlockMapper training data path. Each block is the output of
     # ``self_contain_slice`` (literal expansion + per-slice re-encode
