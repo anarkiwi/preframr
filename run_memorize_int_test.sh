@@ -27,10 +27,7 @@ TEST_SIDS="
   MUSICIANS/G/Goto80/Skybox.sid
 "
 # train_loss EarlyStopping: stop_loss caps total wall-time, stop_delta
-# is the per-epoch improvement floor. With macros disabled the encoded
-# stream is all literal SETs, so per-token loss starts higher and
-# decays slower than the macro regime; 0.001 matches the typical
-# per-epoch improvement.
+# is the per-epoch improvement floor.
 STOP_LOSS=0.02
 STOP_DELTA=0.001
 MAX_EPOCHS=500
@@ -56,15 +53,10 @@ detect_gpu
 ./build.sh
 
 # ----- Stage 3: train -----
-# Disable LoopPass + InstrumentProgramPass + GateMacroPass: these are
-# the per-block hot spots in run_passes; with all three off the
-# per-block work drops to a few ms each on this corpus and net
-# preload wall-time on the 4-song set is a couple seconds.
 CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} \
        --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune \
        --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} \
-       --max-perm 1 --no-loop-pass --no-fuzzy-loop-pass \
-       --no-loop-transposed --no-instrument-pass --no-gate-macro-pass"
+       --max-perm 1"
 
 # Memorise dial: capacity (10 layers / embed=384 / ~10M params),
 # enough updates (--shuffle 32 -> ~60 steps/epoch on ~120 blocks),

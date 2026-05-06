@@ -89,7 +89,7 @@ detect_gpu
 CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} \
        --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune \
        --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} \
-       --max-perm 3 --no-fuzzy-loop-pass --no-loop-transposed"
+       --max-perm 3"
 
 docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     -v "${ROOT}":/scratch/preframr ${IMG} \
