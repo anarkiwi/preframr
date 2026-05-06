@@ -10,17 +10,18 @@ happens on `defroster`**, not on the local checkout. The local checkout
 is for editing code and running unit tests; `defroster` has the GPU and
 the package mirror that the docker build needs.
 
-A helper at `/tmp/dfr` (created per-session — see "Bootstrapping" below)
-wraps the ssh + cd + remote-bash chain:
+A helper at `untracked/dfr` (in the gitignored / dockerignored
+workspace tree -- not committed; see "Bootstrapping" below) wraps the
+ssh + cd + remote-bash chain:
 
 ```bash
-/tmp/dfr 'pwd && git log --oneline -3'
+untracked/dfr 'pwd && git log --oneline -3'
 ```
 
 Without it, plain `ssh defroster '<cmd>'` lands in `$HOME` and fails on
 `git ...` and similar commands. The Bash tool also blocks compound `cd
 <dir> && git ...` commands locally as a safety measure, so always wrap
-through `/tmp/dfr` when interacting with `defroster`.
+through `untracked/dfr` when interacting with `defroster`.
 
 The integration tests run inside docker containers built from this repo.
 Building docker requires `PIP_OPTS` set to the local pip mirror:
@@ -31,16 +32,17 @@ export PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.1
 
 The integration test scripts pick this up from the environment.
 
-## Bootstrapping `/tmp/dfr` at session start
+## Bootstrapping `untracked/dfr` at session start
 
 ```bash
-cat > /tmp/dfr <<'EOF'
+mkdir -p untracked
+cat > untracked/dfr <<'EOF'
 #!/bin/bash
 set -e
 [ $# -lt 1 ] && { echo "usage: $0 <command...>" >&2; exit 2; }
 exec ssh defroster "(cd /scratch/anarkiwi/preframr && $*)"
 EOF
-chmod +x /tmp/dfr
+chmod +x untracked/dfr
 ```
 
 ## Integration tests
@@ -67,7 +69,7 @@ Current passing config:
 
 To run:
 ```bash
-/tmp/dfr 'export PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.168.5.1" && bash run_memorize_int_test.sh > /tmp/memorize_int_test.log 2>&1'
+untracked/dfr 'export PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.168.5.1" && bash run_memorize_int_test.sh > /tmp/memorize_int_test.log 2>&1'
 ```
 
 End-to-end wallclock with cached image: ~5-6 min (dump 30s + train
@@ -76,7 +78,7 @@ cached vsiddump output): +5 min for Skybox alone.
 
 To check status mid-run:
 ```bash
-/tmp/dfr "tr '\r' '\n' < /tmp/memorize_int_test.log | grep -E 'Stopping threshold|train_loss = |starting at seq|generated [0-9]|min_acc' | tail -10"
+untracked/dfr "tr '\r' '\n' < /tmp/memorize_int_test.log | grep -E 'Stopping threshold|train_loss = |starting at seq|generated [0-9]|min_acc' | tail -10"
 ```
 
 ### `run_generalize_int_test.sh`
@@ -97,13 +99,10 @@ Open issues for the calibration run (tracked in `untracked/TODO.md`):
 - **Superman.sid** is rejected by the digi filter (false positive on
   Goto80's wide vol-automation style); the train set is currently
   15/4 instead of 16/4.
-- The val_loss numbers reported are higher than expected for the
-  vocab size; worth inspecting `Model.validation_step` once the
-  current run settles.
 
 To run:
 ```bash
-/tmp/dfr 'export PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.168.5.1" && bash run_generalize_int_test.sh > /tmp/generalize_int_test.log 2>&1'
+untracked/dfr 'export PIP_OPTS="--index-url http://192.168.5.1:5001/index/ --trusted-host 192.168.5.1" && bash run_generalize_int_test.sh > /tmp/generalize_int_test.log 2>&1'
 ```
 
 End-to-end wallclock with cached image: ~30-45 min (dump 5-6 min for
@@ -176,6 +175,15 @@ that span sessions but don't deserve a tracked TODO file.
 ## Recent landmark commits
 
 (for orientation in `git log`):
+- `cbf7a70` -- LoopPass speedup: vectorise `compute_overlays` and
+  precompute `sizes_cumsum`. Techno_Aha parse 205s -> 127s.
+- `72b2abc` -- constrained-decode logit guard for predict (BACK_REF /
+  PATTERN_REPLAY distance, PATTERN_OVERLAY pairing, GATE_REPLAY /
+  PLAY_INSTRUMENT / DELAY_REG masked, per-frame diff budget). Stage 5
+  produces playable .wav for the first time.
+- `95f7d46` -- PAD_ID / token-0 vocab collision fix: vocab idx 0 was
+  aliasing FRAME_REG val=1; model was loss-masked from ever predicting
+  it. Synthetic pad token at idx 0; real tokens shift to 1..N.
 - `a659037` -- preload 80x speedup via array-based `_expand_ops` and
   `expand_loops` rewrites. Skybox literal expansion: 80s -> 0.85s.
 - `dd98ac3` -- memorize stop_loss tightened to 0.001 for the macros-on
