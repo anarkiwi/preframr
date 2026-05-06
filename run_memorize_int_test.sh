@@ -29,10 +29,12 @@ TEST_SIDS="
 # train_loss EarlyStopping. With macro passes enabled the encoded
 # vocab is ~10K (vs ~3K under literal SETs); same train_loss => lower
 # per-token confidence, so memorise-back greedy reconstruction needs
-# a tighter target. 0.005 ⇒ per-token p ≈ 99.5%, giving a workable
-# probability of nailing 512 contiguous tokens.
-STOP_LOSS=0.005
-STOP_DELTA=0.0005
+# a tighter target. At 0.005 (~99.5% per-token), 512-token greedy
+# reconstruction is ~8% likely to land all-correct -- one divergent
+# token then trips the safety-net's GATE_REPLAY/BACK_REF checks.
+# 0.001 ⇒ per-token p ≈ 99.9%, 512-token greedy p ≈ 60%.
+STOP_LOSS=0.001
+STOP_DELTA=0.0001
 MAX_EPOCHS=500
 MIN_ACC=0.2
 SLEN=1024
