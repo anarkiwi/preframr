@@ -142,12 +142,25 @@ CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scra
 # train to the stop loss. ``-ti`` is dropped because we redirect output
 # through ``tee``; the log file is the sole record if the container is
 # OOM-killed by the kernel.
-# Memorisation needs more capacity than the original 4L/embed=128/1M-
-# param config, which plateaued at train_loss=11.7. 8L/embed=256/~5M
-# params is enough to memorise 4 ~10K-token songs. attn-dropout 0.0
-# (was 0.2) because we WANT memorisation here -- regularisation works
-# against the goal of this specific test.
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/train.py ${CARGS} --model=llama3_2 --shuffle 1 --min-dump-size 1 --accumulate-grad-batches 1 --max-epochs ${MAX_EPOCHS} --stop-loss ${STOP_LOSS} --stop-delta ${STOP_DELTA} --learning-rate 1e-4 --l1-lambda 0 --weight-decay 0.01 --layers 8 --heads 8 --kv-heads 4 --embed 256 --intermediate 704 --attn-dropout 0.0 --batch-size 32 --reglogs /scratch/preframr/*.dump.parquet --dataset-csv /scratch/preframr/dataset.csv.zst --token-csv /scratch/preframr/tokens.csv 2>&1 | tee "${LOG_DIR}/train.log"
+# Memorisation needs three things: (1) capacity, (2) enough gradient
+# steps, (3) low regularisation. Earlier configs failed on (2) more
+# than (1). With BlockMapper producing ~60 blocks total (4 songs,
+# block_stride=256, ~120 blocks/song / max-perm=1) and batch=32, the
+# default --shuffle 1.0 yields ~2 steps per epoch -- 100 epochs =
+# 200 updates. Nowhere near memorisation territory.
+#
+# - --shuffle 32: 32x resample per epoch -> ~60 steps/epoch instead
+#   of 2. 100 epochs becomes 6000 updates.
+# - --learning-rate 5e-4 (was 1e-4): the small dataset can absorb a
+#   higher LR; speeds memorisation 2-3x.
+# - 10 layers / embed=384 / intermediate=1024 / ~10M params: doubles
+#   capacity over the prior 5M config, still small enough to fit
+#   easily in TRAIN_MAX_MEM=12g.
+# - --batch-size 16 --accumulate-grad-batches 2 (was 32 + 1): same
+#   effective batch 32 but smaller per-step batch lets gradient
+#   noise help the optimizer escape plateaus.
+# - --attn-dropout 0.0: regularisation off; we want to memorise.
+docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/train.py ${CARGS} --model=llama3_2 --shuffle 32 --min-dump-size 1 --accumulate-grad-batches 2 --max-epochs ${MAX_EPOCHS} --stop-loss ${STOP_LOSS} --stop-delta ${STOP_DELTA} --learning-rate 5e-4 --l1-lambda 0 --weight-decay 0.01 --layers 10 --heads 8 --kv-heads 4 --embed 384 --intermediate 1024 --attn-dropout 0.0 --batch-size 16 --reglogs /scratch/preframr/*.dump.parquet --dataset-csv /scratch/preframr/dataset.csv.zst --token-csv /scratch/preframr/tokens.csv 2>&1 | tee "${LOG_DIR}/train.log"
 # Predict with greedy decoding (top-k=1, near-zero temperature) so a
 # fully-memorised model deterministically reproduces the trained
 # tokens; this is also what makes the safety-net in predict.py (which
