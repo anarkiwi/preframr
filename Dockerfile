@@ -11,6 +11,6 @@ COPY ${REQ} test-requirements.txt /root
 RUN export BREAK=$(pip help install|grep -o ..break-system-packages) && pip install $PIP_OPTS --no-cache-dir --user $BREAK -U pip && pip install $PIP_OPTS --no-cache-dir --user $BREAK -r /root/${REQ} -r /root/test-requirements.txt && pip uninstall $BREAK -y rich
 COPY preframr /preframr
 COPY tests /tests
-COPY run_tests.sh .
+COPY run_tests.sh .coveragerc ./
 RUN ./run_tests.sh
 RUN /preframr/render.py --help && /preframr/predict.py --help && /preframr/train.py --help

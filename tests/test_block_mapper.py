@@ -20,6 +20,25 @@ class TestBlockMapper(unittest.TestCase):
         with self.assertRaises(IndexError):
             bm[0]
 
+    def test_add_empty_blocks_skipped(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty_path = self._write_blocks(tmpdir, "e.blocks.npy", [])
+            bm = BlockMapper(seq_len=4, mmap=False)
+            bm.add(empty_path, SeqMeta(irq=1, df_file="e.dump.parquet", i=0))
+            bm.finalize()
+            self.assertEqual(len(bm), 0)
+
+    def test_shuffle_finalises_and_returns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path_a = self._write_blocks(tmpdir, "a.blocks.npy", [[1, 2, 3, 4, 5]])
+            path_b = self._write_blocks(tmpdir, "b.blocks.npy", [[6, 7, 8, 9, 10]])
+            bm = BlockMapper(seq_len=4, mmap=False)
+            bm.add(path_a, SeqMeta(irq=1, df_file="a", i=0))
+            bm.add(path_b, SeqMeta(irq=1, df_file="b", i=0))
+            bm.shuffle(seed=42)
+            # After shuffle, the mapper is finalised and length is correct.
+            self.assertEqual(len(bm), 2)
+
     def test_add_and_iterate(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Each block is length seq_len + 1 = 5.

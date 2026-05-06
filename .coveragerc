@@ -1,0 +1,19 @@
+[run]
+# CLI entry-point scripts: only argparse + delegate, exercised by the
+# integration tests rather than unit tests. ``predict.py`` is similarly
+# integration-driven (needs a real checkpoint + dataset).
+omit =
+    preframr/parse.py
+    preframr/render.py
+    preframr/stftokenize.py
+    preframr/train.py
+    preframr/predict.py
+
+[report]
+# ``@njit``-decorated bodies are JIT-compiled by numba; coverage can't
+# trace into the compiled machine code, but the functions ARE executed
+# (verified via the unit tests that exercise LoopPass + the integration
+# test). Mark them as excluded so the metric reflects reality.
+exclude_also =
+    @njit\(
+    pragma: no cover
