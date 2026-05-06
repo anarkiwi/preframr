@@ -49,6 +49,7 @@ from preframr.stfconstants import (
     PLAY_INSTRUMENT_OP,
     SET_OP,
     VOICES,
+    VOICE_REG,
     VOICE_REG_SIZE,
 )
 
@@ -71,6 +72,10 @@ def precompute_vocab_arrays(tokens_df, device):
     val = tokens_df["val"].astype(np.int64).to_numpy()
 
     is_frame_marker = np.isin(reg, [FRAME_REG, DELAY_REG])
+    # FRAME_REG (strict, not DELAY_REG) carries the per-frame voice
+    # rotation in its val (low 6 bits = svt, 2 bits per fn position).
+    is_frame_reg_strict = reg == FRAME_REG
+    is_voice_reg = reg == VOICE_REG
     is_delay_reg = reg == DELAY_REG
     is_pad = reg == PAD_REG
     # Real SID regs (0..MAX_REG) consume MIN_DIFF cycles of the per-frame
@@ -89,16 +94,26 @@ def precompute_vocab_arrays(tokens_df, device):
     overlay_count = np.zeros(n, dtype=np.int64)
     overlay_count[is_pattern_replay] = np.maximum(subreg[is_pattern_replay], 0)
 
-    # Per-token GATE_REPLAY indexing. Encoder packs ``reg`` = the voice's
-    # ctrl reg, ``subreg`` = direction (0/1), ``val`` = palette slot.
-    gate_voice = np.zeros(n, dtype=np.int64)
+    # FRAME_REG val carries the svt (voice-rotation packed) in low 6
+    # bits. svt = sum_i((voice_i + 1) << (i * 2)) for i = 0..2. Masking
+    # uses the running svt + fn to derive the voice context at each
+    # GATE_REPLAY / PLAY_INSTRUMENT step.
+    frame_sval = np.zeros(n, dtype=np.int64)
+    frame_sval[is_frame_reg_strict] = val[is_frame_reg_strict] & 0x3F
+
+    # Per-token GATE_REPLAY indexing. After ``_add_voice_reg`` the alphabet
+    # collapses all per-voice ctrl regs onto reg=4 (voice 0's ctrl reg);
+    # the actual voice is determined by the running ``svt + fn``. So
+    # gate_voice is dynamic, not precomputable per-token. Only ``dir``
+    # (subreg & 1) and ``slot`` (val) are static.
     gate_dir = np.zeros(n, dtype=np.int64)
     gate_slot = np.zeros(n, dtype=np.int64)
-    gate_voice[is_gate_replay] = reg[is_gate_replay] // VOICE_REG_SIZE
     gate_dir[is_gate_replay] = subreg[is_gate_replay] & 1
     gate_slot[is_gate_replay] = val[is_gate_replay]
 
     # Per-token PLAY_INSTRUMENT indexing. ``val`` = palette slot.
+    # instrument_palette is global (not per-voice), so voice context
+    # doesn't matter for the validity check.
     instr_slot = np.zeros(n, dtype=np.int64)
     instr_slot[is_play_instrument] = val[is_play_instrument]
 
@@ -121,14 +136,23 @@ def precompute_vocab_arrays(tokens_df, device):
         "is_play_instrument": torch.from_numpy(is_play_instrument.astype(np.bool_)).to(
             device
         ),
-        # Per-token gate-replay indexing. (gate_voice, gate_dir) selects
-        # the per-(voice, dir) palette; gate_slot is the requested slot.
-        "gate_voice": torch.from_numpy(gate_voice).to(device),
+        "is_frame_reg_strict": torch.from_numpy(
+            is_frame_reg_strict.astype(np.bool_)
+        ).to(device),
+        "is_voice_reg": torch.from_numpy(is_voice_reg.astype(np.bool_)).to(device),
+        "frame_sval": torch.from_numpy(frame_sval).to(device),
         "gate_dir": torch.from_numpy(gate_dir).to(device),
         "gate_slot": torch.from_numpy(gate_slot).to(device),
         "instr_slot": torch.from_numpy(instr_slot).to(device),
         "distance": torch.from_numpy(distance).to(device),
+        "overlay_count": torch.from_numpy(overlay_count).to(device),
         "overlay_count_cpu": overlay_count,
+        # CPU-side mirrors of the dynamic-voice-tracking flags.
+        # update() reads them per-token; CPU access is cheaper than a
+        # device-tensor scalar fetch when the tensor lives on GPU.
+        "is_frame_reg_strict_cpu": is_frame_reg_strict,
+        "is_voice_reg_cpu": is_voice_reg,
+        "frame_sval_cpu": frame_sval,
     }
 
 
@@ -149,6 +173,9 @@ class StreamState:
         init_budget=None,
         gate_palette_sizes=None,
         instrument_palette_size=0,
+        init_sval=0,
+        init_fn=0,
+        remaining_steps=None,
         logger=None,
     ):
         self.arrays = vocab_arrays
@@ -175,20 +202,32 @@ class StreamState:
         device = vocab_arrays["is_pad"].device
         self.gate_palette_sizes = torch.from_numpy(gate_palette_sizes).to(device)
         self.instrument_palette_size = int(instrument_palette_size)
-        # Precompute the static palette-validity mask once. Mask any
-        # GATE_REPLAY whose (voice, dir, slot) lies outside the seeded
-        # palette, and any PLAY_INSTRUMENT whose slot does. Both arrays
-        # are bool tensors of length n_vocab. With non-grown palettes
-        # this is constant across the run, so we build it once.
+        # Voice-rotation state. After ``_add_voice_reg`` the alphabet
+        # collapses per-voice ctrl regs onto reg=4; the canonical voice
+        # is recovered from the running svt (low 6 bits of the most
+        # recent FRAME_REG val) and fn (count of FRAME_REG/VOICE_REG
+        # markers since last FRAME_REG). update() walks tokens to keep
+        # these current; mask_logits computes the active voice on the fly
+        # so GATE_REPLAY validity checks against the right palette row.
+        self.current_sval = int(init_sval)
+        self.current_fn = int(init_fn)
+        # Steps remaining in this generation. Used to mask PATTERN_REPLAY
+        # tokens whose overlay block can't fit in the remaining tokens
+        # (otherwise expand_loops walks off the end of the row buffer).
+        # ``None`` disables the check (caller doesn't pass remaining).
+        self.remaining_steps = remaining_steps
+        # PLAY_INSTRUMENT validity is voice-independent (palette is
+        # global), so precompute that mask once.
         a = vocab_arrays
-        gate_size_per_token = self.gate_palette_sizes[a["gate_voice"], a["gate_dir"]]
-        invalid_gate = a["is_gate_replay"] & (a["gate_slot"] >= gate_size_per_token)
-        invalid_instr = a["is_play_instrument"] & (
+        self._invalid_instr = a["is_play_instrument"] & (
             a["instr_slot"] >= self.instrument_palette_size
         )
-        self._palette_invalid = invalid_gate | invalid_instr
         self.logger = logger
         self._stuck_warned = False
+
+    def _current_voice(self):
+        v = ((self.current_sval >> (self.current_fn * 2)) & 0b11) - 1
+        return 0 if v < 0 else v
 
     def mask_logits(self, logits):
         """Set logits of structurally-invalid tokens to -inf.
@@ -213,11 +252,20 @@ class StreamState:
             # frame 0 of the safety-net buffer.
             too_far = a["distance"] > self.frame_count
             invalid |= a["is_back_ref_or_pattern_replay"] & too_far
-            # GATE_REPLAY / PLAY_INSTRUMENT: mask only slots beyond the
-            # palette established by the prompt. Slots within the prompt's
-            # palette are legal; the model can replay existing bundles
-            # / instruments but cannot grow the palette (conservative).
-            invalid |= self._palette_invalid
+            # GATE_REPLAY: mask only slots beyond the palette for the
+            # CURRENT voice (set by the running svt + fn rotation state).
+            # Without dynamic voice tracking the alphabet's collapsed
+            # reg=4 made every GATE_REPLAY look like voice 0, which was
+            # the bug that escaped to the safety net previously.
+            voice = self._current_voice()
+            gate_size_for_voice = self.gate_palette_sizes[
+                voice
+            ]  # shape (2,) -> indexed by gate_dir
+            gate_size_per_token = gate_size_for_voice[a["gate_dir"]]
+            invalid_gate = a["is_gate_replay"] & (a["gate_slot"] >= gate_size_per_token)
+            invalid |= invalid_gate
+            # PLAY_INSTRUMENT validity is voice-independent.
+            invalid |= self._invalid_instr
             # DELAY_REG is a frame marker for variable-IRQ idle frames.
             # Training has FRAME_REG:DELAY_REG = 40:1 but constrained-
             # decode runs see the model fall onto DELAY_REG val=98 (a
@@ -232,6 +280,16 @@ class StreamState:
             # ops (loop-op / voice-rotation).
             if self.frame_budget < MIN_DIFF:
                 invalid |= a["is_real_reg"]
+            # PATTERN_REPLAY whose overlay block would extend past the
+            # end of the generation. Each PATTERN_REPLAY consumes 1
+            # token plus ``overlay_count`` overlay rows; with R
+            # remaining steps (this one included), we need
+            # ``overlay_count <= R - 1``. Otherwise expand_loops walks
+            # off the end of the row buffer at audio-render time.
+            if self.remaining_steps is not None:
+                cap = max(self.remaining_steps - 1, 0)
+                overlay_too_long = a["is_pattern_replay"] & (a["overlay_count"] > cap)
+                invalid |= overlay_too_long
 
         if invalid.all():
             # All-masked safety valve: force a frame marker so the stream
@@ -259,6 +317,8 @@ class StreamState:
         """Advance state with the just-sampled token."""
         token_id = int(token_id)
         a = self.arrays
+        if self.remaining_steps is not None:
+            self.remaining_steps -= 1
         if bool(a["is_frame_marker"][token_id].item()):
             self.frame_count += 1
             # FRAME_REG and DELAY_REG both reset the per-frame budget --
@@ -268,6 +328,14 @@ class StreamState:
         elif bool(a["is_real_reg"][token_id].item()):
             # Real-reg row: charge MIN_DIFF against the running budget.
             self.frame_budget -= MIN_DIFF
+        # Voice-rotation state: FRAME_REG (strict) carries svt and resets
+        # fn=0; VOICE_REG advances fn. CPU-side bool arrays avoid the
+        # device-tensor scalar fetch overhead.
+        if a["is_frame_reg_strict_cpu"][token_id]:
+            self.current_sval = int(a["frame_sval_cpu"][token_id])
+            self.current_fn = 0
+        elif a["is_voice_reg_cpu"][token_id]:
+            self.current_fn += 1
         if self.pending_overlays > 0:
             # Consume one overlay slot. We don't validate that the token
             # IS a PATTERN_OVERLAY here -- mask_logits already enforced

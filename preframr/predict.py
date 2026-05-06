@@ -113,6 +113,9 @@ class Predictor:
         prompt_ids = prompt.squeeze(0).tolist()
         is_frame_marker_np = self.vocab_arrays["is_frame_marker"].cpu().numpy()
         is_real_reg_np = self.vocab_arrays["is_real_reg"].cpu().numpy()
+        is_frame_reg_strict_np = self.vocab_arrays["is_frame_reg_strict_cpu"]
+        is_voice_reg_np = self.vocab_arrays["is_voice_reg_cpu"]
+        frame_sval_np = self.vocab_arrays["frame_sval_cpu"]
         prompt_frames = _frame_marker_count(prompt_ids, is_frame_marker_np)
         # Compute the budget remaining at the end of the prompt by walking
         # back from the last frame marker, charging MIN_DIFF per real-reg
@@ -125,6 +128,16 @@ class Predictor:
             tail = prompt_arr[marker_positions[-1] + 1 :]
             charged = int(is_real_reg_np[tail].sum() * MIN_DIFF)
             init_budget = max(irq - charged, 0)
+        # Walk the prompt to seed the voice-rotation state at end of
+        # prompt. Find the last FRAME_REG_strict and replay any
+        # subsequent VOICE_REG markers to count fn.
+        init_sval = 0
+        init_fn = 0
+        frame_strict_positions = np.nonzero(is_frame_reg_strict_np[prompt_arr])[0]
+        if frame_strict_positions.size:
+            last_fr = int(frame_strict_positions[-1])
+            init_sval = int(frame_sval_np[prompt_arr[last_fr]])
+            init_fn = int(is_voice_reg_np[prompt_arr[last_fr + 1 :]].sum())
         state = StreamState(
             self.vocab_arrays,
             init_frame_count=prompt_frames,
@@ -132,6 +145,9 @@ class Predictor:
             init_budget=init_budget,
             gate_palette_sizes=gate_palette_sizes,
             instrument_palette_size=instrument_palette_size,
+            init_sval=init_sval,
+            init_fn=init_fn,
+            remaining_steps=n,
             logger=self.logger,
         )
 
