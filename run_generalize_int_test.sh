@@ -22,41 +22,86 @@ LOG_DIR="${ROOT}/logs"
 source "$(dirname "$0")/int_test_common.sh"
 
 # ----- generalize-specific config -----
-# 16/4 train/eval split. Train spans Goto80's career; eval is held back
-# from across the same span so the test rewards style learning, not
-# tracker-fingerprinting on a single era. The 6 picks below the first
-# 10 (Blox..Knark) are the 6 SIDs nearest the 147s catalogue-median
-# duration that are NOT variants/previews and NOT in eval -- generated
-# deterministically by ``untracked/pick_train_replacements.py``. Run
-# that script if HVSC's mirror changes and the picks need refreshing.
+# 50/12 train/eval split (4x the original 16/4). Picks come from
+# ``untracked/pick_train_eval_50_12.py`` -- the 62 closest-to-median
+# Goto80 SIDs from the canonical (no variants / no previews) subset.
+# Eval anchors on the original 4 (Robinson, Afternorm, Feddamys, Oj)
+# so val_acc numbers stay broadly comparable with prior-run
+# calibration; the other 8 eval slots are stratified across the
+# duration distribution. Re-run the pick script if HVSC's mirror
+# changes.
 TRAIN_SIDS="
-  MUSICIANS/G/Goto80/Truth.sid
-  MUSICIANS/G/Goto80/Acid_10000.sid
-  MUSICIANS/G/Goto80/CBM_85.sid
-  MUSICIANS/G/Goto80/Skybox.sid
-  MUSICIANS/G/Goto80/20_Years_Is_Nothing.sid
-  MUSICIANS/G/Goto80/Italic_Disco.sid
-  MUSICIANS/G/Goto80/Honolulu.sid
-  MUSICIANS/G/Goto80/Lollipop.sid
-  MUSICIANS/G/Goto80/Ponky.sid
-  MUSICIANS/G/Goto80/Superman.sid
+  MUSICIANS/G/Goto80/Acidburger.sid
+  MUSICIANS/G/Goto80/Acidroos.sid
+  MUSICIANS/G/Goto80/Ameff.sid
+  MUSICIANS/G/Goto80/BFP_2013_Invite.sid
+  MUSICIANS/G/Goto80/Be_There_Mama.sid
+  MUSICIANS/G/Goto80/Birds_on_Fire.sid
+  MUSICIANS/G/Goto80/Bla.sid
   MUSICIANS/G/Goto80/Blox.sid
-  MUSICIANS/G/Goto80/Techno_Aha.sid
+  MUSICIANS/G/Goto80/Bokl0v.sid
   MUSICIANS/G/Goto80/Boys_Say_Go.sid
-  MUSICIANS/G/Goto80/Hairy.sid
   MUSICIANS/G/Goto80/Clark_O.sid
+  MUSICIANS/G/Goto80/Coco.sid
+  MUSICIANS/G/Goto80/Dansa_in.sid
+  MUSICIANS/G/Goto80/Datahell.sid
+  MUSICIANS/G/Goto80/Diskmachine.sid
+  MUSICIANS/G/Goto80/Exy.sid
+  MUSICIANS/G/Goto80/Flum.sid
+  MUSICIANS/G/Goto80/GHTKX.sid
+  MUSICIANS/G/Goto80/Groda.sid
+  MUSICIANS/G/Goto80/Groovky.sid
+  MUSICIANS/G/Goto80/Happy_Goaboy.sid
+  MUSICIANS/G/Goto80/Honolulu.sid
+  MUSICIANS/G/Goto80/In_the_Name_of_the_Sword.sid
+  MUSICIANS/G/Goto80/Invader-tune.sid
+  MUSICIANS/G/Goto80/Italo_Megamix.sid
+  MUSICIANS/G/Goto80/Klister.sid
   MUSICIANS/G/Goto80/Knark.sid
+  MUSICIANS/G/Goto80/Koettlars.sid
+  MUSICIANS/G/Goto80/Kukrot.sid
+  MUSICIANS/G/Goto80/Linkan.sid
+  MUSICIANS/G/Goto80/Lollipop.sid
+  MUSICIANS/G/Goto80/Londonk.sid
+  MUSICIANS/G/Goto80/Markus.sid
+  MUSICIANS/G/Goto80/Matsam0t.sid
+  MUSICIANS/G/Goto80/Oldschool.sid
+  MUSICIANS/G/Goto80/Paperock.sid
+  MUSICIANS/G/Goto80/Pappap.sid
+  MUSICIANS/G/Goto80/Ponky.sid
+  MUSICIANS/G/Goto80/Rajjv_Tune_4_Einstein.sid
+  MUSICIANS/G/Goto80/Raymond.sid
+  MUSICIANS/G/Goto80/Schmoove.sid
+  MUSICIANS/G/Goto80/Silly_Sex.sid
+  MUSICIANS/G/Goto80/Skan0r.sid
+  MUSICIANS/G/Goto80/Slobband.sid
+  MUSICIANS/G/Goto80/Sound_of_Anders.sid
+  MUSICIANS/G/Goto80/Summerfun.sid
+  MUSICIANS/G/Goto80/Superman.sid
+  MUSICIANS/G/Goto80/Techno_Aha.sid
+  MUSICIANS/G/Goto80/Tjobang.sid
+  MUSICIANS/G/Goto80/Yoshigoshy.sid
 "
 EVAL_SIDS="
-  MUSICIANS/G/Goto80/Robinson.sid
   MUSICIANS/G/Goto80/Afternorm.sid
+  MUSICIANS/G/Goto80/Ajvar_Relish.sid
+  MUSICIANS/G/Goto80/CP_L.sid
+  MUSICIANS/G/Goto80/Datatechno3.sid
   MUSICIANS/G/Goto80/Feddamys.sid
+  MUSICIANS/G/Goto80/Hairy.sid
   MUSICIANS/G/Goto80/Oj.sid
+  MUSICIANS/G/Goto80/Om_Ni_Tycker_Jag_Undviker_Er.sid
+  MUSICIANS/G/Goto80/Phh.sid
+  MUSICIANS/G/Goto80/Rent-A-Cop.sid
+  MUSICIANS/G/Goto80/Robinson.sid
+  MUSICIANS/G/Goto80/Tesla_Party.sid
 "
 
 # Generalisation-tuned model: smaller than memorize-back, trained for
-# more epochs with EarlyStopping on val_loss. ~5M params, enough
-# capacity to learn style on 16 songs without memorising verbatim.
+# more epochs with EarlyStopping on val_loss. ~7M params (embed=320,
+# intermediate=896, 8 layers): bumped from the 5M used for the 16/4
+# split to absorb the wider style variance in 50 train SIDs without
+# memorising verbatim.
 SLEN=8192
 PLEN=$((SLEN / 2))               # 4096-token prompt: half-context "finish this song"
 # TKVOCAB=0 ⇒ use the raw (op, reg, subreg, val) alphabet directly,
@@ -107,10 +152,10 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     -v "${ROOT}":/scratch/preframr ${IMG} \
     /preframr/train.py ${CARGS} \
     --model=llama3_2 \
-    --shuffle 1 \
+    --shuffle 0.4 \
     --accumulate-grad-batches 8 --batch-size 4 \
     --learning-rate 1e-4 --weight-decay 0.01 \
-    --layers 8 --heads 8 --kv-heads 4 --embed 256 --intermediate 704 \
+    --layers 8 --heads 8 --kv-heads 4 --embed 320 --intermediate 896 \
     --attn-dropout 0.1 \
     --max-epochs ${MAX_EPOCHS} \
     --early-stop-patience ${EARLY_STOP_PATIENCE} \
@@ -148,11 +193,21 @@ docker run --rm ${LIMITS_TRAIN} \
 # PLAY_INSTRUMENT slots beyond the prompt-established palette,
 # DELAY_REG (model otherwise falls onto val=98 fallback), and
 # real-reg tokens that would overflow the per-frame IRQ budget. With
-# this on all 4 eval prompts produce playable .wav (was 0/4 before
+# this on all 4 prompts produce playable .wav (was 0/4 before
 # constrained decode landed). ``|| true`` is kept defensively but
 # rarely fires now.
+#
+# ``MAX_QUAL_PREDICTS`` caps the number of held-out songs we render
+# end-to-end. The val_acc gate above already covers all 12 eval songs
+# (cheap, computed during training); the qualitative-listen renders
+# are the expensive part (~1-7 min each). Default 4 keeps wallclock
+# in line with the prior 16/4 config.
+MAX_QUAL_PREDICTS=${MAX_QUAL_PREDICTS:-4}
 i=0
 for _sid in ${EVAL_SIDS}; do
+    if [ "${i}" -ge "${MAX_QUAL_PREDICTS}" ]; then
+        break
+    fi
     docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test-${i} \
         -v "${ROOT}":/scratch/preframr ${IMG} \
         /preframr/predict.py ${CARGS} \
@@ -167,12 +222,16 @@ for _sid in ${EVAL_SIDS}; do
     i=$((i + 1))
 done
 
-# Wallclock measured on defroster: ~25-35 min end-to-end
-# (dump 5-6 min for Skybox + 4 min for the rest in parallel,
-# build 2 min cached, train ~15-25 min for 200 epochs, predict
-# 1-2 min per eval song x4 = ~5 min). Suitable for nightly CI,
-# not per-commit. Train wallclock dropped after the LoopPass
-# speedups landed (compute_overlays vectorisation + cumsum sizes
-# + numba on best_lz / best_lz_transposed); Techno_Aha parse went
-# from 205s -> 47s. Skybox parse 137s -> 96s after the df.attrs
-# palette refactor (the deepcopy storm fix).
+# Wallclock measured on defroster post-speedup chain:
+#   * 16/4 config (prior): ~25-35 min end-to-end
+#   * 50/12 config (this script):
+#       - dump 6-8 min cold (Skybox dominates; rest in parallel)
+#       - build 2 min cached
+#       - train ~30-50 min for 200 epochs at shuffle=0.4
+#         (4x data x 0.4 sample = 1.6x exposures per epoch vs prior)
+#       - predict 1-2 min per qual song x 4 (capped via
+#         MAX_QUAL_PREDICTS) = ~5-8 min
+#       => ~45-70 min end-to-end. Suitable for nightly CI.
+# Parse speedups this round (LoopPass numba + df.attrs palette
+# refactor + defer-attach) cut Techno_Aha 205s -> 32s and
+# Skybox 137s -> 25s, removing parsing as a wallclock bottleneck.
