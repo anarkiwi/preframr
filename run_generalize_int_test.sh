@@ -59,7 +59,13 @@ EVAL_SIDS="
 # capacity to learn style on 16 songs without memorising verbatim.
 SLEN=8192
 PLEN=$((SLEN / 2))               # 4096-token prompt: half-context "finish this song"
-TKVOCAB=2048                     # Unigram, learned over train+eval (alphabet must cover eval)
+# TKVOCAB=0 ⇒ use the raw (op, reg, subreg, val) alphabet directly,
+# no Unigram sub-token learning. Macros-on regime produces a ~10K
+# alphabet which is too big for a 2048-vocab Unigram model to cover
+# (training raises "vocabulary not large enough to contain all
+# chars"). Either bump tkvocab >> alphabet size or skip Unigram;
+# memorize uses 0 too.
+TKVOCAB=0
 MIN_SONG_TOKENS=128
 BLOCK_STRIDE=$((SLEN / 4))
 MIN_VAL_ACC=${MIN_VAL_ACC:-0}    # 0 = report only (calibration run);
