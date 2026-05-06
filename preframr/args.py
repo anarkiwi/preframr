@@ -73,6 +73,12 @@ def add_args(parser):
     # self-contained by construction), they just sample later in the
     # song. Real-prediction inference can iterate this from 0..N-1.
     parser.add_argument("--start-block", type=int, default=0)
+    # Which dataset partition predict should serve from. "train" reads
+    # ``RegDataset.block_mapper`` (the partition the model trained on),
+    # "val" reads ``val_block_mapper`` (held-out songs registered via
+    # ``--eval-reglogs`` at train time). "val" is the right choice for
+    # qualitative listens of generalisation runs.
+    parser.add_argument("--predict-set", choices=["train", "val"], default="train")
     parser.add_argument("--attn-dropout", type=float, default=0.1)
     parser.add_argument(
         "--model", choices=list(MODEL_GETTERS.keys()), default="llama3_2"

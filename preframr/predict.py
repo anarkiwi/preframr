@@ -170,16 +170,20 @@ def generate_sequence(args, logger, dataset, predictor, p):
 def get_ckpt(ckpt, tb_logs):
     if ckpt:
         return ckpt
-    ckpts = sorted(
-        [
-            (os.path.getmtime(p), p)
-            for p in glob.glob(f"{tb_logs}/**/*ckpt", recursive=True)
-        ]
-    )
-    try:
-        return ckpts[-1][1]
-    except IndexError:
-        raise IndexError("no checkpoint")
+    # Prefer best-by-val_loss checkpoints written by
+    # ``ModelCheckpoint(monitor="val_loss")`` (filename starts
+    # ``best-``). Generalisation runs train two checkpointers in
+    # parallel: the per-epoch saver and the best-val saver. The
+    # best-val one is the right model state to evaluate on held-out
+    # songs. Memorise runs have no val data and write only per-epoch
+    # ckpts, so the second glob picks the latest of those instead.
+    for pattern in (f"{tb_logs}/**/best-*.ckpt", f"{tb_logs}/**/*.ckpt"):
+        ckpts = sorted(
+            [(os.path.getmtime(p), p) for p in glob.glob(pattern, recursive=True)]
+        )
+        if ckpts:
+            return ckpts[-1][1]
+    raise IndexError("no checkpoint")
 
 
 def load_model(args, logger):

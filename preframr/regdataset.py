@@ -580,9 +580,16 @@ class RegDataset(torch.utils.data.Dataset):
 
         Block 0 of rotation 0 is the natural prompt for memorise-back
         tests; pass ``block_j > 0`` to start from a later block.
+        ``args.predict_set`` selects between train and val mappers so
+        generalisation runs can prompt from held-out songs.
         """
-        block = self.block_mapper.get_block(rotation_i=rotation_i, block_j=block_j)
-        _path, seq_meta, _n = self.block_mapper.block_metas[rotation_i]
+        mapper = (
+            self.val_block_mapper
+            if getattr(self.args, "predict_set", "train") == "val"
+            else self.block_mapper
+        )
+        block = mapper.get_block(rotation_i=rotation_i, block_j=block_j)
+        _path, seq_meta, _n = mapper.block_metas[rotation_i]
         return torch.from_numpy(np.copy(block)), seq_meta
 
 
