@@ -6,9 +6,9 @@
 # run_memorize_int_test.sh.
 #
 # "Generalising" = token-level next-token accuracy on held-out
-# Goto80 songs substantially exceeds chance. At ``--tkvocab 2048``
-# chance is ~0.05%, so a small absolute val_acc is already a strong
-# signal. MIN_VAL_ACC = 0.10 ⇒ ~200x chance.
+# Goto80 songs substantially exceeds chance. With TKVOCAB=0 the
+# raw alphabet on this corpus is ~33K entries (~0.003% chance), so
+# any val_acc clearing ~1% is already meaningful signal.
 
 set -e
 
@@ -68,9 +68,12 @@ PLEN=$((SLEN / 2))               # 4096-token prompt: half-context "finish this 
 TKVOCAB=0
 MIN_SONG_TOKENS=128
 BLOCK_STRIDE=$((SLEN / 4))
-MIN_VAL_ACC=${MIN_VAL_ACC:-0}    # 0 = report only (calibration run);
-                                 # set to ~0.10 once a non-trivial
-                                 # baseline value is observed.
+MIN_VAL_ACC=${MIN_VAL_ACC:-0}    # 0 = report only (calibration run).
+                                 # First calibration run on this
+                                 # config plateaued at val_acc ~0.10
+                                 # in the late-training regime; a
+                                 # ~0.05 threshold leaves headroom
+                                 # for run-to-run variance.
 EARLY_STOP_PATIENCE=5            # epochs of no val improvement before stopping
 EARLY_STOP_MIN_DELTA=0.01        # min val_loss improvement to count
 MAX_EPOCHS=200                   # ceiling; early-stop usually fires before
@@ -159,6 +162,7 @@ for _sid in ${EVAL_SIDS}; do
     i=$((i + 1))
 done
 
-# Estimated wall-time on RTX 4090: ~50-80 min (dump 12 min + build 2
-# min + train 30-60 min + predict 5 min). Suitable for nightly CI,
-# not per-commit.
+# Wallclock measured on defroster: ~25-35 min end-to-end
+# (dump 5-6 min for Skybox + 4 min for the rest in parallel,
+# build 2 min cached, train ~15-25 min for 200 epochs, predict
+# 1-2 min). Suitable for nightly CI, not per-commit.
