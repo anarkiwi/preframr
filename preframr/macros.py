@@ -123,7 +123,6 @@ def _df_arrays_and_frames(df):
 
 from preframr.stfconstants import (
     BACK_REF_OP,
-    BACK_REF_TRANSPOSED_OP,
     DELAY_REG,
     DIFF_OP,
     DO_LOOP_OP,
@@ -3667,68 +3666,14 @@ PASSES = [
     # be dropped before downstream passes' simulators see them, causing
     # palette desync.
     DedupSetPass(),
-    # InstrumentProgramPass: implemented with three attempted designs.
-    # Disabled while the encoder/downstream slot alignment is finalised.
-    #
-    # Design A (parallel observe_frame on pre-pass form): shared
-    # state.instrument_palette built during the encoder walk. ~4x
-    # divergence on 80squares (encoder 948 vs downstream 246 palette
-    # adds) because the pre-pass form has more transitions per
-    # multi-frame program (each gate-replay/SET row = one transition)
-    # than the post-pass form (one PLAY_INSTRUMENT_OP collapses many).
-    #
-    # Design B (encoder maintains own first-occurrence palette,
-    # observe_frame called with track_instruments=False): smaller
-    # divergence (424.1: encoder 171 vs downstream 179) but slot indices
-    # still drift; encoder MISSED 8 captures the downstream sees.
-    #
-    # Design C (Design B + shadow downstream walk to determine real
-    # slot indices, currently in code): shadow walks the draft with a
-    # custom PlayInstrumentDecoder backed by my_palette so dispatches
-    # succeed; observe_frame builds state.instrument_palette in the
-    # downstream's natural ordering; encoder remaps draft's
-    # PLAY_INSTRUMENT_OP val from encoder slots to those real slots.
-    # On 424.1: encoder 171 / shadow 184 -- shadow has 13 extras. First
-    # diff at slot 90 with same first-3 program entries but divergent
-    # later writes -- distinct programs that look similar at the start.
-    # The remap appears to be missing entries for some encoder slots, so
-    # downstream still fails. Needs more debugging to pinpoint why
-    # encoder builds a program at slot 90 that ISN'T in shadow's palette
-    # (despite both walks supposedly seeing the same writes).
-    #
-    # Resolution requires either (a) finding why encoder's program at
-    # slot 90 differs from shadow's program at the same logical event,
-    # or (b) eliminating the encoder's own palette entirely and using
-    # only the shadow walk to determine slots (encoder records replay
-    # candidates by *program tuple* not slot, then the shadow walk maps
-    # programs to real slots in one pass).
-    #
-    # End-of-stream finalize bug found and fixed in this session:
-    # encoder.finalize() at end-of-stream was adding a final program to
-    # my_palette that the downstream's observe_frame never observes (no
-    # end-of-stream close), accounting for one missing palette slot.
-    # Replaced finalize() with my_open_captures.clear().
-    #
-    # Lockstep diagnostic ALSO completed in this session: walked the
-    # rewritten draft with the standard PlayInstrumentDecoder and found
-    # the first failure at frame 193, val=8, palette_size=8. By that
-    # frame the shadow walk's palette had 9+ entries (slot 8 added at
-    # frame 66) but the standard walk's palette had grown to only 8.
-    # Root cause: shadow walk's CUSTOM decoder always dispatches
-    # successfully, producing tick_frame writes that drive
-    # observe_frame to close captures whose programs become extra
-    # palette entries. Standard walk's failures prevent these extras
-    # from forming, so its palette stays smaller. The shadow walk
-    # CANNOT reveal the standard walk's true palette ordering because
-    # its own success bypasses the dispatch failures that define that
-    # ordering. The shadow walk approach is therefore a dead-end for
-    # determining real slot indices.
-    #
     # InstrumentProgramPass publishes its authoritative palette via
     # ``df.attrs["instrument_palette"]``. DedupSetPass / SubregPass /
     # ``_expand_ops`` each initialise their ``DecodeState`` with that
     # frozen palette, so palette indices are aligned across all walks
-    # by construction (instead of fragile observation-based growth).
+    # by construction. Three earlier designs (parallel observe walks,
+    # encoder-local palette, shadow-walk slot remap) all suffered from
+    # palette-slot drift between encoder and downstream simulators;
+    # publishing-via-attrs is what works.
     InstrumentProgramPass(),
     DedupSetPass(),
     SubregPass(),
@@ -3750,8 +3695,6 @@ POST_NORM_PRE_VOICE_PASSES = [
     LoopPass(),
 ]
 
-POST_NORM_PASSES = []
-
 
 def run_post_norm_pre_voice_passes(df, args=None):
     """Apply passes that need post-norm row order but pre-voice-rotation
@@ -3765,13 +3708,5 @@ def run_post_norm_pre_voice_passes(df, args=None):
 def run_passes(df, args=None):
     """Apply every PRE-norm-order ``MacroPass`` in order."""
     for macro_pass in PASSES:
-        df = macro_pass.apply(df, args=args)
-    return df
-
-
-def run_post_norm_passes(df, args=None):
-    """Apply post-norm-order passes (currently just LoopPass) on the final
-    encoded form (post _add_voice_reg)."""
-    for macro_pass in POST_NORM_PASSES:
         df = macro_pass.apply(df, args=args)
     return df

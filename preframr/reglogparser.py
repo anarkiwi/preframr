@@ -1075,10 +1075,6 @@ class RegLogParser:
             for k in TOKEN_KEYS:
                 if k not in xdf.columns:
                     xdf[k] = int(-1)
-            # Post-norm passes (LoopPass) run on the final encoded form so
-            # frame matching is against the same view the LM will see.
-            xdf = macros.run_post_norm_passes(xdf, args=self.args)
-            xdf = xdf.reset_index(drop=True)
             empty_val = xdf[xdf["val"].isna()]
             assert empty_val.empty, (name, empty_val)
             yield xdf

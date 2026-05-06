@@ -143,8 +143,9 @@ def add_args(parser):
     )
     # Transposed-loop matching inside LoopPass: matches frame patterns
     # whose freq SET vals differ from a prior occurrence by a uniform
-    # delta, emitting BACK_REF_TRANSPOSED_OP. Targets defmon-style
-    # orderlist transposition (same pattern played at different keys).
+    # delta. Targets defmon-style orderlist transposition (same pattern
+    # played at different keys). Encoded as PATTERN_REPLAY_OP with an
+    # OVERLAY_BODY_FREQ_DELTA-mode body-wide overlay.
     parser.add_argument(
         "--loop-transposed", action=argparse.BooleanOptionalAction, default=True
     )

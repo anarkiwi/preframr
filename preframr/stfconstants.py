@@ -22,13 +22,14 @@ DO_LOOP_OP = 16
 SUBREG_FLUSH_OP = 18
 GATE_REPLAY_OP = 19
 PLAY_INSTRUMENT_OP = 20
-BACK_REF_TRANSPOSED_OP = 21  # BACK_REF + uniform freq delta on the source body
 PATTERN_REPLAY_OP = 22  # FuzzyLoopPass: replay back-ref body + N overlay rows
 PATTERN_OVERLAY_OP = 23  # FuzzyLoopPass: overlay (frame_offset, reg, val)
-# GATE_TOGGLE_OP (=6), FILTER_ROUTE_OP (=12), MASTER_VOL_OP (=13),
-# FILTER_MODE_OP (=14) were retired when SubregPass took over the byte
-# splitting they hand-rolled. Their op codes are deliberately not reused
-# so any rare third-party stream that contains them fails loudly.
+# Retired op codes (deliberately not reused so a rare third-party stream
+# containing them fails loudly):
+#   GATE_TOGGLE_OP=6, FILTER_ROUTE_OP=12, MASTER_VOL_OP=13,
+#   FILTER_MODE_OP=14 -- subsumed by SubregPass (byte-nibble splitting).
+#   BACK_REF_TRANSPOSED_OP=21 -- subsumed by PATTERN_REPLAY_OP with
+#   OVERLAY_BODY_FREQ_DELTA-mode body-wide overlay.
 # 17 reserved for PATTERN_REF_OP
 
 # Sentinel reg used by BACK_REF and DO_LOOP rows. Distinct from FRAME_REG
