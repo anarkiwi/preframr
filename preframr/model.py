@@ -314,6 +314,34 @@ class Model(LightningModule):
     def on_before_backward(self, loss):
         self.log("train_loss", loss, on_epoch=True, on_step=True)
 
+    def validation_step(self, batch, batch_idx):
+        """Clean CE + per-token accuracy on held-out blocks.
+
+        No focal scaling, no audio-frame weighting, no label smoothing
+        -- those are training-time tricks that bias the comparison
+        between two models. Pad positions (target id 0) are masked
+        out so they neither contribute to the mean loss nor to the
+        accuracy denominator.
+        """
+        x, y = batch
+        with torch.no_grad():
+            preds = self.model(x)
+        swapped_preds = preds.swapaxes(1, 2)
+        per_tok = torch.nn.functional.cross_entropy(
+            input=swapped_preds,
+            target=y,
+            reduction="none",
+        )
+        pad_mask = (y != 0).float()
+        denom = pad_mask.sum().clamp(min=1.0)
+        val_loss = (per_tok * pad_mask).sum() / denom
+        pred_ids = preds.argmax(dim=-1)
+        correct = ((pred_ids == y).float() * pad_mask).sum()
+        val_acc = correct / denom
+        self.log("val_loss", val_loss, on_epoch=True, on_step=False, prog_bar=True)
+        self.log("val_acc", val_acc, on_epoch=True, on_step=False, prog_bar=True)
+        return val_loss
+
     def configure_optimizers(self):
         return self.optimizer
 

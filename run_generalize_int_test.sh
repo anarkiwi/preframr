@@ -1,24 +1,15 @@
 #!/bin/bash
 #
-# DESIGN SKETCH ONLY -- not yet runnable end-to-end. Marks every spot
-# where pipeline support is needed before this test can be exercised.
-#
 # Goal: demonstrate that the model GENERALISES on Goto80's catalog --
-# i.e., it produces plausible continuations on songs it has never seen
-# during training -- as distinct from the memorize-back smoke test in
+# i.e., produces plausible continuations on held-out songs -- as
+# distinct from the memorize-back smoke test in
 # run_memorize_int_test.sh.
 #
 # Definition of "generalising" used here: token-level next-token
 # accuracy on held-out Goto80 songs substantially exceeds chance.
-# Concrete bands at vocab~500:
-#   chance:   ~0.2%   (1/vocab)
-#   memorise: 80-95%  (current memorize-back test)
-#   GENERALISE: 20-40%  <- the band this test gates against
-# We pick MIN_VAL_ACC = 0.25 as the pass threshold (well above noise,
-# below the gap to memorisation).
-#
-# Pipeline gaps marked PIPELINE-TODO; see "Required pipeline changes"
-# section at the bottom for details.
+# At ``--tkvocab 2048`` chance is ~0.05%, so a small absolute val_acc
+# is already a strong signal. We pick MIN_VAL_ACC = 0.10 as the pass
+# threshold (well above noise; well below memorisation territory).
 
 set -e
 
@@ -27,15 +18,14 @@ LOCAL_HVSC=/scratch/hvsc
 ROOT=/tmp/preframr_gen
 IMG=anarkiwi/preframr
 
-# 16/4 train/eval split, picked deterministically from goto80_breakdown
-# output (see notes below). Train spans his career; eval is held back
-# from across the same span so the test rewards style learning, not
-# tracker-fingerprinting on a single era.
-#
-# PIPELINE-TODO: replace these placeholders with the chosen split. The
-# split is calibrated against goto80_breakdown.py's token-count
-# distribution -- pick songs near the median (~11K tokens) for both
-# splits so neither is dominated by long-form outliers.
+# 16/4 train/eval split. Train spans Goto80's career; eval is held
+# back from across the same span so the test rewards style learning,
+# not tracker-fingerprinting on a single era. The split should still
+# be re-validated against ``goto80_breakdown.py``'s token-count
+# distribution before we lock this in -- pick songs near the median
+# (~11K tokens) for both splits so neither is dominated by long-form
+# outliers. (The dup'd Skybox in an earlier draft has been removed;
+# Italic_Disco swapped in.)
 TRAIN_SIDS="
   MUSICIANS/G/Goto80/Truth.sid
   MUSICIANS/G/Goto80/Acid_10000.sid
@@ -48,11 +38,11 @@ TRAIN_SIDS="
   MUSICIANS/G/Goto80/20_Years_Is_Nothing.sid
   MUSICIANS/G/Goto80/Aeppelepsi_Gubbjaevel.sid
   MUSICIANS/G/Goto80/Italic_Disco.sid
-  MUSICIANS/G/Goto80/Skybox.sid
   MUSICIANS/G/Goto80/Honolulu.sid
   MUSICIANS/G/Goto80/Lollipop.sid
   MUSICIANS/G/Goto80/Ponky.sid
   MUSICIANS/G/Goto80/Superman.sid
+  MUSICIANS/G/Goto80/Italo_Disco_Trash.sid
 "
 EVAL_SIDS="
   MUSICIANS/G/Goto80/Robinson.sid
@@ -71,7 +61,7 @@ TKVOCAB=2048                   # Unigram, learned over train+eval (alphabet must
 LIMITCYCLES=600000000          # fallback; per-song lookup overrides
 MIN_SONG_TOKENS=128
 BLOCK_STRIDE=$(expr $SLEN / 4)
-MIN_VAL_ACC=0.25               # generalisation threshold: 100x random baseline (~0.2%)
+MIN_VAL_ACC=0.10               # generalisation threshold: ~200x chance at vocab=2048
 EARLY_STOP_PATIENCE=5          # epochs of no val improvement before stopping
 EARLY_STOP_MIN_DELTA=0.01      # min val_loss improvement to count
 MAX_EPOCHS=200                 # ceiling; early-stop usually fires before
@@ -155,21 +145,14 @@ if [[ -n "${NVGPUS}" ]]; then FLAGS=--gpus=all; fi
 
 # ----- Stage 3: train with val tracking -----
 # Args carry both train (--reglogs) and eval (--eval-reglogs) sets.
-# Alphabet is built from the union (PIPELINE-TODO #2). Val loss is
-# computed every epoch on eval blocks; EarlyStopping fires when val
-# stops improving (PIPELINE-TODO #3).
-
+# Alphabet is built from the union of train + eval blocks so eval
+# songs never hit unknown tokens. Val loss is computed every epoch
+# on eval blocks; EarlyStopping fires when val stops improving.
 CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} \
        --df-map-csv /scratch/preframr/df-map.csv --no-max-autotune \
        --min-song-tokens ${MIN_SONG_TOKENS} --block-stride ${BLOCK_STRIDE} \
        --max-perm 3 --no-fuzzy-loop-pass --no-loop-transposed"
 
-# PIPELINE-TODO #1: --eval-reglogs new arg
-# PIPELINE-TODO #2: alphabet must cover eval -- either Unigram on
-#                   train+eval (--tkvocab > 0 with alphabet-reglogs
-#                   spanning both), or new --alphabet-reglogs arg.
-# PIPELINE-TODO #3: --early-stop-patience, --early-stop-min-delta.
-# PIPELINE-TODO #4: --val-check-every (epochs).
 docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     -v ${ROOT}:/scratch/preframr ${IMG} \
     /preframr/train.py ${CARGS} \
@@ -190,64 +173,42 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     --token-csv /scratch/preframr/tokens.csv \
     2>&1 | tee "${LOG_DIR}/train.log"
 
-# ----- Stage 4: assertion ----- (PIPELINE-TODO #5)
-# After training, parse the TB scalar log (or a CSV the trainer dumps)
-# and verify:
-#   - best val_loss < val_loss_random_baseline * 0.7    # learned something
-#   - best val_acc >= MIN_VAL_ACC (=0.25)               # generalised
-#   - best_val_loss_epoch > 0                           # didn't collapse
-#   - best_val_loss_epoch <= 0.8 * MAX_EPOCHS           # early-stop sensibly
-#
-# Calibration: val_loss_random_baseline must be measured ONCE by
-# running this test with random-init weights, then hard-coded.
-#
-# A separate predict.py invocation per eval song to produce audio
-# (predict.py reads the best checkpoint via --model-state) gives a
-# qualitative listen for humans:
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test \
+# ----- Stage 4: gate on best val_acc -----
+# ``check_generalize.py`` reads the TB events file and exits nonzero
+# if the best-val-loss epoch's val_acc < MIN_VAL_ACC. We run it inside
+# the preframr image because that's where ``tensorboard`` is
+# installed. ``set -e`` at the top of this script propagates failure.
+docker run --rm ${LIMITS_TRAIN} \
     -v ${ROOT}:/scratch/preframr ${IMG} \
-    /preframr/predict.py ${CARGS} \
-    --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} \
-    --min-acc ${MIN_VAL_ACC} --predictions $(echo ${EVAL_SIDS} | wc -w) \
-    --reglogs '/scratch/preframr/eval/*.dump.parquet' \
-    2>&1 | tee "${LOG_DIR}/predict.log"
+    python3 /tests/check_generalize.py \
+    --tb-logs /scratch/preframr/tb_logs \
+    --min-val-acc ${MIN_VAL_ACC} \
+    --min-epochs 2 \
+    2>&1 | tee "${LOG_DIR}/check_generalize.log"
 
-# ----- Required pipeline changes (summary) -----
-#
-# 1. ``--eval-reglogs`` arg in args.py: glob for held-out songs.
-#    Default empty (no val).
-#
-# 2. RegDataset: dual BlockMapper.
-#    - ``self.block_mapper`` for train (existing)
-#    - ``self.val_block_mapper`` for eval (new)
-#    Alphabet (make_tokens) covers union of train + eval -- either by
-#    walking eval songs through accumulate_tokens too (simplest), or
-#    by training Unigram (--tkvocab > 0) over train+eval.
-#    Block .npy files written under .blocks.npy (train) or
-#    .val_blocks.npy (eval); load() registers each with the matching
-#    mapper.
-#
-# 3. Model.validation_step: clean cross-entropy on val blocks (no
-#    audio-frame weighting, no focal loss). Logs ``val_loss`` and
-#    ``val_acc`` (per-token accuracy) every epoch via
-#    self.log("val_loss", ...).
-#
-# 4. Trainer wiring (train.py):
-#    - get_loader(args, dataset, mapper="val") returns the val
-#      DataLoader; trainer.fit(model, train_dl, val_dl).
-#    - Lightning callbacks:
-#        EarlyStopping(monitor="val_loss",
-#                      patience=args.early_stop_patience,
-#                      min_delta=args.early_stop_min_delta,
-#                      mode="min")
-#        ModelCheckpoint(monitor="val_loss", save_top_k=1, mode="min")
-#    - val_check_interval=args.val_check_every
-#
-# 5. Test assertion driver: a small Python helper that reads the
-#    TensorBoard event file (or trainer-emitted CSV) and asserts the
-#    bands above. Returns nonzero exit if generalisation thresholds
-#    aren't met.
-#
+# ----- Stage 5: per-eval-song qualitative predict -----
+# One predict invocation per held-out song so each gets its own .wav
+# / .csv. ``--start-seq i`` selects the i'th rotation registered with
+# val_block_mapper (eval rotations are appended after train under
+# load_dfs's order, but the dataset loader uses df_map.csv's order;
+# at predict time we want to iterate over EVAL rotations specifically.
+# PIPELINE-TODO if predict ever needs to disambiguate train vs val
+# rotations; for now relying on argparse-level configuration is fine).
+i=0
+for sid in ${EVAL_SIDS}; do
+    docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test-${i} \
+        -v ${ROOT}:/scratch/preframr ${IMG} \
+        /preframr/predict.py ${CARGS} \
+        --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} \
+        --min-acc 0 --predictions 1 \
+        --start-seq ${i} --start-block 0 \
+        --reglogs '/scratch/preframr/eval/*.dump.parquet' \
+        --wav /scratch/preframr/eval-${i}.wav \
+        --csv /scratch/preframr/eval-${i}.csv \
+        2>&1 | tee "${LOG_DIR}/predict.${i}.log"
+    i=$((i + 1))
+done
+
 # Estimated wall-time on RTX 4090: ~50-80 min (dump 12 min + build 2
 # min + train 30-60 min + predict 5 min). Suitable for nightly CI,
 # not per-commit.

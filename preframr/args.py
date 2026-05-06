@@ -14,6 +14,12 @@ def add_args(parser):
         type=str,
         default="/scratch/preframr/training-dumps/**/*dump.parquet",
     )
+    # Held-out songs for the validation set. Their tokens contribute to
+    # the alphabet (so eval can be merged) and their blocks populate
+    # ``val_block_mapper`` which the trainer's ``validation_step``
+    # reads. Empty (default) disables validation -- training acts as a
+    # plain memorise-back run.
+    parser.add_argument("--eval-reglogs", type=str, default="")
     parser.add_argument(
         "--model-state",
         type=str,
@@ -94,6 +100,18 @@ def add_args(parser):
     parser.add_argument("--min-acc", type=float, default=0)
     parser.add_argument("--stop-loss", type=float, default=0)
     parser.add_argument("--stop-delta", type=float, default=0)
+    # Validation-loss EarlyStopping (separate from the train_loss
+    # stop-loss/stop-delta knobs above). Patience = epochs of no
+    # ``val_loss`` improvement before stopping; min-delta = how much
+    # ``val_loss`` must drop to count as an improvement. Both default
+    # to 0 (callback not added). Used by the generalize integration
+    # test once ``--eval-reglogs`` is set.
+    parser.add_argument("--early-stop-patience", type=int, default=0)
+    parser.add_argument("--early-stop-min-delta", type=float, default=0.0)
+    # Run validation every N training epochs. Default 1 = every epoch
+    # when val data exists. Larger values amortise val cost on long
+    # training runs.
+    parser.add_argument("--val-check-every", type=int, default=1)
     parser.add_argument("--focal-alpha", type=float, default=1)
     parser.add_argument("--focal-gamma", type=float, default=0)
     parser.add_argument("--label-smoothing", type=float, default=0)

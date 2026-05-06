@@ -247,8 +247,11 @@ class RegDataset(torch.utils.data.Dataset):
         # per-rotation ``.blocks.npy`` files written at parse time by
         # ``make_tokens``. ``__getitem__`` reads from block_mapper so
         # each batch sample is a self-contained block, and ``getseq``
-        # serves single blocks for inference.
+        # serves single blocks for inference. ``val_block_mapper``
+        # carries blocks from ``--eval-reglogs`` (held-out songs);
+        # the trainer's ``validation_step`` reads from it.
         self.block_mapper = BlockMapper(args.seq_len)
+        self.val_block_mapper = BlockMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None, logger=logger)
 
     def load_dfs(self, reglogs=None, dump_files=None, max_perm=99, encode=True):
@@ -332,17 +335,22 @@ class RegDataset(torch.utils.data.Dataset):
                     futures = new_futures
             executor.shutdown(wait=True, cancel_futures=True)
 
-    def make_tokens(self, reglogs):
+    def make_tokens(self, reglogs, eval_reglogs=""):
         """Parse each song, materialise its self-contained blocks, build
         the token alphabet from those blocks, and write the encoded
         blocks to ``.blocks.npy`` per (dump_file, rotation).
 
-        One pass through ``load_dfs``: each parsed rotation has its
-        block stream cached in memory, then after the alphabet is
+        ``eval_reglogs`` (optional) is a separate glob whose songs feed
+        the alphabet AND have their blocks written, but are tagged as
+        ``"val"`` so ``load()`` registers them with ``val_block_mapper``
+        rather than the training mapper. Pass empty for no held-out
+        set (memorise-back regime).
+
+        One pass through ``load_dfs`` per set: each parsed rotation has
+        its block stream cached in memory, then after the alphabet is
         finalised the cached blocks are encoded and saved. This avoids
         the previous design which materialised blocks twice -- once for
-        alphabet building, once again for training-data writing -- and
-        paid the per-block ``run_passes`` cost twice.
+        alphabet building, once again for training-data writing.
 
         Memory: roughly ``num_songs x num_rotations x num_blocks_per_song
         x bytes_per_block``. For an integration test (4 songs, 1
@@ -352,34 +360,42 @@ class RegDataset(torch.utils.data.Dataset):
         is per-song streaming with a disk-backed cache, but that's not
         needed for the corpora we're using today.
         """
-        df_files = []
-        block_parser = RegLogParser(self.args)
-        # (df_file, rotation_i) -> list[voiced block df]
+        train_files = []
+        val_files = []
+        # (df_file, rotation_i, kind) -> list[voiced block df]
         cached_blocks = {}
-        stride = getattr(self.args, "block_stride", None)
-        for df_file, i, df, _seq, _irq, blocks in self.load_dfs(
-            reglogs=reglogs, max_perm=self.args.max_perm
-        ):
-            # Blocks were materialised in parallel inside parser_worker
-            # (so the per-block run_passes cost is amortised across
-            # parser pool workers, not paid serially in this loop).
-            # Accumulate alphabet from BOTH the full-song df and its
-            # blocks: the full-song df carries DELAY_REG / FRAME_REG /
-            # VOICE_REG marker tokens that expand_to_literal_form
-            # (inside the block iterator) destructures into FRAME_REGs
-            # only; blocks contribute the macro tokens
-            # (BACK_REF / PATTERN_REPLAY / GATE_REPLAY / ...) whose
-            # val/subreg is block-local. Union covers both shapes.
-            self.tokenizer.accumulate_tokens(df, df_file)
-            cached_blocks[(df_file, i)] = blocks
-            for voiced in blocks:
-                self.tokenizer.accumulate_tokens(voiced, df_file)
-            try:
-                if df_files[-1] == df_file:
-                    continue
-            except IndexError:
-                pass
-            df_files.append(df_file)
+
+        def walk(reglogs_glob, kind, files_out):
+            for df_file, i, df, _seq, _irq, blocks in self.load_dfs(
+                reglogs=reglogs_glob, max_perm=self.args.max_perm
+            ):
+                # Blocks were materialised in parallel inside
+                # parser_worker (so the per-block run_passes cost is
+                # amortised across the parser pool, not paid serially
+                # here). Accumulate alphabet from BOTH the full-song
+                # df and its blocks: the full-song df carries DELAY /
+                # FRAME / VOICE marker tokens that
+                # expand_to_literal_form destructures into FRAME_REGs
+                # only; blocks contribute the macro tokens
+                # (BACK_REF / PATTERN_REPLAY / GATE_REPLAY / ...) whose
+                # val/subreg is block-local. Union covers both shapes,
+                # and including eval here means tokens that only
+                # appear on held-out songs are still in the vocab.
+                self.tokenizer.accumulate_tokens(df, df_file)
+                cached_blocks[(df_file, i, kind)] = blocks
+                for voiced in blocks:
+                    self.tokenizer.accumulate_tokens(voiced, df_file)
+                try:
+                    if files_out[-1] == df_file:
+                        continue
+                except IndexError:
+                    pass
+                files_out.append(df_file)
+
+        walk(reglogs, "train", train_files)
+        if eval_reglogs:
+            walk(eval_reglogs, "val", val_files)
+
         tokens = self.tokenizer.make_tokens()
         self.tokenizer.tokens = tokens
         assert self.tokenizer.tokens[tokens["val"].isna()].empty, tokens[
@@ -391,16 +407,20 @@ class RegDataset(torch.utils.data.Dataset):
         # ``load_dfs`` no longer re-materialises blocks downstream.
         if getattr(self.args, "write_blocks", True):
             self._encode_and_save_cached_blocks(cached_blocks)
-        return df_files
+        return train_files, val_files
 
     def _encode_and_save_cached_blocks(self, cached_blocks):
         """Encode each cached voiced-block df via the now-finalised
         tokenizer and write ``.blocks.npy``. Failures (alphabet doesn't
         cover a row's (op, reg, subreg, val)) propagate; this is the
         catch point for any bug in the alphabet-building pipeline.
+
+        ``cached_blocks`` keys are ``(df_file, rotation_i, kind)``.
+        ``kind`` only affects which mapper later registers the file --
+        the on-disk path is the same for train and val.
         """
         block_size = self.args.seq_len + 1
-        for (df_file, i), blocks in cached_blocks.items():
+        for (df_file, i, _kind), blocks in cached_blocks.items():
             block_arrs = []
             for voiced in blocks:
                 merged = self.tokenizer.merge_token_df(
@@ -429,17 +449,28 @@ class RegDataset(torch.utils.data.Dataset):
             self.tokenizer.load(tkmodel, tokens)
             return
         self.logger.info("preload making tokens")
-        df_files = self.make_tokens(self.args.reglogs)
+        eval_reglogs = getattr(self.args, "eval_reglogs", "") or ""
+        train_files, val_files = self.make_tokens(
+            self.args.reglogs, eval_reglogs=eval_reglogs
+        )
+        df_files = train_files + val_files
         if self.args.token_csv:
             self.logger.info("writing tokens to %s", self.args.token_csv)
             self.tokenizer.tokens.to_csv(self.args.token_csv, index=False)
         dataset_csv = self.args.dataset_csv
         df_map_csv = self.args.df_map_csv
 
+        # df_map.csv carries a ``kind`` column so ``load()`` can route
+        # each block file to the right mapper without re-globbing.
+        def _df_map_frame():
+            return pd.DataFrame(
+                [(p, "train") for p in train_files] + [(p, "val") for p in val_files],
+                columns=["dump_file", "kind"],
+            )
+
         if not self.args.tkvocab and not dataset_csv:
             if df_map_csv:
-                df_map = pd.DataFrame(df_files, columns=["dump_file"])
-                df_map.to_csv(df_map_csv, index=False)
+                _df_map_frame().to_csv(df_map_csv, index=False)
             return
 
         def worker():
@@ -468,8 +499,7 @@ class RegDataset(torch.utils.data.Dataset):
 
             if df_map_csv:
                 self.logger.info("writing dataset map to %s", df_map_csv)
-                df_map = pd.DataFrame(df_files, columns=["dump_file"])
-                df_map.to_csv(df_map_csv, index=False)
+                _df_map_frame().to_csv(df_map_csv, index=False)
 
         if self.args.tkvocab:
             self.tokenizer.train_tokenizer(worker())
@@ -481,12 +511,19 @@ class RegDataset(torch.utils.data.Dataset):
         assert self.tokenizer.tokens is not None
         dump_files = None
         reglogs = None
+        kind_by_dump = {}
         if self.args.reglog:
             self.logger.info(f"loading data from {self.args.reglog}")
             reglogs = self.args.reglog
         elif os.path.exists(self.args.df_map_csv):
             df_map_df = pd.read_csv(self.args.df_map_csv)
-            dump_files = df_map_df["dump_file"].drop_duplicates().tolist()
+            # Older df_map.csv files (pre-eval-reglogs) lack a ``kind``
+            # column; default everything to "train" then.
+            if "kind" not in df_map_df.columns:
+                df_map_df = df_map_df.assign(kind="train")
+            df_map_df = df_map_df.drop_duplicates("dump_file")
+            dump_files = df_map_df["dump_file"].tolist()
+            kind_by_dump = dict(zip(df_map_df["dump_file"], df_map_df["kind"]))
             self.logger.info(
                 f"loading data from {self.args.df_map_csv} - {len(dump_files)} files"
             )
@@ -513,8 +550,14 @@ class RegDataset(torch.utils.data.Dataset):
             n_seq += 1
             blocks_path = df_file.replace(DUMP_SUFFIX, f".{i}.blocks.npy")
             if os.path.exists(blocks_path):
-                self.block_mapper.add(blocks_path, seq_meta)
+                target = (
+                    self.val_block_mapper
+                    if kind_by_dump.get(df_file) == "val"
+                    else self.block_mapper
+                )
+                target.add(blocks_path, seq_meta)
         self.block_mapper.finalize()
+        self.val_block_mapper.finalize()
         self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
         n_frac = 0
         if n_words:
@@ -580,3 +623,23 @@ def _get_loader(args, dataset):
 def get_loader(args, dataset):
     dataset.load()
     return _get_loader(args, dataset)
+
+
+def get_val_loader(args, dataset):
+    """Return a validation DataLoader, or ``None`` if no eval data.
+
+    The val mapper is populated by ``RegDataset.load`` (called from
+    ``get_loader``); this helper just wraps it in a sequential
+    DataLoader. Returns ``None`` when ``--eval-reglogs`` was empty so
+    callers can ``trainer.fit(..., val_dataloaders=None)`` without
+    branching themselves.
+    """
+    if not getattr(args, "eval_reglogs", "") or len(dataset.val_block_mapper) == 0:
+        return None
+    return torch.utils.data.DataLoader(
+        dataset.val_block_mapper,
+        sampler=torch.utils.data.SequentialSampler(dataset.val_block_mapper),
+        pin_memory=True,
+        batch_size=args.batch_size,
+        num_workers=2,
+    )

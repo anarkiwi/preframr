@@ -39,6 +39,7 @@ class FakeArgs:
     ):
         self.reglog = None
         self.reglogs = ""
+        self.eval_reglogs = ""
         self.seq_len = seq_len
         self.tkvocab = tkvocab
         self.tkmodel = tkmodel
@@ -317,9 +318,9 @@ class TestPreload(unittest.TestCase):
         if df_files is None:
             df_files = []
 
-        def mock_make_tokens(reglogs):
+        def mock_make_tokens(reglogs, eval_reglogs=""):
             dataset.tokenizer.tokens = tokens
-            return df_files
+            return df_files, []
 
         dataset.make_tokens = mock_make_tokens
 
