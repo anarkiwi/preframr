@@ -15,9 +15,50 @@ MIN_ACC=0.2
 SLEN=1024
 PLEN=$(expr $SLEN / 2)
 TKVOCAB=0
-LIMITCYCLES=600000000        # ~10 min capture per song (was 180M = 3 min)
+LIMITCYCLES=600000000        # ~10 min fallback if Songlengths.md5 lookup misses
 MIN_SONG_TOKENS=128          # accept short songs (BlockMapper pads them)
 BLOCK_STRIDE=$(expr $SLEN / 4)  # 4x sample density on the tiny test corpus
+SONGLENGTHS_DB=${SONGLENGTHS_DB:-${LOCAL_HVSC}/DOCUMENTS/Songlengths.md5}
+PAL_HZ=985248
+LIMITCYCLES_MARGIN_PCT=10    # capture +10% past the listed duration
+
+# Look up song length in HVSC's Songlengths.md5 and return cycles to
+# pass to vsiddump's -limitcycles. Format of the db is:
+#   ; /PATH/TO/SONG.sid
+#   md5=M:SS[.mmm] [M:SS[.mmm] ...]
+# (one duration per subtune; we use the first since vsiddump runs
+# -tune 1.) Falls back to ${LIMITCYCLES} if the song isn't listed.
+song_length_cycles() {
+    local hvsc_path="$1"  # e.g., MUSICIANS/G/Goto80/Truth.sid
+    if [ ! -f "${SONGLENGTHS_DB}" ]; then
+        echo "${LIMITCYCLES}"
+        return
+    fi
+    local target="; /${hvsc_path}"
+    local dur
+    # Strip CRLF line endings (Songlengths.md5 ships with \r\n) so the
+    # path comparison and the duration parse both work.
+    dur=$(awk -v t="${target}" '
+        { sub(/\r$/, "") }
+        $0 == t { getline; sub(/\r$/, ""); sub(/^[a-f0-9]+=/, ""); print $1; exit }
+    ' "${SONGLENGTHS_DB}")
+    if [ -z "${dur}" ]; then
+        echo "${LIMITCYCLES}"
+        return
+    fi
+    # Parse M:SS or M:SS.mmm into integer seconds (round up, drop ms).
+    local minutes seconds
+    minutes=${dur%%:*}
+    local rest=${dur#*:}
+    seconds=${rest%%.*}
+    # If there were milliseconds, round seconds up by one to err over.
+    if [ "${rest}" != "${seconds}" ]; then
+        seconds=$((seconds + 1))
+    fi
+    local total_sec=$((minutes * 60 + seconds))
+    local with_margin=$((total_sec * (100 + LIMITCYCLES_MARGIN_PCT) / 100 + 2))
+    echo $((with_margin * PAL_HZ))
+}
 
 # Container resource limits. The previous run hung the host; capping
 # host RAM + disabling swap inside containers ensures the OOM-killer
@@ -56,7 +97,11 @@ LOG_DIR="${ROOT}/logs"
 mkdir -p "${LOG_DIR}"
 echo "logs in ${LOG_DIR}"
 
-# obtain test SID, extract up to LIMITCYCLES (full song)
+# obtain test SID, extract for the song's actual length (looked up
+# from HVSC's Songlengths.md5; falls back to LIMITCYCLES if missing).
+# Right-sizing matters because vsiddump faithfully replays the SID
+# tune at C64-real-time, and short songs that loop will produce
+# duplicated training data far beyond their actual content.
 for sid in ${TEST_SIDS} ; do
     bsid=$(basename "${sid}")
     localsid=${LOCAL_HVSC}/${sid}
@@ -66,7 +111,10 @@ for sid in ${TEST_SIDS} ; do
     else
         wget -O"${outsid}" http://www.hvsc.c64.org/download/C64Music/"${sid}"
     fi
-    docker run --rm ${LIMITS_DUMP} -v ${ROOT}:/scratch/preframr -t anarkiwi/headlessvice /usr/local/bin/vsiddump.py --dumpdir=/scratch/preframr --sid /scratch/preframr/"${bsid}" -tune 1 -limitcycles ${LIMITCYCLES} > "${LOG_DIR}/dump.${bsid}.log" 2>&1 &
+    cycles=$(song_length_cycles "${sid}")
+    cycles_sec=$((cycles / PAL_HZ))
+    echo "  ${bsid}: -limitcycles ${cycles} (~${cycles_sec}s)"
+    docker run --rm ${LIMITS_DUMP} -v ${ROOT}:/scratch/preframr -t anarkiwi/headlessvice /usr/local/bin/vsiddump.py --dumpdir=/scratch/preframr --sid /scratch/preframr/"${bsid}" -tune 1 -limitcycles ${cycles} > "${LOG_DIR}/dump.${bsid}.log" 2>&1 &
 done
 wait
 
