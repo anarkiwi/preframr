@@ -1,0 +1,15 @@
+# Defense in depth -- the current Dockerfile only COPYs targeted dirs
+# (preframr/, tests/) and specific files, but a future wildcard COPY
+# should never pick up these paths.
+
+untracked/
+.claude/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.swp
+*.orig
+*.rej

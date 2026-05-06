@@ -173,3 +173,10 @@ cython_debug/
 *.swp
 *.orig
 *.rej
+
+# Workspace bucket for one-off study scripts, scraped tables, and other
+# non-canonical artifacts that don't belong in version control.
+untracked/
+
+# Claude Code session state.
+.claude/
