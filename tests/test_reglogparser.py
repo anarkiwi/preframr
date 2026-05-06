@@ -1173,14 +1173,24 @@ class TestRegLogParser(unittest.TestCase):
         )
         self.assertFalse(loader._filter(test_df, "test"))
 
-        # Too many vol changes (>= 8 distinct values for reg=24) -> False
+        # Digi-like vol density (>= 16 vol writes in one frame) -> False.
         rows = [{"reg": FRAME_REG, "val": 0, "diff": 19000}]
-        for i in range(8):
-            rows.append({"reg": 24, "val": i, "diff": 32})
+        for i in range(20):
+            rows.append({"reg": 24, "val": i % 16, "diff": 32})
         for _ in range(10):
             rows.append({"reg": FRAME_REG, "val": 0, "diff": 19000})
         test_df = pd.DataFrame(rows, dtype=MODEL_PDTYPE)
         self.assertFalse(loader._filter(test_df, "test"))
+
+        # Many distinct vol values but spread across frames (Superman-
+        # like vol automation) -> True (not rejected). 16 distinct
+        # values, one write per frame.
+        rows = []
+        for i in range(16):
+            rows.append({"reg": FRAME_REG, "val": 0, "diff": 19000})
+            rows.append({"reg": 24, "val": i, "diff": 32})
+        test_df = pd.DataFrame(rows, dtype=MODEL_PDTYPE)
+        self.assertTrue(loader._filter(test_df, "test"))
 
         # Passing filter
         rows = []

@@ -904,12 +904,32 @@ class RegLogParser:
         if len(df) < min_song:
             self.logger.info("skipped %s, length %u (< %u)", name, len(df), min_song)
             return False
-        vol = sorted(np.bitwise_and(df[df["reg"] == 24]["val"], 15).unique().tolist())
-        if len(vol) >= 8:
-            self.logger.info(
-                "skipped %s, too many (%u) vol changes %s", name, len(vol), vol
-            )
-            return False
+        # Digi detector: reject songs that drive register 24
+        # (MODE_VOL_REG) at sample-rate frequencies (4-8 kHz playback
+        # through volume = ~80-160 writes per PAL frame) instead of at
+        # IRQ rate (1-2 writes per frame for typical music). The earlier
+        # heuristic counted distinct low-nibble values >= 8 and false-
+        # positived on songs like Goto80's Superman.sid which uses 16
+        # distinct vol levels for stylistic effect but writes vol once
+        # per frame at most. Per-frame write count is the right signal:
+        # digi = orders of magnitude higher than any musical vol use.
+        is_frame = df["reg"] == FRAME_REG
+        frame_idx = is_frame.cumsum()
+        vol_mask = df["reg"] == MODE_VOL_REG
+        if vol_mask.any():
+            vol_per_frame = frame_idx[vol_mask].value_counts()
+            max_vpf = int(vol_per_frame.max())
+            # Calibration: known non-digi songs land at max 1-3
+            # writes/frame; sampled digi tracks (e.g. 12345.sid,
+            # 3_Oversample.sid) sit at 150-300. K=16 gives a wide
+            # margin in both directions.
+            if max_vpf >= 16:
+                self.logger.info(
+                    "skipped %s, digi-like vol density (max %u writes per frame)",
+                    name,
+                    max_vpf,
+                )
+                return False
         c_df = self._norm_df(df)
         ctrl_mask = self._ctrl_match(df)
         # Only count actual ctrl-reg SET writes; macros (GATE_REPLAY_OP,
