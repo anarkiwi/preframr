@@ -105,7 +105,7 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test \
     --model=llama3_2 \
     --shuffle 1 \
     --min-dump-size 1 \
-    --accumulate-grad-batches 2 --batch-size 16 \
+    --accumulate-grad-batches 8 --batch-size 4 \
     --learning-rate 1e-4 --weight-decay 0.01 \
     --layers 8 --heads 8 --kv-heads 4 --embed 256 --intermediate 704 \
     --attn-dropout 0.1 \
