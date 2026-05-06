@@ -2881,9 +2881,27 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         yield df.reset_index(drop=True).copy()
         return
 
+    # Hoist the literal expansion out of the per-block loop. The old
+    # design called ``self_contain_slice`` per block, and each call
+    # re-expanded the full song -- O(song x num_blocks) dispatch work,
+    # which on 10-min Goto80 captures was producing 9-minute outliers
+    # in make_tokens. Compute literal + marker_idx once, slice cheaply
+    # in the loop, and call ``run_passes`` only on the per-block slice.
+    literal = expand_to_literal_form(df, args=args)
+    lit_is_marker = literal["reg"].isin({FRAME_REG, DELAY_REG})
+    marker_idx = literal.index[lit_is_marker].tolist()
+    n_lit_frames = len(marker_idx)
+
     for lo_frame in range(0, marker_count, stride):
-        hi_frame = min(lo_frame + frames_per_block, marker_count)
-        block = self_contain_slice(df, lo_frame, hi_frame, args=args)
+        if lo_frame >= n_lit_frames:
+            break
+        hi_frame = min(lo_frame + frames_per_block, n_lit_frames)
+        row_lo = int(marker_idx[lo_frame])
+        row_hi = int(marker_idx[hi_frame]) if hi_frame < n_lit_frames else len(literal)
+        slice_df = literal.iloc[row_lo:row_hi].reset_index(drop=True).copy()
+        if slice_df.empty:
+            continue
+        block = run_passes(slice_df, args=args) if args is not None else slice_df
         if not block.empty:
             yield block
 
