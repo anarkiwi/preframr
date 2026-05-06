@@ -31,6 +31,7 @@ from preframr.stfconstants import (
     MIN_DIFF,
     MODE_VOL_REG,
     MODEL_PDTYPE,
+    PAD_REG,
     PARSED_SUFFIX,
     PCM_BITS,
     REG_PDTYPE,
@@ -167,6 +168,9 @@ class RegLogParser:
         tokens = dataset.tokenizer.tokens.copy()
         tokens["diff"] = MIN_DIFF
         tokens.loc[tokens["reg"] < -MAX_REG, "diff"] = 0
+        # PAD_REG row (synthetic, vocab idx 0): zero cycle cost so a
+        # leaked pad row at inference is a no-op in the audio render.
+        tokens.loc[tokens["reg"] == PAD_REG, "diff"] = 0
         tokens.loc[tokens["reg"] == FRAME_REG, "diff"] = irq
         df = pd.DataFrame(states, columns=["n"]).merge(tokens, on="n", how="left")
         # Tokens have no ``description`` field but downstream walkers

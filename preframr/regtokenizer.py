@@ -14,6 +14,7 @@ from preframr.stfconstants import (
     DUMP_SUFFIX,
     FLIP_OP,
     FRAME_REG,
+    PAD_REG,
     REPEAT_OP,
     SET_OP,
     UNICODE_BASE,
@@ -192,6 +193,18 @@ class RegTokenizer:
         self.logger.info("making tokens")
         self.crunch_tokens()
         tokens = self.frame_tokens[0]
+        # Reserve vocab index 0 as the pad token so PAD_ID=0 (used by
+        # BlockMapper short-block padding, torchtune.generate, and the
+        # training-side pad_mask = (y != 0).float()) doesn't alias a real
+        # token. Without this, the most common FRAME_REG variant landed
+        # at idx 0 and got loss-masked everywhere, so the model could
+        # never learn / predict it. Pad row uses (op=0, reg=PAD_REG,
+        # subreg=-1, val=0); _state_df special-cases PAD_REG to diff=0
+        # so a leaked pad row in inference is a no-op.
+        pad_row = pd.DataFrame(
+            [{"op": 0, "reg": PAD_REG, "subreg": -1, "val": 0, "count": 0}]
+        )
+        tokens = pd.concat([pad_row, tokens], ignore_index=True)
         tokens["n"] = tokens.index
         tokens = tokens.sort_values(["n"])
         tokens = tokens.astype({"val": VAL_PDTYPE, "n": TOKEN_PDTYPE})

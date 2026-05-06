@@ -3,6 +3,14 @@ import pandas as pd
 FRAME_REG = -128
 DELAY_REG = -127
 VOICE_REG = -126
+# Sentinel reg for the synthetic pad token at vocab index 0. Distinct
+# from every real / encoder-produced reg so the pad row is identifiable
+# in any df that materialises one (decoders / sidwav / safety net all
+# treat negative non-marker regs as no-ops). Pairs with PAD_ID=0: token
+# id 0 decodes to (op=0, reg=PAD_REG, subreg=-1, val=0), so the model
+# sees a unique vocab slot for "pad" instead of aliasing the most-common
+# FRAME_REG variant.
+PAD_REG = -1
 FC_LO_REG = 21
 FILTER_REG = 23
 

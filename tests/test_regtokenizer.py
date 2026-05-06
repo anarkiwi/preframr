@@ -73,19 +73,23 @@ class TestRegTokenizer(unittest.TestCase):
             ],
             dtype=MODEL_PDTYPE,
         )
+        # Vocab idx 0 is the synthetic pad token (PAD_REG=-1, val=0); real
+        # tokens shift to 1..N. See ``RegTokenizer.make_tokens`` for the
+        # PAD_ID/token-0 collision fix this enforces.
         tokens_df = pd.DataFrame(
             [
-                {"op": 0, "reg": 1, "subreg": -1, "val": 1, "count": 3, "n": 0},
-                {"op": 0, "reg": 1, "subreg": -1, "val": 2, "count": 10, "n": 1},
-                {"op": 0, "reg": 1, "subreg": -1, "val": 3, "count": 1, "n": 2},
-                {"op": 0, "reg": 2, "subreg": -1, "val": 1, "count": 3, "n": 3},
-                {"op": 0, "reg": 2, "subreg": -1, "val": 3, "count": 1, "n": 4},
-                {"op": 0, "reg": 3, "subreg": -1, "val": 1, "count": 3, "n": 5},
-                {"op": 0, "reg": 3, "subreg": -1, "val": 3, "count": 1, "n": 6},
-                {"op": 0, "reg": 4, "subreg": -1, "val": 1, "count": 3, "n": 7},
-                {"op": 0, "reg": 4, "subreg": -1, "val": 3, "count": 1, "n": 8},
-                {"op": 0, "reg": 5, "subreg": -1, "val": 1, "count": 3, "n": 9},
-                {"op": 0, "reg": 5, "subreg": -1, "val": 3, "count": 1, "n": 10},
+                {"op": 0, "reg": -1, "subreg": -1, "val": 0, "count": 0, "n": 0},
+                {"op": 0, "reg": 1, "subreg": -1, "val": 1, "count": 3, "n": 1},
+                {"op": 0, "reg": 1, "subreg": -1, "val": 2, "count": 10, "n": 2},
+                {"op": 0, "reg": 1, "subreg": -1, "val": 3, "count": 1, "n": 3},
+                {"op": 0, "reg": 2, "subreg": -1, "val": 1, "count": 3, "n": 4},
+                {"op": 0, "reg": 2, "subreg": -1, "val": 3, "count": 1, "n": 5},
+                {"op": 0, "reg": 3, "subreg": -1, "val": 1, "count": 3, "n": 6},
+                {"op": 0, "reg": 3, "subreg": -1, "val": 3, "count": 1, "n": 7},
+                {"op": 0, "reg": 4, "subreg": -1, "val": 1, "count": 3, "n": 8},
+                {"op": 0, "reg": 4, "subreg": -1, "val": 3, "count": 1, "n": 9},
+                {"op": 0, "reg": 5, "subreg": -1, "val": 1, "count": 3, "n": 10},
+                {"op": 0, "reg": 5, "subreg": -1, "val": 3, "count": 1, "n": 11},
             ],
             dtype=MODEL_PDTYPE,
         )
