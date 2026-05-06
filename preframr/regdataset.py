@@ -552,6 +552,16 @@ class RegDataset(torch.utils.data.Dataset):
         return self.block_mapper[index]
 
     def getseq(self, i):
+        if getattr(self.args, "predict_from_blocks", False) and len(self.block_mapper):
+            # Memorise-back path: serve the *first block* of the i'th
+            # rotation as the "sequence" for prediction. The model
+            # trained on this exact byte stream, so a prompt sliced
+            # from it is in-distribution by construction. Outside the
+            # memorise smoke test SeqMapper is what callers want
+            # (full-song stream, supports random mid-song offsets).
+            block = self.block_mapper.get_block(rotation_i=i, block_j=0)
+            _path, seq_meta, _n = self.block_mapper.block_metas[i]
+            return torch.from_numpy(np.copy(block)), seq_meta
         seq, seq_meta = self.seq_mapper.getseq(i)
         return torch.from_numpy(np.copy(seq)), seq_meta
 

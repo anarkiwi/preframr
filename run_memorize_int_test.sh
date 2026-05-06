@@ -184,4 +184,4 @@ docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/
 # memorising model produces near-chance accuracy. Block 0 of every
 # training song starts at frame 0, so a start-0 prompt is the closest
 # we can get to "test exactly what the model trained on".
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 --temperature 0.1 --top-k 1 --start-n 0 2>&1 | tee "${LOG_DIR}/predict.log"
+docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 --temperature 0.1 --top-k 1 --start-n 0 --predict-from-blocks 2>&1 | tee "${LOG_DIR}/predict.log"

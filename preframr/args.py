@@ -175,4 +175,19 @@ def add_args(parser):
     # self-contained, so overlap is correctness-neutral. Useful when
     # the corpus is small relative to model capacity.
     parser.add_argument("--block-stride", type=int, default=None)
+    # Predict from BlockMapper instead of SeqMapper. The two streams are
+    # encoded differently: SeqMapper holds the full-song parse output
+    # (with whole-song-scope macro detection), while BlockMapper holds
+    # per-block re-encodes (slice -> ``run_passes`` per block). Even with
+    # macro passes disabled, cross-frame patterns the full-song parse
+    # captures (TRANSPOSE, PWM, etc.) can vanish when re-encoding a
+    # slice. The model trains on BlockMapper, so for memorise-back tests
+    # we want predict to read from BlockMapper too -- otherwise the
+    # prompt is in a token shape the model never trained on and the
+    # accuracy collapses to ~chance.
+    parser.add_argument(
+        "--predict-from-blocks",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     return parser
