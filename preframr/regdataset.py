@@ -141,13 +141,23 @@ def materialize_block_array(
 
 def parser_worker(args, logger, dump_file, max_perm):
     reg_log_parser = RegLogParser(args, logger)
-    dfs = [
-        df
-        for df in reg_log_parser.parse(
-            dump_file, max_perm=max_perm, require_pq=args.require_pq
-        )
-    ]
-    return dump_file, dfs
+    block_parser = RegLogParser(args, logger)
+    stride = getattr(args, "block_stride", None)
+    seq_len = args.seq_len
+    # Materialise blocks here in the parser's worker process so the
+    # expensive per-block ``run_passes`` cost runs in parallel across
+    # songs rather than serially in the parent's make_tokens loop.
+    # Empty reg_widths is fine -- ``_remove_voice_reg`` only consults it
+    # when explicitly populated (post-load() reg_max scan), and the
+    # block materialisation that uses it doesn't need per-reg widths
+    # for the rotation removal step.
+    out = []
+    for df in reg_log_parser.parse(
+        dump_file, max_perm=max_perm, require_pq=args.require_pq
+    ):
+        blocks = list(iter_voiced_blocks(df, seq_len, block_parser, {}, stride=stride))
+        out.append((df, blocks))
+    return dump_file, out
 
 
 def get_prompt(args, dataset, logger):
@@ -273,7 +283,7 @@ class RegDataset(torch.utils.data.Dataset):
                 while futures and len(output_dumps) < max_files:
                     new_futures = []
                     for future in concurrent.futures.as_completed(futures):
-                        dump_file, dfs = future.result()
+                        dump_file, dfs_with_blocks = future.result()
                         if dump_files:
                             new_futures.append(
                                 executor.submit(
@@ -285,7 +295,7 @@ class RegDataset(torch.utils.data.Dataset):
                                 )
                             )
                             dump_files = dump_files[1:]
-                        for i, df in enumerate(dfs):
+                        for i, (df, blocks) in enumerate(dfs_with_blocks):
                             seq = None
                             # Preserve the pre-tokenize encoded form for
                             # block materialisation; merge_token_df mutates
@@ -317,7 +327,7 @@ class RegDataset(torch.utils.data.Dataset):
                                     # written files later.
                             output_dumps.add(dump_file)
                             irq = df["irq"].iloc[0]
-                            yield dump_file, i, df, seq, irq
+                            yield dump_file, i, df, seq, irq, blocks
                         pbar.n = len(output_dumps)
                         pbar.refresh()
                         if len(output_dumps) == max_files:
@@ -350,27 +360,20 @@ class RegDataset(torch.utils.data.Dataset):
         # (df_file, rotation_i) -> list[voiced block df]
         cached_blocks = {}
         stride = getattr(self.args, "block_stride", None)
-        for df_file, i, df, _seq, _irq in self.load_dfs(
+        for df_file, i, df, _seq, _irq, blocks in self.load_dfs(
             reglogs=reglogs, max_perm=self.args.max_perm
         ):
+            # Blocks were materialised in parallel inside parser_worker
+            # (so the per-block run_passes cost is amortised across
+            # parser pool workers, not paid serially in this loop).
             # Accumulate alphabet from BOTH the full-song df and its
-            # materialised blocks. The full-song df carries DELAY_REG /
-            # FRAME_REG / VOICE_REG marker tokens that
-            # expand_to_literal_form (inside the block iterator)
-            # destructures into FRAME_REGs only -- so blocks alone miss
-            # DELAY_REG. Blocks contribute the macro tokens
+            # blocks: the full-song df carries DELAY_REG / FRAME_REG /
+            # VOICE_REG marker tokens that expand_to_literal_form
+            # (inside the block iterator) destructures into FRAME_REGs
+            # only; blocks contribute the macro tokens
             # (BACK_REF / PATTERN_REPLAY / GATE_REPLAY / ...) whose
             # val/subreg is block-local. Union covers both shapes.
             self.tokenizer.accumulate_tokens(df, df_file)
-            blocks = list(
-                iter_voiced_blocks(
-                    df,
-                    self.args.seq_len,
-                    block_parser,
-                    self.reg_widths,
-                    stride=stride,
-                )
-            )
             cached_blocks[(df_file, i)] = blocks
             for voiced in blocks:
                 self.tokenizer.accumulate_tokens(voiced, df_file)
@@ -446,7 +449,7 @@ class RegDataset(torch.utils.data.Dataset):
             dataset_csv = self.args.dataset_csv
 
             def worker_gen():
-                for i, (df_file, _i, df, _seq, _irq) in enumerate(
+                for i, (df_file, _i, df, _seq, _irq, _blocks) in enumerate(
                     self.load_dfs(
                         dump_files=df_files,
                         max_perm=self.args.max_perm,
@@ -500,7 +503,7 @@ class RegDataset(torch.utils.data.Dataset):
         n_seq = 0
         n_words = 0
         reg_max = {}
-        for df_file, i, df, seq, irq in self.load_dfs(
+        for df_file, i, df, seq, irq, _blocks in self.load_dfs(
             reglogs=reglogs,
             dump_files=dump_files,
             max_perm=self.args.max_perm,
