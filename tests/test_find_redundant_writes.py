@@ -14,14 +14,18 @@ import unittest
 
 import pandas as pd
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+sys.path.insert(
+    0,
+    os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, "untracked")),
+)
 
 try:
     from find_redundant_writes import find_redundant_writes  # noqa: E402
 except ModuleNotFoundError:  # pragma: no cover
-    # The CLI script lives at the repo root and is not copied into the
-    # Docker image (which only ships ``preframr/`` and ``tests/``); skip
-    # rather than fail when the module isn't importable.
+    # The CLI script lives under untracked/ (gitignored); the Docker
+    # image ships only ``preframr/`` and ``tests/``, so the module is
+    # not importable inside the container's run_tests.sh. Skip rather
+    # than fail when it's absent.
     import pytest
 
     pytest.skip(
