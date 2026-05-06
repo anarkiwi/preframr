@@ -541,8 +541,7 @@ class RegLogParser:
         # ffill'd on those nullable columns, then masked-and-assigned --
         # 1.5-2s on multi-million-row dumps. The same logic works on
         # numpy arrays (with float-NaN for the ffill placeholder) at
-        # ~0.1s. Output is byte-identical (verified via the regression
-        # tests + /tmp/inv smoke).
+        # ~0.1s. Output is byte-identical (regression tests cover it).
         df = orig_df.copy()
         df["n"] = df.index.astype(np.int64) * 10
         regs = df["reg"].to_numpy()
@@ -1055,13 +1054,11 @@ class RegLogParser:
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
             xdf = macros.run_passes(xdf, args=self.args)
             xdf = self._norm_pr_order(xdf, v_only=False)
-            # The filter's length check (``seq_len*2``) measures the
-            # row count of the final post-voice-reg form, so check
-            # against a temporary _add_voice_reg view BEFORE LoopPass
-            # collapses bodies into 1-row BACK_REF tokens. Without
-            # this, songs whose final post-encoding row count is below
-            # the threshold get filtered out even though their
-            # pre-encoding form was fine.
+            # ``_filter`` measures the row count of the post-voice-reg
+            # form; check against a temporary _add_voice_reg view BEFORE
+            # LoopPass collapses bodies into 1-row BACK_REF tokens.
+            # Otherwise short songs drop below the threshold post-loop
+            # even when their pre-encoding form was fine.
             xdf_voice_preview = self._add_voice_reg(xdf, zero_voice_reg=True)
             if not self._filter(xdf_voice_preview, name):
                 break

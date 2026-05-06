@@ -155,32 +155,29 @@ def add_args(parser):
     # PATTERN_OVERLAY_OP rows; decoder replays the source body and
     # applies overlays as additional SET writes. Stacks with the
     # exact / transposed / DO_LOOP matchers (single unified pass).
-    # Default ON: adds ~8% compression on the /tmp/inv corpus on top
-    # of LoopPass-only (varies 4-15% per song; biggest wins on songs
-    # with state-drift between repeats like instrument envelope
+    # Default ON: adds ~8% compression on representative HVSC subsets
+    # on top of LoopPass-only (varies 4-15% per song; biggest wins on
+    # songs with state-drift between repeats like instrument envelope
     # counters or vibrato phase).
     parser.add_argument(
         "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=True
     )
     # Per-(voice, direction) cap on the GateMacroPass palette. Default
-    # ``None`` keeps v1 behaviour (unbounded palette: every distinct
-    # ``(ctrl, AD, SR)`` end-of-frame state earns a slot). Setting a small
-    # integer caps vocab pressure on GATE_REPLAY_OP tokens at the cost of
-    # compression on long-tail bundles -- transitions whose bundle would
-    # land in slot >= cap stay literal.
+    # ``None`` => unbounded palette: every distinct ``(ctrl, AD, SR)``
+    # end-of-frame state earns a slot. A small integer caps vocab
+    # pressure on GATE_REPLAY_OP tokens at the cost of compression on
+    # long-tail bundles -- transitions whose bundle would land in
+    # slot >= cap stay literal.
     parser.add_argument("--gate-palette-cap", type=int, default=None)
-    # InstrumentProgramPass v2 knobs. ``instrument-window`` is the maximum
-    # number of frames captured into one program; capture closes earlier on
-    # the next gate event for that voice. ``instrument-palette-cap`` bounds
-    # the per-stream palette size; over-cap programs stay literal.
+    # InstrumentProgramPass knobs. ``instrument-window`` is the maximum
+    # number of frames captured into one program; capture closes earlier
+    # on the next gate event for that voice. ``instrument-palette-cap``
+    # bounds the per-stream palette size; over-cap programs stay literal.
     parser.add_argument("--instrument-window", type=int, default=8)
     parser.add_argument("--instrument-palette-cap", type=int, default=None)
-    # Per-pass kill switches. Default-on (the production pipeline runs
-    # all of these). The integration test disables them to skip the
-    # per-block run_passes overhead during make_tokens, since for a
-    # memorise-back smoke test the model just needs to predict the
-    # literal token sequence -- it doesn't need to learn the macro
-    # decoders.
+    # Per-pass kill switches. Default-on. Useful for parse-time
+    # profiling that wants to isolate non-macro phases, or for ablation
+    # studies on which macros contribute to compression / generalisation.
     parser.add_argument(
         "--instrument-pass", action=argparse.BooleanOptionalAction, default=True
     )

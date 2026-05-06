@@ -2712,12 +2712,10 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         yield df.reset_index(drop=True).copy()
         return
 
-    # Hoist the literal expansion out of the per-block loop. The old
-    # design called ``self_contain_slice`` per block, and each call
-    # re-expanded the full song -- O(song x num_blocks) dispatch work,
-    # which on 10-min Goto80 captures was producing 9-minute outliers
-    # in make_tokens. Compute literal + marker_idx once, slice cheaply
-    # in the loop, and call ``run_passes`` only on the per-block slice.
+    # Hoisted out of the per-block loop. Calling ``self_contain_slice``
+    # per block re-expanded the full song each time -- O(song x
+    # num_blocks). Compute literal + marker_idx once, slice cheaply,
+    # and ``run_passes`` only on each per-block slice.
     literal = expand_to_literal_form(df, args=args)
     lit_is_marker = literal["reg"].isin({FRAME_REG, DELAY_REG})
     marker_idx = literal.index[lit_is_marker].tolist()
