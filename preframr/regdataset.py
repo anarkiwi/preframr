@@ -308,45 +308,13 @@ class RegDataset(torch.utils.data.Dataset):
                                             min_seq,
                                         )
                                         break
-                                    # Self-contained block file generation
-                                    # for the BlockMapper training data path.
-                                    # ``materialize_block_array`` calls
-                                    # ``self_contain_slice`` per slice, which
-                                    # re-encodes via ``run_passes`` so each
-                                    # block is decodable standalone -- palette
-                                    # indices are slice-local and any in-slice
-                                    # PLAY_INSTRUMENT_OP / GATE_REPLAY_OP
-                                    # references resolve within the block.
-                                    # Default on; pass ``--no-write-blocks`` to
-                                    # skip and fall back to the sliding-window
-                                    # SeqMapper training path.
-                                    if getattr(self.args, "write_blocks", True):
-                                        # Block materialisation is the
-                                        # canonical training-data
-                                        # encoder. A failure here means
-                                        # the alphabet didn't cover a
-                                        # block's tokens (a bug, not a
-                                        # data issue) -- propagate so
-                                        # the whole training run fails
-                                        # loudly instead of silently
-                                        # dropping rotations and
-                                        # training on a corrupted /
-                                        # partial corpus.
-                                        block_parser = RegLogParser(self.args)
-                                        blocks_arr = materialize_block_array(
-                                            self.tokenizer,
-                                            raw_df,
-                                            self.args.seq_len,
-                                            block_parser,
-                                            self.reg_widths,
-                                            stride=getattr(
-                                                self.args, "block_stride", None
-                                            ),
-                                        )
-                                        blocks_path = dump_file.replace(
-                                            DUMP_SUFFIX, f".{i}.blocks.npy"
-                                        )
-                                        np.save(blocks_path, blocks_arr)
+                                    # ``.blocks.npy`` files are written
+                                    # by ``RegDataset.make_tokens`` from
+                                    # the cached materialised blocks, so
+                                    # ``load_dfs`` doesn't need to
+                                    # repeat the per-block run_passes
+                                    # cost. ``load()`` discovers the
+                                    # written files later.
                             output_dumps.add(dump_file)
                             irq = df["irq"].iloc[0]
                             yield dump_file, i, df, seq, irq
@@ -358,25 +326,44 @@ class RegDataset(torch.utils.data.Dataset):
             executor.shutdown(wait=True, cancel_futures=True)
 
     def make_tokens(self, reglogs):
+        """Parse each song, materialise its self-contained blocks, build
+        the token alphabet from those blocks, and write the encoded
+        blocks to ``.blocks.npy`` per (dump_file, rotation).
+
+        One pass through ``load_dfs``: each parsed rotation has its
+        block stream cached in memory, then after the alphabet is
+        finalised the cached blocks are encoded and saved. This avoids
+        the previous design which materialised blocks twice -- once for
+        alphabet building, once again for training-data writing -- and
+        paid the per-block ``run_passes`` cost twice.
+
+        Memory: roughly ``num_songs x num_rotations x num_blocks_per_song
+        x bytes_per_block``. For an integration test (4 songs, 1
+        rotation, ~120 blocks of 512 rows) that's ~10 MB. For a
+        full-corpus run (8000 songs, 3 rotations) the cache should fit
+        in tens of GB; if that's a problem in production, the next step
+        is per-song streaming with a disk-backed cache, but that's not
+        needed for the corpora we're using today.
+        """
         df_files = []
-        # Build the alphabet from the block-level encoding -- the form
-        # training will actually see -- not from full-song encoding.
-        # Block-local back-ref distances, palette slot ids, instrument
-        # program lengths etc. produce (op, reg, subreg, val) tuples
-        # that don't appear in full-song encodings; building the
-        # alphabet from full songs caused merge_token_df to fail on
-        # those tuples mid-training.
         block_parser = RegLogParser(self.args)
-        for df_file, _i, df, _seq, _irq in self.load_dfs(
+        # (df_file, rotation_i) -> list[voiced block df]
+        cached_blocks = {}
+        stride = getattr(self.args, "block_stride", None)
+        for df_file, i, df, _seq, _irq in self.load_dfs(
             reglogs=reglogs, max_perm=self.args.max_perm
         ):
-            for voiced in iter_voiced_blocks(
-                df,
-                self.args.seq_len,
-                block_parser,
-                self.reg_widths,
-                stride=getattr(self.args, "block_stride", None),
-            ):
+            blocks = list(
+                iter_voiced_blocks(
+                    df,
+                    self.args.seq_len,
+                    block_parser,
+                    self.reg_widths,
+                    stride=stride,
+                )
+            )
+            cached_blocks[(df_file, i)] = blocks
+            for voiced in blocks:
                 self.tokenizer.accumulate_tokens(voiced, df_file)
             try:
                 if df_files[-1] == df_file:
@@ -389,7 +376,44 @@ class RegDataset(torch.utils.data.Dataset):
         assert self.tokenizer.tokens[tokens["val"].isna()].empty, tokens[
             tokens["val"].isna()
         ]
+        # Encode the cached blocks now that the alphabet is finalised
+        # and write per-(dump_file, rotation) .blocks.npy files. This
+        # is the single source of truth for BlockMapper training data;
+        # ``load_dfs`` no longer re-materialises blocks downstream.
+        if getattr(self.args, "write_blocks", True):
+            self._encode_and_save_cached_blocks(cached_blocks)
         return df_files
+
+    def _encode_and_save_cached_blocks(self, cached_blocks):
+        """Encode each cached voiced-block df via the now-finalised
+        tokenizer and write ``.blocks.npy``. Failures (alphabet doesn't
+        cover a row's (op, reg, subreg, val)) propagate; this is the
+        catch point for any bug in the alphabet-building pipeline.
+        """
+        block_size = self.args.seq_len + 1
+        for (df_file, i), blocks in cached_blocks.items():
+            block_arrs = []
+            for voiced in blocks:
+                merged = self.tokenizer.merge_token_df(
+                    self.tokenizer.tokens, voiced.copy()
+                )
+                if merged is None or "n" not in merged.columns:
+                    raise RuntimeError(
+                        f"merge_token_df returned no 'n' column for "
+                        f"{df_file} rotation {i}"
+                    )
+                n = merged["n"].astype(np.int16).to_numpy()
+                seq = self.tokenizer.encode(n).astype(np.int16)
+                if len(seq) >= block_size:
+                    block_arrs.append(seq[:block_size])
+                else:
+                    padded = np.zeros(block_size, dtype=np.int16)
+                    padded[: len(seq)] = seq
+                    block_arrs.append(padded)
+            if not block_arrs:
+                continue
+            blocks_path = df_file.replace(DUMP_SUFFIX, f".{i}.blocks.npy")
+            np.save(blocks_path, np.stack(block_arrs))
 
     def preload(self, tokens=None, tkmodel=None):
         if tokens is not None:
