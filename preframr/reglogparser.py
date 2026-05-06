@@ -726,7 +726,7 @@ class RegLogParser:
         df = df[list(orig_df.columns) + ["op"]].reset_index(drop=True)
         return df
 
-    def _expand_ops(self, orig_df, strict):
+    def _expand_ops(self, orig_df, strict, palettes=None):
         # Materialize any LOOP_BACK / DO_LOOP rows into literal frames before
         # per-row dispatch. No-op if the stream contains neither.
         df = macros.expand_loops(orig_df.copy())
@@ -744,15 +744,25 @@ class RegLogParser:
             if self.args is not None
             else None
         )
+        # Prefer explicit palettes when provided; otherwise fall back to
+        # the df.attrs-published palettes attached at end of ``run_passes``
+        # / ``run_post_norm_pre_voice_passes``. This is the bridge that
+        # lets the outer chain (iter_self_contained_row_blocks ->
+        # expand_to_literal_form -> _expand_ops) recover the encoder's
+        # authoritative palette without threading through every callsite.
+        if palettes is not None:
+            frozen_instr = palettes.instrument_palette
+            frozen_gate = palettes.gate_palette
+        else:
+            frozen_instr = orig_df.attrs.get("instrument_palette")
+            frozen_gate = _deserialize_gate_palette(orig_df.attrs.get("gate_palette"))
         state = DecodeState(
             frame_diff,
             last_diff=last_diff,
             strict=strict,
             gate_palette_cap=cap,
-            frozen_instrument_palette=orig_df.attrs.get("instrument_palette"),
-            frozen_gate_palette=_deserialize_gate_palette(
-                orig_df.attrs.get("gate_palette")
-            ),
+            frozen_instrument_palette=frozen_instr,
+            frozen_gate_palette=frozen_gate,
         )
         # Build the result row by row in a flat Python list and let
         # pandas materialise the DataFrame ONCE at the end. The previous
@@ -1056,7 +1066,14 @@ class RegLogParser:
 
         for xdf in self._rotate_voice_augment(df, max_perm=max_perm):
             xdf = xdf[FRAME_DTYPES.keys()].astype(FRAME_DTYPES)
-            xdf = macros.run_passes(xdf, args=self.args)
+            # Per-rotation Palettes container. Producers (GateMacroPass,
+            # InstrumentProgramPass) write into it; consumers
+            # (DedupSetPass, SubregPass, LoopPass body replay) read from
+            # it. Replaces the old df.attrs propagation -- pandas
+            # __finalize__ deep-copied attrs on every dataframe op which
+            # was the dominant cost on palette-rich songs.
+            palettes = macros.Palettes()
+            xdf = macros.run_passes(xdf, args=self.args, palettes=palettes)
             xdf = self._norm_pr_order(xdf, v_only=False)
             # ``_filter`` measures the row count of the post-voice-reg
             # form; check against a temporary _add_voice_reg view BEFORE
@@ -1069,7 +1086,9 @@ class RegLogParser:
             # Post-norm but pre-voice-reg passes (LoopPass): regs are
             # absolute so DECODERS dispatch on the right voice for the
             # fuzzy-match state walk.
-            xdf = macros.run_post_norm_pre_voice_passes(xdf, args=self.args)
+            xdf = macros.run_post_norm_pre_voice_passes(
+                xdf, args=self.args, palettes=palettes
+            )
             xdf = self._add_voice_reg(xdf, zero_voice_reg=True)
             # xdf = self._add_subreg(xdf)
             xdf = xdf.reset_index(drop=True)

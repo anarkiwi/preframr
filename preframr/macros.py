@@ -11,9 +11,32 @@ here as decoders. New macro ops plug in by adding a ``MacroPass`` to
 """
 
 from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+
+@dataclass
+class Palettes:
+    """Authoritative palette container threaded through the macro pipeline.
+
+    ``GateMacroPass`` and ``InstrumentProgramPass`` publish into this; later
+    passes (``SubregPass``, ``DedupSetPass``, ``_expand_ops``) seed their
+    ``DecodeState`` from it. Replaces the former ``df.attrs["instrument_
+    palette"]`` / ``df.attrs["gate_palette"]`` pattern -- pandas
+    ``__finalize__`` deep-copied attrs on every dataframe op, and at
+    palette sizes seen on rich songs that drove ~30% of parse wallclock.
+
+    ``gate_palette`` is keyed by ``(voice, dir)`` and stores per-(v,d)
+    lists of ``(ctrl, AD, SR)`` byte triples. ``instrument_palette`` is
+    a flat list of programs, each a tuple of ``(rel_frame, reg_offset,
+    val)`` triples.
+    """
+
+    instrument_palette: Optional[List[Tuple]] = None
+    gate_palette: Optional[Dict[Tuple[int, int], List[Tuple[int, int, int]]]] = None
 
 
 class _FastRow:
@@ -934,7 +957,7 @@ DECODERS = {
 class MacroPass:
     """Base class for encode-side passes operating on a token DataFrame."""
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         raise NotImplementedError
 
 
@@ -1011,7 +1034,7 @@ class PwmPass(MacroPass):
     target_regs = PWM_REGS_BY_VOICE
     min_run = 2
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: skip the per-reg loop entirely if no DIFF
         # rows touch any PWM target reg. Cheap mask-and-any() scan
         # avoids the f_idx/reset_index/copy overhead on small slices
@@ -1076,7 +1099,7 @@ class TransposePass(MacroPass):
 
     target_regs = FREQ_REGS_BY_VOICE
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: TransposePass needs at least 2 voices'
         # freq-DIFFs in the same frame. Cheap any() check on freq-DIFFs
         # avoids the reset_index/copy/numpy-conversion overhead on
@@ -1140,7 +1163,7 @@ class Flip2Pass(MacroPass):
 
     min_run = 3
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: Flip2Pass needs DIFF rows. Slices with no
         # DIFFs (literal-only blocks) skip immediately.
         if "op" not in df.columns or not df["op"].eq(DIFF_OP).any():
@@ -1210,7 +1233,7 @@ class IntervalPass(MacroPass):
     min_run = 2
     target_regs = FREQ_REGS_BY_VOICE
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: IntervalPass needs freq-DIFFs from at least
         # two voices in the same frame. If there are no freq-DIFFs at
         # all, exit before any work.
@@ -1298,7 +1321,7 @@ class FilterSweepPass(MacroPass):
     target_regs = (FC_LO_REG,)
     min_run = 2
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: FilterSweepPass only acts on FC_LO_REG
         # writes. Slices without any filter-cutoff activity skip.
         if not df["reg"].eq(FC_LO_REG).any():
@@ -1372,7 +1395,7 @@ class SubregPass(MacroPass):
 
     target_regs = SUBREG_REGS
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         # Sparse early-out: SubregPass only splits ctrl/AD/SR SETs.
         # Slices with none skip the DecodeState construction below.
         if not df["reg"].isin(self.target_regs).any():
@@ -1395,15 +1418,15 @@ class SubregPass(MacroPass):
                 sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
                 last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
             cap = getattr(args, "gate_palette_cap", None) if args is not None else None
+            frozen_instr = palettes.instrument_palette if palettes is not None else None
+            frozen_gate = palettes.gate_palette if palettes is not None else None
             state = DecodeState(
                 int(frame_rows.iloc[0]),
                 last_diff=last_diff,
                 strict=False,
                 gate_palette_cap=cap,
-                frozen_instrument_palette=df.attrs.get("instrument_palette"),
-                frozen_gate_palette=_deserialize_gate_palette(
-                    df.attrs.get("gate_palette")
-                ),
+                frozen_instrument_palette=frozen_instr,
+                frozen_gate_palette=frozen_gate,
             )
 
         last_emitted_reg = None  # most recently emitted subreg row's reg
@@ -1578,7 +1601,7 @@ class EndTerminatorPass(MacroPass):
     Tokens are predictability markers for the LM; decoder ignores them.
     """
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         active_repeat = {}  # reg -> True
@@ -1732,8 +1755,9 @@ try:
     from numba import njit
 
     _NUMBA_OK = True
-except ImportError:  # numba is in requirements.txt; this fallback is for
-    # bare-environment imports (jetson uses a different requirements file).
+except ImportError:  # pragma: no cover  # numba is in requirements.txt;
+    # this fallback is for bare-environment imports (jetson has its
+    # own requirements file).
     _NUMBA_OK = False
 
     def njit(*args, **kwargs):
@@ -1923,7 +1947,7 @@ class LoopPass(MacroPass):
     ref_cost = 1  # one BACK_REF token
     do_wrap_cost = 2  # BEGIN + END
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         if args is not None and not getattr(args, "loop_pass", True):
             return df
         loop_transposed = (
@@ -2817,7 +2841,10 @@ def self_contain_slice(df, slice_lo_frame, slice_hi_frame, args=None):
     slice_df = literal.iloc[row_lo:row_hi].reset_index(drop=True).copy()
     if args is None:
         return slice_df
-    return run_passes(slice_df, args=args)
+    # Fresh Palettes per slice -- palette indices are slice-local by
+    # construction (the encoder rebuilds them from slot 0 within the
+    # slice), so the container is scoped to this run_passes call.
+    return run_passes(slice_df, args=args, palettes=Palettes())
 
 
 def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None):
@@ -2896,7 +2923,13 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         slice_df = literal.iloc[row_lo:row_hi].reset_index(drop=True).copy()
         if slice_df.empty:
             continue
-        block = run_passes(slice_df, args=args) if args is not None else slice_df
+        # Fresh Palettes per block -- palette indices are block-local,
+        # so the container's lifetime is the block's run_passes call.
+        block = (
+            run_passes(slice_df, args=args, palettes=Palettes())
+            if args is not None
+            else slice_df
+        )
         if block.empty:
             continue
         # Re-pack runs of FRAME_REG back into DELAY_REG so blocks use
@@ -2975,7 +3008,7 @@ class GateMacroPass(MacroPass):
 
     target_kinds = ("ctrl", "ad", "sr")
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         if args is not None and not getattr(args, "gate_macro_pass", True):
             return df
         df = df.reset_index(drop=True).copy()
@@ -3089,10 +3122,14 @@ class GateMacroPass(MacroPass):
         # find_redundant_writes) initialise from it instead of growing
         # via observation -- the latter diverges when intermediate
         # passes change the order/content of gate-bundle writes.
-        # Tuples are stored as plain lists for JSON-friendly attrs.
-        out.attrs["gate_palette"] = {
-            k: [list(b) for b in v] for k, v in state.gate_palette.items()
-        }
+        # Stored on the explicit Palettes container threaded through
+        # ``run_passes``; previously rode ``df.attrs["gate_palette"]``
+        # but pandas ``__finalize__`` deep-copied the whole structure
+        # on every dataframe op (~30% of Skybox parse).
+        if palettes is not None:
+            palettes.gate_palette = {
+                k: [tuple(b) for b in v] for k, v in state.gate_palette.items()
+            }
         return out
 
 
@@ -3186,7 +3223,7 @@ class InstrumentProgramPass(MacroPass):
         df = df.drop(columns=["__order_n", "__order_f", "__order_v"])
         return df.reset_index(drop=True)
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         if args is not None and not getattr(args, "instrument_pass", True):
             return df
         df = df.reset_index(drop=True).copy()
@@ -3336,8 +3373,11 @@ class InstrumentProgramPass(MacroPass):
         # (_expand_ops, find_redundant_writes) initialise their
         # ``DecodeState.instrument_palette`` from it instead of
         # re-deriving by observation -- which would diverge because of
-        # those passes' local dispatch choices.
-        out.attrs["instrument_palette"] = list(state.instrument_palette)
+        # those passes' local dispatch choices. Stored on the explicit
+        # Palettes container; previously rode ``df.attrs[...]`` which
+        # pandas ``__finalize__`` deep-copied on every dataframe op.
+        if palettes is not None:
+            palettes.instrument_palette = list(state.instrument_palette)
         return out
 
     def _collect_candidates(
@@ -3493,7 +3533,7 @@ class DedupSetPass(MacroPass):
     Runs last in PASSES so it sees the final pre-norm form.
     """
 
-    def apply(self, df, args=None):
+    def apply(self, df, args=None, palettes=None):
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         if "description" not in df.columns:
@@ -3508,13 +3548,15 @@ class DedupSetPass(MacroPass):
             sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
             last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
         cap = getattr(args, "gate_palette_cap", None) if args is not None else None
+        frozen_instr = palettes.instrument_palette if palettes is not None else None
+        frozen_gate = palettes.gate_palette if palettes is not None else None
         state = DecodeState(
             frame_diff,
             last_diff=last_diff,
             strict=False,
             gate_palette_cap=cap,
-            frozen_instrument_palette=df.attrs.get("instrument_palette"),
-            frozen_gate_palette=_deserialize_gate_palette(df.attrs.get("gate_palette")),
+            frozen_instrument_palette=frozen_instr,
+            frozen_gate_palette=frozen_gate,
         )
 
         arrs, frame_starts = _df_arrays_and_frames(df)
@@ -3612,17 +3654,44 @@ POST_NORM_PRE_VOICE_PASSES = [
 ]
 
 
-def run_post_norm_pre_voice_passes(df, args=None):
+def _attach_palettes_to_attrs(df, palettes):
+    """Publish ``palettes`` to ``df.attrs`` so callers outside the
+    orchestrator (e.g. ``iter_self_contained_row_blocks`` ->
+    ``expand_to_literal_form`` -> ``_expand_ops``) can read them via
+    the existing attrs path.
+
+    Inside ``run_passes`` palettes are threaded explicitly to producers
+    and consumers, so attrs aren't populated during the matcher pipeline
+    (where pandas ``__finalize__`` deep-copy was previously the
+    dominant cost). This one-time write at end of run_passes pays at
+    most a few attrs-deep-copies per downstream call, vs the prior
+    11K+ during the inner sequence.
+    """
+    if palettes is None:
+        return df
+    if palettes.gate_palette is not None:
+        df.attrs["gate_palette"] = palettes.gate_palette
+    if palettes.instrument_palette is not None:
+        df.attrs["instrument_palette"] = palettes.instrument_palette
+    return df
+
+
+def run_post_norm_pre_voice_passes(df, args=None, palettes=None):
     """Apply passes that need post-norm row order but pre-voice-rotation
     regs. Currently just LoopPass (which does exact / transposed /
     fuzzy / DO_LOOP matching in a single sweep)."""
     for macro_pass in POST_NORM_PRE_VOICE_PASSES:
-        df = macro_pass.apply(df, args=args)
-    return df
+        df = macro_pass.apply(df, args=args, palettes=palettes)
+    return _attach_palettes_to_attrs(df, palettes)
 
 
-def run_passes(df, args=None):
-    """Apply every PRE-norm-order ``MacroPass`` in order."""
+def run_passes(df, args=None, palettes=None):
+    """Apply every PRE-norm-order ``MacroPass`` in order. ``palettes`` is
+    a ``Palettes`` instance threaded through producers (GateMacroPass,
+    InstrumentProgramPass) and consumers (DedupSetPass, SubregPass).
+    Caller passes ``Palettes()`` to opt into the explicit-threading
+    path; ``None`` falls back to legacy observation-from-scratch in
+    each downstream walk."""
     for macro_pass in PASSES:
-        df = macro_pass.apply(df, args=args)
-    return df
+        df = macro_pass.apply(df, args=args, palettes=palettes)
+    return _attach_palettes_to_attrs(df, palettes)
