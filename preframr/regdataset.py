@@ -353,6 +353,15 @@ class RegDataset(torch.utils.data.Dataset):
         for df_file, i, df, _seq, _irq in self.load_dfs(
             reglogs=reglogs, max_perm=self.args.max_perm
         ):
+            # Accumulate alphabet from BOTH the full-song df and its
+            # materialised blocks. The full-song df carries DELAY_REG /
+            # FRAME_REG / VOICE_REG marker tokens that
+            # expand_to_literal_form (inside the block iterator)
+            # destructures into FRAME_REGs only -- so blocks alone miss
+            # DELAY_REG. Blocks contribute the macro tokens
+            # (BACK_REF / PATTERN_REPLAY / GATE_REPLAY / ...) whose
+            # val/subreg is block-local. Union covers both shapes.
+            self.tokenizer.accumulate_tokens(df, df_file)
             blocks = list(
                 iter_voiced_blocks(
                     df,
