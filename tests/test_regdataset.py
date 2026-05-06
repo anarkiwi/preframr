@@ -238,7 +238,7 @@ class TestGetPrompt(unittest.TestCase):
                 self.tokenizer = FakeTokenizer(tokens)
                 self.args = FakeDatasetArgs()
 
-            def getseq(self, i):
+            def getseq(self, i, block_j=0):
                 return torch.from_numpy(seq.astype(np.int64)), seq_meta
 
         return FakeDataset()
@@ -250,7 +250,7 @@ class TestGetPrompt(unittest.TestCase):
 
         class PromptArgs:
             start_seq = 0
-            start_n = 0
+            start_block = 0
             max_seq_len = 6
             prompt_seq_len = 4
 
@@ -263,7 +263,7 @@ class TestGetPrompt(unittest.TestCase):
         # prompt has batch dimension from unsqueeze(0)
         self.assertEqual(prompt.shape[0], 1)
         self.assertEqual(prompt.shape[1], 4)
-        # start_n=0 -> empty preamble -> no reg_start entries
+        # start=0 -> empty preamble -> no reg_start entries
         self.assertEqual(reg_start, {})
         # prompt_df is a row-level df with at least one frame marker so the
         # decoder can later expand it.
@@ -276,22 +276,22 @@ class TestGetPrompt(unittest.TestCase):
 
         class PromptArgs:
             start_seq = 0
-            start_n = 0
+            start_block = 0
             max_seq_len = 4
             prompt_seq_len = 4  # n = 0 -> ValueError
 
         with self.assertRaises(ValueError):
             get_prompt(PromptArgs(), dataset, logging)
 
-    def test_start_n_none_uses_random(self):
-        # start_n=None triggers randint path; result is still a valid prompt
+    def test_block_prompt(self):
+        # The block-based getseq path always starts at block offset 0.
         seq = np.zeros(50, dtype=np.int16)
         seq_meta = SeqMeta(irq=19000, df_file="test.dump.parquet", i=0)
         dataset = self._make_dataset(seq, seq_meta)
 
         class PromptArgs:
             start_seq = 0
-            start_n = None
+            start_block = 0
             max_seq_len = 10
             prompt_seq_len = 6
 

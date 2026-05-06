@@ -61,7 +61,12 @@ def add_args(parser):
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--start-seq", type=int, default=0)
-    parser.add_argument("--start-n", type=int, default=None)
+    # Which block of the selected rotation to use as the prompt source.
+    # 0 is "the prompt the memorise-back model was trained on first"
+    # for that rotation; later blocks are also valid prompts (each is
+    # self-contained by construction), they just sample later in the
+    # song. Real-prediction inference can iterate this from 0..N-1.
+    parser.add_argument("--start-block", type=int, default=0)
     parser.add_argument("--attn-dropout", type=float, default=0.1)
     parser.add_argument(
         "--model", choices=list(MODEL_GETTERS.keys()), default="llama3_2"
@@ -161,9 +166,10 @@ def add_args(parser):
     # the BlockMapper training data path. Each block is the output of
     # ``self_contain_slice`` (literal expansion + per-slice re-encode
     # via ``run_passes``), so palette indices are slice-local and
-    # decoding never references state defined outside the block. Pass
-    # ``--no-write-blocks`` to skip the per-rotation block file and
-    # fall back to the SeqMapper sliding-window training path.
+    # decoding never references state defined outside the block.
+    # ``--no-write-blocks`` is a debug switch (skips the file write so
+    # tokenizer / parse phases can be timed in isolation); training
+    # then has no data and will fail loudly.
     parser.add_argument(
         "--write-blocks", action=argparse.BooleanOptionalAction, default=True
     )
@@ -175,19 +181,4 @@ def add_args(parser):
     # self-contained, so overlap is correctness-neutral. Useful when
     # the corpus is small relative to model capacity.
     parser.add_argument("--block-stride", type=int, default=None)
-    # Predict from BlockMapper instead of SeqMapper. The two streams are
-    # encoded differently: SeqMapper holds the full-song parse output
-    # (with whole-song-scope macro detection), while BlockMapper holds
-    # per-block re-encodes (slice -> ``run_passes`` per block). Even with
-    # macro passes disabled, cross-frame patterns the full-song parse
-    # captures (TRANSPOSE, PWM, etc.) can vanish when re-encoding a
-    # slice. The model trains on BlockMapper, so for memorise-back tests
-    # we want predict to read from BlockMapper too -- otherwise the
-    # prompt is in a token shape the model never trained on and the
-    # accuracy collapses to ~chance.
-    parser.add_argument(
-        "--predict-from-blocks",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
     return parser

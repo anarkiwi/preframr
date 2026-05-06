@@ -19,7 +19,7 @@ from preframr.macros import (
 )
 from preframr.reglogparser import RegLogParser
 from preframr.regtokenizer import RegTokenizer
-from preframr.seq_mapper import BlockMapper, SeqMapper, SeqMeta
+from preframr.seq_mapper import BlockMapper, SeqMeta
 from preframr.stfconstants import (
     DELAY_REG,
     DUMP_SUFFIX,
@@ -161,20 +161,17 @@ def parser_worker(args, logger, dump_file, max_perm):
 
 
 def get_prompt(args, dataset, logger):
-    seq, seq_meta = dataset.getseq(args.start_seq)
-    if args.start_n is None:
-        # Don't predict past where we can compare accuracy. For songs
-        # shorter than max_seq_len the random range collapses to {0},
-        # so the whole song becomes the prompt window (the user's
-        # "n-seconds at position n" inference shape: prompt covers
-        # whatever is available, generation continues past it).
-        max_start = max(0, len(seq) - args.max_seq_len)
-        start = random.randint(0, max_start) if max_start > 0 else 0
-    else:
-        start = args.start_n
+    seq, seq_meta = dataset.getseq(args.start_seq, block_j=args.start_block)
+    # ``seq`` is one self-contained block of length ``seq_len + 1``.
+    # Prompt = first ``prompt_seq_len`` tokens; predict = next
+    # ``max_seq_len - prompt_seq_len`` tokens; compare against the
+    # block's ground truth. No mid-block offset: each block is the
+    # natural training-aligned unit.
+    start = 0
     logger.info(
-        "starting at seq %u (%s), %u / %u, irq %u",
+        "starting at seq %u block %u (%s), %u / %u, irq %u",
         args.start_seq,
+        args.start_block,
         seq_meta.df_file,
         start,
         len(seq),
@@ -246,11 +243,11 @@ class RegDataset(torch.utils.data.Dataset):
         self.n_vocab = 0
         self.n_words = 0
         self.reg_widths = {}
-        self.seq_mapper = SeqMapper(args.seq_len)
-        # Self-contained block storage; populated alongside seq_mapper
-        # during load() from per-rotation ``.blocks.npy`` files written
-        # at parse time. When non-empty, ``__getitem__`` reads from
-        # block_mapper so each batch sample is a self-contained block.
+        # Self-contained block storage; populated during load() from
+        # per-rotation ``.blocks.npy`` files written at parse time by
+        # ``make_tokens``. ``__getitem__`` reads from block_mapper so
+        # each batch sample is a self-contained block, and ``getseq``
+        # serves single blocks for inference.
         self.block_mapper = BlockMapper(args.seq_len)
         self.tokenizer = RegTokenizer(args, tokens=None, logger=logger)
 
@@ -510,23 +507,13 @@ class RegDataset(torch.utils.data.Dataset):
             encode=True,
         ):
             seq_meta = SeqMeta(irq=irq, df_file=df_file, i=i)
-            self.seq_mapper.add(seq, seq_meta)
             reg_max = self.tokenizer.get_reg_max(df, reg_max)
-            self.n_words += len(seq)
+            self.n_words += len(seq) if seq is not None else 0
             n_words += len(df)
             n_seq += 1
-            # If load_dfs wrote a .blocks.npy alongside the .npy, register
-            # it with block_mapper. Missing files are non-fatal -- the
-            # block path is opt-in and falls back to seq_mapper.
             blocks_path = df_file.replace(DUMP_SUFFIX, f".{i}.blocks.npy")
             if os.path.exists(blocks_path):
-                try:
-                    self.block_mapper.add(blocks_path, seq_meta)
-                except Exception as e:
-                    self.logger.info(
-                        "block_mapper add failed for %s: %s", blocks_path, e
-                    )
-        self.seq_mapper.finalize()
+                self.block_mapper.add(blocks_path, seq_meta)
         self.block_mapper.finalize()
         self.reg_widths = self.tokenizer.get_reg_width_from_max(reg_max)
         n_frac = 0
@@ -537,33 +524,23 @@ class RegDataset(torch.utils.data.Dataset):
         )
 
     def __len__(self):
-        # Training reads from block_mapper exclusively. Each block is a
-        # self-contained training sample (palettes, back-refs, loop
-        # bodies all resolve within the block by construction). The
-        # SeqMapper sliding-window fallback was retired because (a) most
-        # of its samples were one-token shifts of each other, and (b)
-        # cross-window reference leakage gave the LM unresolvable
-        # macros. SeqMapper is still populated for inference's
-        # ``getseq`` (which needs the full per-song 1D sequence), but
-        # never serves training batches.
+        # Training and inference both read from BlockMapper -- each
+        # block is self-contained (palettes, back-refs, loop bodies
+        # all resolve within the block by construction).
         return len(self.block_mapper)
 
     def __getitem__(self, index):
         return self.block_mapper[index]
 
-    def getseq(self, i):
-        if getattr(self.args, "predict_from_blocks", False) and len(self.block_mapper):
-            # Memorise-back path: serve the *first block* of the i'th
-            # rotation as the "sequence" for prediction. The model
-            # trained on this exact byte stream, so a prompt sliced
-            # from it is in-distribution by construction. Outside the
-            # memorise smoke test SeqMapper is what callers want
-            # (full-song stream, supports random mid-song offsets).
-            block = self.block_mapper.get_block(rotation_i=i, block_j=0)
-            _path, seq_meta, _n = self.block_mapper.block_metas[i]
-            return torch.from_numpy(np.copy(block)), seq_meta
-        seq, seq_meta = self.seq_mapper.getseq(i)
-        return torch.from_numpy(np.copy(seq)), seq_meta
+    def getseq(self, rotation_i, block_j=0):
+        """Return ``(block, seq_meta)`` for one block of one rotation.
+
+        Block 0 of rotation 0 is the natural prompt for memorise-back
+        tests; pass ``block_j > 0`` to start from a later block.
+        """
+        block = self.block_mapper.get_block(rotation_i=rotation_i, block_j=block_j)
+        _path, seq_meta, _n = self.block_mapper.block_metas[rotation_i]
+        return torch.from_numpy(np.copy(block)), seq_meta
 
 
 class LowMemoryRandomSampler(torch.utils.data.Sampler):

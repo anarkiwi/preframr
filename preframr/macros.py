@@ -2962,14 +2962,13 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         block = run_passes(slice_df, args=args) if args is not None else slice_df
         if block.empty:
             continue
-        # Re-pack runs of FRAME_REG back into DELAY_REG so the block's
-        # token shape matches what the full-song stream produces.
-        # ``expand_to_literal_form`` (above) destructured DELAY_REG into
-        # N FRAME_REGs to make per-frame state simulation simple, but
-        # the LM sees DELAY_REG tokens at inference (via SeqMapper);
-        # without consolidation the model trained on blocks would
-        # never have seen DELAY_REG and would treat them as
-        # out-of-distribution at inference.
+        # Re-pack runs of FRAME_REG back into DELAY_REG so blocks use
+        # the compact encoding. ``expand_to_literal_form`` (above)
+        # destructured DELAY_REG val=N into N FRAME_REGs so per-frame
+        # state simulation is straightforward; consolidation re-packs
+        # the result. Without this step blocks would carry N tokens
+        # where DELAY_REG val=N carries one, inflating token counts
+        # by ~5-10x on quiet sections.
         try:
             block = consolidator._consolidate_frames(block)
         except Exception:
