@@ -1728,6 +1728,174 @@ def _frame_stripped_contents_batch(df, frames):
     return stripped
 
 
+try:
+    from numba import njit
+
+    _NUMBA_OK = True
+except ImportError:  # numba is in requirements.txt; this fallback is for
+    # bare-environment imports (jetson uses a different requirements file).
+    _NUMBA_OK = False
+
+    def njit(*args, **kwargs):
+        # Fallback: identity decorator. Slower but correct.
+        def _inner(f):
+            return f
+
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        return _inner
+
+
+@njit(cache=True)
+def _best_lz_njit(
+    i,
+    cands_arr,
+    frame_data,
+    frame_starts,
+    frame_lens,
+    sizes_cumsum,
+    max_lz_length,
+    n_frames,
+    min_lz_match,
+    ref_cost,
+):
+    """Inner loop of LoopPass.best_lz, JIT-compiled.
+
+    Frame data is laid out as a flat (n_total_rows, 4) int64 array with
+    ``frame_starts`` / ``frame_lens`` indexing each frame's slice. The
+    seed lookup remains in Python; this function takes the candidate
+    list (as int64 ndarray) and walks the inner match loop.
+    """
+    best_save = 0
+    best_dist = 0
+    best_len = 0
+    n_cands = cands_arr.shape[0]
+    for c_idx in range(n_cands - 1, -1, -1):
+        cand = cands_arr[c_idx]
+        if cand >= i:
+            continue
+        length = 0
+        while length < max_lz_length and i + length < n_frames and cand + length < i:
+            ai = i + length
+            ac = cand + length
+            la = frame_lens[ai]
+            lc = frame_lens[ac]
+            if la != lc:
+                break
+            sa = frame_starts[ai]
+            sc = frame_starts[ac]
+            ok = True
+            for k in range(la):
+                if (
+                    frame_data[sa + k, 0] != frame_data[sc + k, 0]
+                    or frame_data[sa + k, 1] != frame_data[sc + k, 1]
+                    or frame_data[sa + k, 2] != frame_data[sc + k, 2]
+                    or frame_data[sa + k, 3] != frame_data[sc + k, 3]
+                ):
+                    ok = False
+                    break
+            if not ok:
+                break
+            length += 1
+        if length < min_lz_match:
+            continue
+        body_rows = sizes_cumsum[i + length] - sizes_cumsum[i]
+        save = body_rows - ref_cost
+        if save > best_save:
+            best_save = save
+            best_dist = i - cand
+            best_len = length
+    return best_save, best_dist, best_len
+
+
+@njit(cache=True)
+def _best_lz_transposed_njit(
+    i,
+    cands_arr,
+    frame_data,
+    frame_starts,
+    frame_lens,
+    freq_set_mask,
+    sizes_cumsum,
+    max_lz_length,
+    n_frames,
+    min_lz_match,
+    ref_cost,
+):
+    """Inner loop of LoopPass.best_lz_transposed, JIT-compiled.
+
+    ``freq_set_mask`` is a flat bool array (n_total_rows,) marking rows
+    whose ``(reg, op, subreg)`` is a freq-SET row -- those participate
+    in the uniform-delta check, all other rows must match exactly.
+    Returns ``(save, dist, length, delta)``.
+    """
+    best_save = 0
+    best_dist = 0
+    best_len = 0
+    best_delta = 0
+    n_cands = cands_arr.shape[0]
+    for c_idx in range(n_cands - 1, -1, -1):
+        cand = cands_arr[c_idx]
+        if cand >= i:
+            continue
+        length = 0
+        delta = 0
+        delta_set = False
+        while length < max_lz_length and i + length < n_frames and cand + length < i:
+            ai = i + length
+            ac = cand + length
+            la = frame_lens[ai]
+            lc = frame_lens[ac]
+            if la != lc:
+                break
+            sa = frame_starts[ai]
+            sc = frame_starts[ac]
+            ok = True
+            for k in range(la):
+                fa = freq_set_mask[sa + k]
+                fc = freq_set_mask[sc + k]
+                if fa != fc:
+                    ok = False
+                    break
+                if fa:
+                    if (
+                        frame_data[sa + k, 0] != frame_data[sc + k, 0]
+                        or frame_data[sa + k, 2] != frame_data[sc + k, 2]
+                        or frame_data[sa + k, 3] != frame_data[sc + k, 3]
+                    ):
+                        ok = False
+                        break
+                    d = frame_data[sa + k, 1] - frame_data[sc + k, 1]
+                    if not delta_set:
+                        delta = d
+                        delta_set = True
+                    elif d != delta:
+                        ok = False
+                        break
+                else:
+                    if (
+                        frame_data[sa + k, 0] != frame_data[sc + k, 0]
+                        or frame_data[sa + k, 1] != frame_data[sc + k, 1]
+                        or frame_data[sa + k, 2] != frame_data[sc + k, 2]
+                        or frame_data[sa + k, 3] != frame_data[sc + k, 3]
+                    ):
+                        ok = False
+                        break
+            if not ok:
+                break
+            length += 1
+        if length < min_lz_match or not delta_set or delta == 0:
+            continue
+        body_rows = sizes_cumsum[i + length] - sizes_cumsum[i]
+        save = body_rows - (ref_cost + 1)
+        if save > best_save:
+            best_save = save
+            best_dist = i - cand
+            best_len = length
+            best_delta = delta
+    return best_save, best_dist, best_len, best_delta
+
+
 class LoopPass(MacroPass):
     """Hybrid encoder for repeated frame sequences.
 
@@ -1782,6 +1950,34 @@ class LoopPass(MacroPass):
         sizes_cumsum = np.zeros(n_frames + 1, dtype=np.int64)
         if sizes:
             sizes_cumsum[1:] = np.cumsum(np.asarray(sizes, dtype=np.int64))
+        # Flat (n_total_rows, 4) int64 array of (reg, val, op, subreg)
+        # plus per-frame start/len arrays. The numba inner loops below
+        # take these instead of the per-frame Python tuples; equality
+        # over numpy arrays in JIT'd code is much faster than Python
+        # tuple compare on small frames.
+        regs_full = df["reg"].to_numpy()
+        vals_full = df["val"].to_numpy()
+        ops_full = df["op"].to_numpy()
+        subregs_full = (
+            df["subreg"].to_numpy()
+            if "subreg" in df.columns
+            else np.full(len(df), -1, dtype=np.int64)
+        )
+        frame_data = np.column_stack(
+            (
+                regs_full.astype(np.int64),
+                vals_full.astype(np.int64),
+                ops_full.astype(np.int64),
+                subregs_full.astype(np.int64),
+            )
+        )
+        frame_starts_arr = np.asarray([s for s, _ in frames], dtype=np.int64)
+        frame_lens_arr = np.asarray(sizes, dtype=np.int64)
+        freq_set_mask = (
+            np.isin(regs_full, list(_FREQ_REGS_VOICED))
+            & (ops_full == SET_OP)
+            & (subregs_full == -1)
+        )
 
         # Fuzzy match needs per-frame musical fingerprints (so musically
         # equivalent frames hash the same despite byte-level state drift)
@@ -1855,110 +2051,49 @@ class LoopPass(MacroPass):
             return best_save, best_body, best_n
 
         def best_lz(i):
-            best_save = 0
-            best_dist = 0
-            best_len = 0
             if i + 1 >= n_frames:
                 return 0, 0, 0
             cands = seed.get((contents[i], contents[i + 1]))
             if not cands:
                 return 0, 0, 0
-            for cand in reversed(cands):
-                if cand >= i:
-                    continue
-                length = 0
-                while (
-                    length < self.max_lz_length
-                    and i + length < n_frames
-                    and cand + length < i
-                    and contents[cand + length] == contents[i + length]
-                ):
-                    length += 1
-                if length < self.min_lz_match:
-                    continue
-                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
-                save = body_rows - self.ref_cost
-                if save > best_save:
-                    best_save, best_dist, best_len = save, i - cand, length
-            return best_save, best_dist, best_len
+            cands_arr = np.asarray(cands, dtype=np.int64)
+            return _best_lz_njit(
+                i,
+                cands_arr,
+                frame_data,
+                frame_starts_arr,
+                frame_lens_arr,
+                sizes_cumsum,
+                self.max_lz_length,
+                n_frames,
+                self.min_lz_match,
+                self.ref_cost,
+            )
 
         def best_lz_transposed(i):
             """Like ``best_lz`` but matches frames whose freq SET vals
             differ from the source by a uniform delta. Returns
             ``(save, dist, length, delta)``. delta=0 implies exact match
             -- defer to ``best_lz`` for that case."""
-            best_save = 0
-            best_dist = 0
-            best_len = 0
-            best_delta = 0
             if i + 1 >= n_frames:
                 return 0, 0, 0, 0
             cands = seed_stripped.get((stripped[i], stripped[i + 1]))
             if not cands:
                 return 0, 0, 0, 0
-            for cand in reversed(cands):
-                if cand >= i:
-                    continue
-                # Walk frames; verify a single uniform delta holds across
-                # all freq SETs and other rows match exactly. Frames are
-                # ~10-30 rows; per-call numpy overhead exceeds savings,
-                # so the inner loop stays Python tuple comparison.
-                length = 0
-                delta = None
-                while (
-                    length < self.max_lz_length
-                    and i + length < n_frames
-                    and cand + length < i
-                ):
-                    f_src = contents[cand + length]
-                    f_dst = contents[i + length]
-                    if len(f_src) != len(f_dst):
-                        break
-                    frame_ok = True
-                    for r_src, r_dst in zip(f_src, f_dst):
-                        if (
-                            r_src[0] in _FREQ_REGS_VOICED
-                            and r_src[2] == SET_OP
-                            and r_src[3] == -1
-                        ):
-                            if (
-                                r_dst[0] != r_src[0]
-                                or r_dst[2] != r_src[2]
-                                or r_dst[3] != r_src[3]
-                            ):
-                                frame_ok = False
-                                break
-                            d = int(r_dst[1]) - int(r_src[1])
-                            if delta is None:
-                                delta = d
-                            elif d != delta:
-                                frame_ok = False
-                                break
-                        else:
-                            if r_src != r_dst:
-                                frame_ok = False
-                                break
-                    if not frame_ok:
-                        break
-                    length += 1
-                if length < self.min_lz_match or delta is None or delta == 0:
-                    continue
-                # Need at least one freq-SET row that participates -- if
-                # delta is None we matched exact (best_lz handles).
-                # Cost: PATTERN_REPLAY (1 row) + 1 body-wide-delta
-                # PATTERN_OVERLAY = 2 rows. Vocab pressure now folds
-                # into the existing PATTERN_REPLAY/PATTERN_OVERLAY
-                # classes (subsuming the old BACK_REF_TRANSPOSED_OP).
-                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
-                save = body_rows - (self.ref_cost + 1)
-                if save > best_save:
-                    best_save, best_dist, best_len, best_delta = (
-                        save,
-                        i - cand,
-                        length,
-                        delta,
-                    )
-            return best_save, best_dist, best_len, best_delta
+            cands_arr = np.asarray(cands, dtype=np.int64)
+            return _best_lz_transposed_njit(
+                i,
+                cands_arr,
+                frame_data,
+                frame_starts_arr,
+                frame_lens_arr,
+                freq_set_mask,
+                sizes_cumsum,
+                self.max_lz_length,
+                n_frames,
+                self.min_lz_match,
+                self.ref_cost,
+            )
 
         def _seed_pair(i):
             seed[(contents[i], contents[i + 1])].append(i)
