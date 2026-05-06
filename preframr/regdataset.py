@@ -12,14 +12,11 @@ from tqdm import tqdm
 import zstandard as zstd
 from preframr.macros import (
     iter_self_contained_row_blocks,
-    materialize_back_refs_outside,
-    materialize_gate_palette_outside,
-    materialize_instrument_palette_outside,
     self_contain_slice,
 )
 from preframr.reglogparser import RegLogParser
 from preframr.regtokenizer import RegTokenizer
-from preframr.seq_mapper import BlockMapper, SeqMeta
+from preframr.block_mapper import BlockMapper, SeqMeta
 from preframr.stfconstants import (
     DELAY_REG,
     DUMP_SUFFIX,
@@ -215,8 +212,8 @@ def _self_contained_prompt_df(loader, dataset, seq, start, prompt_seq_len, irq):
     targets fall before the prompt have been materialised into literal
     frames. Decoders can then expand the df without the preamble in scope.
 
-    Coordinates are *logical frame slots* (each FRAME_REG / DELAY_REG row is
-    one slot), matching ``materialize_back_refs_outside``."""
+    Coordinates are *logical frame slots* (each FRAME_REG / DELAY_REG
+    row is one slot)."""
     full_states = dataset.tokenizer.decode(seq.numpy())
     full_df = loader._state_df(full_states, dataset, irq)
     full_df, _ = loader._remove_voice_reg(full_df, dataset.reg_widths)

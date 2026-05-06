@@ -275,8 +275,7 @@ class DecodeState:
             self.gate_palette = {}
             self.gate_palette_frozen = False
         # Frame index at which each palette slot was first defined.
-        # Populated by ``observe_frame`` when ``frame_idx`` is provided;
-        # consumed by ``materialize_gate_palette_outside``.
+        # Populated by ``observe_frame`` when ``frame_idx`` is provided.
         self.gate_palette_def_frames = {}
         # Multi-frame instrument programs. ``instrument_palette[idx]`` is a
         # tuple of ``(rel_frame, reg_offset, val)`` triples. Reg offsets are
@@ -2497,66 +2496,6 @@ def expand_loops(df):
     return expanded
 
 
-def materialize_back_refs_outside(df, slice_lo_frame, slice_hi_frame):
-    """For Case A: rewrite ``df`` so that any BACK_REF whose target falls
-    outside ``[slice_lo_frame, slice_hi_frame)`` (in logical output frames)
-    is replaced with the literal frames it would have copied. The result
-    is still a valid encoded stream, but every surviving BACK_REF in the
-    slice ``[slice_lo_frame, slice_hi_frame)`` resolves within the slice.
-
-    Use this when extracting a prompt window from a longer parsed stream
-    so the prompt is self-contained.
-    """
-    if "op" not in df.columns or not df["op"].isin([BACK_REF_OP]).any():
-        return df
-
-    # First, fully expand to obtain the literal frame-row layout.
-    literal = expand_loops(df.copy())
-    literal_frame_starts = literal.index[
-        literal["reg"].isin(_FRAME_MARKER_REGS)
-    ].tolist()
-    literal_frame_starts.append(len(literal))
-
-    cols = list(df.columns)
-    out = []
-    output_frame_count = 0
-    n = len(df)
-    i = 0
-    while i < n:
-        row = df.iloc[i]
-        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
-        if op == BACK_REF_OP:
-            distance, length = _unpack_back_ref(row["val"])
-            target = output_frame_count - distance
-            if target < slice_lo_frame:
-                # Materialize: copy literal rows for frames [target, target+length).
-                for f in range(target, target + length):
-                    s = literal_frame_starts[f]
-                    e = literal_frame_starts[f + 1]
-                    for r in range(s, e):
-                        out.append({c: literal.iloc[r][c] for c in cols})
-                output_frame_count += length
-                i += 1
-                continue
-            # Keep the back-ref as-is.
-            out.append({c: row[c] for c in cols})
-            output_frame_count += length
-            i += 1
-            continue
-        out.append({c: row[c] for c in cols})
-        if row["reg"] in _FRAME_MARKER_REGS:
-            output_frame_count += 1
-        i += 1
-
-    rebuilt = pd.DataFrame(out, columns=cols)
-    for col, dt in df.dtypes.items():
-        try:
-            rebuilt[col] = rebuilt[col].astype(dt)
-        except (TypeError, ValueError):
-            pass
-    return rebuilt.reset_index(drop=True)
-
-
 def _build_decode_state(df):
     """Construct a ``DecodeState`` seeded the same way ``_expand_ops`` does:
     ``frame_diff`` from the first FRAME_REG row, and ``last_diff`` per reg
@@ -2574,7 +2513,12 @@ def _build_decode_state(df):
 def _simulate_palette(literal_df):
     """Walk a loop-expanded df through ``DECODERS`` exactly the way
     ``_expand_ops`` does and return the populated ``DecodeState`` (with
-    ``gate_palette`` and ``gate_palette_def_frames`` filled in)."""
+    ``gate_palette`` and ``gate_palette_def_frames`` filled in).
+
+    Used by ``validate_gate_replays`` to verify every GATE_REPLAY_OP
+    resolves to a palette slot defined by the time the row is reached
+    -- ``GateReplayDecoder.expand`` raises if it doesn't.
+    """
     state = _build_decode_state(literal_df)
     if state is None:
         return None
@@ -2636,194 +2580,6 @@ def _simulate_palette(literal_df):
         f_writes.extend(state.tick_frame())
         finalize(f_writes)
     return state
-
-
-def materialize_gate_palette_outside(df, slice_lo_frame, slice_hi_frame):
-    """Mirror of ``materialize_back_refs_outside`` for ``GATE_REPLAY_OP``.
-
-    Rewrite ``df`` so that any ``GATE_REPLAY_OP`` row in
-    ``[slice_lo_frame, slice_hi_frame)`` whose palette slot was first
-    defined *before* ``slice_lo_frame`` is replaced by literal SET rows
-    for the bundle's ``(ctrl, AD, SR)`` bytes. The result keeps any
-    ``GATE_REPLAY_OP`` whose definition frame lies within the slice, so
-    the slice remains self-resolving.
-
-    Caller is responsible for running ``materialize_back_refs_outside``
-    first if the encoded form contains ``BACK_REF_OP`` rows pointing
-    outside the slice.
-    """
-    if "op" not in df.columns or not df["op"].isin([GATE_REPLAY_OP]).any():
-        return df
-
-    # Build palette state from the loop-expanded form so distances and
-    # frame indices line up with the slice coordinate system.
-    literal = expand_loops(df.copy())
-    sim = _simulate_palette(literal)
-    if sim is None:
-        return df
-
-    cols = list(df.columns)
-    out = []
-    output_frame_count = 0
-    n = len(df)
-    description_default = 0
-    if "description" in cols and len(df):
-        try:
-            description_default = int(df["description"].iloc[0])
-        except (TypeError, ValueError):
-            description_default = 0
-
-    def append_set_row(template, reg, val):
-        new_row = {c: template[c] for c in cols}
-        new_row["reg"] = int(reg)
-        new_row["val"] = int(val)
-        new_row["op"] = int(SET_OP)
-        new_row["subreg"] = -1
-        out.append(new_row)
-
-    for i in range(n):
-        row = df.iloc[i]
-        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
-        reg = int(row["reg"])
-        if op == GATE_REPLAY_OP:
-            v = reg // VOICE_REG_SIZE
-            d = int(row["subreg"]) & 1
-            idx = int(row["val"])
-            def_frame = sim.gate_palette_def_frames.get((v, d, idx))
-            # GATE_REPLAY_OP sits *inside* a frame; the preceding FRAME_REG /
-            # DELAY_REG has already advanced output_frame_count, so the
-            # replay's own frame index is one less than the running count.
-            replay_frame = output_frame_count - 1
-            in_slice = slice_lo_frame <= replay_frame < slice_hi_frame
-            if in_slice and def_frame is not None and def_frame < slice_lo_frame:
-                bundle = sim.gate_palette[(v, d)][idx]
-                ctrl_reg, ad_reg, sr_reg = GATE_REGS_BY_VOICE[v]
-                # Emit literal SETs in (ctrl, AD, SR) order. SubregPass-
-                # style nibble splitting isn't needed because the decoder
-                # accepts subreg=-1 full-byte SETs on these regs.
-                append_set_row(row, ctrl_reg, bundle[0])
-                append_set_row(row, ad_reg, bundle[1])
-                append_set_row(row, sr_reg, bundle[2])
-                continue
-            out.append({c: row[c] for c in cols})
-            continue
-        out.append({c: row[c] for c in cols})
-        if reg == FRAME_REG or reg == DELAY_REG:
-            # Logical-slot coords (one per frame-marker row), matching
-            # materialize_back_refs_outside.
-            output_frame_count += 1
-
-    rebuilt = pd.DataFrame(out, columns=cols)
-    for col, dt in df.dtypes.items():
-        try:
-            rebuilt[col] = rebuilt[col].astype(dt)
-        except (TypeError, ValueError):
-            pass
-    return rebuilt.reset_index(drop=True)
-
-
-def materialize_instrument_palette_outside(df, slice_lo_frame, slice_hi_frame):
-    """Mirror of ``materialize_gate_palette_outside`` for ``PLAY_INSTRUMENT_OP``.
-
-    Replace any ``PLAY_INSTRUMENT_OP`` row inside
-    ``[slice_lo_frame, slice_hi_frame)`` whose program slot was first
-    *defined* (captured) before ``slice_lo_frame`` with the program's
-    literal multi-frame writes. The captured program is split per
-    ``rel_frame``: rel_frame 0 expands inline at the PLAY_INSTRUMENT_OP
-    row's position; rel_frame 1..L-1 are queued and flushed *after* the
-    next L-1 frame markers (FRAME_REG / DELAY_REG).
-
-    Programs exclude gate-bundle regs (ctrl/AD/SR), so the expansion
-    won't re-grow ``gate_palette`` -- the caller should also run
-    ``materialize_gate_palette_outside`` to handle GATE_REPLAY_OP refs
-    independently.
-    """
-    if "op" not in df.columns or not df["op"].isin([PLAY_INSTRUMENT_OP]).any():
-        return df
-
-    literal = expand_loops(df.copy())
-    sim = _simulate_palette(literal)
-    if sim is None:
-        return df
-
-    cols = list(df.columns)
-    out = []
-    output_frame_count = 0
-    n = len(df)
-    description_default = 0
-    if "description" in cols and len(df):
-        try:
-            description_default = int(df["description"].iloc[0])
-        except (TypeError, ValueError):
-            description_default = 0
-
-    # Per-voice queue of remaining (rel_frame, reg_off, val) lists to
-    # flush after upcoming frame markers. Each entry is a list of writes
-    # for one rel_frame; popping the head fires those writes.
-    pending_per_voice = {v: [] for v in range(VOICES)}
-
-    def append_set_row(template, reg, val):
-        new_row = {c: template[c] for c in cols}
-        new_row["reg"] = int(reg)
-        new_row["val"] = int(val)
-        new_row["op"] = int(SET_OP)
-        new_row["subreg"] = -1
-        out.append(new_row)
-
-    for i in range(n):
-        row = df.iloc[i]
-        op = int(row["op"]) if not pd.isna(row["op"]) else SET_OP
-        reg = int(row["reg"])
-        if op == PLAY_INSTRUMENT_OP:
-            v = reg // VOICE_REG_SIZE
-            idx = int(row["val"])
-            length = int(row["subreg"])
-            def_frame = sim.instrument_palette_def_frames.get(idx)
-            replay_frame = output_frame_count - 1
-            in_slice = slice_lo_frame <= replay_frame < slice_hi_frame
-            if (
-                in_slice
-                and def_frame is not None
-                and def_frame < slice_lo_frame
-                and 0 <= idx < len(sim.instrument_palette)
-            ):
-                program = sim.instrument_palette[idx]
-                voice_base = v * VOICE_REG_SIZE
-                # Group program writes by rel_frame.
-                per_frame = [[] for _ in range(max(1, length))]
-                for rel_frame, reg_off, val in program:
-                    if 0 <= rel_frame < len(per_frame):
-                        per_frame[rel_frame].append(
-                            (voice_base + int(reg_off), int(val))
-                        )
-                # Emit rel_frame=0 writes inline now.
-                for r, vv in per_frame[0]:
-                    append_set_row(row, r, vv)
-                # Queue the remaining frames; consumed at upcoming markers.
-                pending_per_voice[v].extend(per_frame[1:])
-                continue
-            out.append({c: row[c] for c in cols})
-            continue
-        out.append({c: row[c] for c in cols})
-        if reg == FRAME_REG or reg == DELAY_REG:
-            # When this frame closes, drain one rel_frame's worth of
-            # pending writes per voice into the next frame (i.e., emit
-            # them BEFORE the next frame's existing rows). Inserted as
-            # SETs immediately after the marker we just appended.
-            for v in range(VOICES):
-                if pending_per_voice[v]:
-                    next_frame_writes = pending_per_voice[v].pop(0)
-                    for r, vv in next_frame_writes:
-                        append_set_row(row, r, vv)
-            output_frame_count += 1
-
-    rebuilt = pd.DataFrame(out, columns=cols)
-    for col, dt in df.dtypes.items():
-        try:
-            rebuilt[col] = rebuilt[col].astype(dt)
-        except (TypeError, ValueError):
-            pass
-    return rebuilt.reset_index(drop=True)
 
 
 def expand_to_literal_form(df, args=None):

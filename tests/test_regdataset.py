@@ -14,7 +14,7 @@ from preframr.regdataset import (
     glob_dumps,
     parser_worker,
 )
-from preframr.seq_mapper import SeqMeta
+from preframr.block_mapper import SeqMeta
 from preframr.stfconstants import (
     DUMP_SUFFIX,
     FRAME_REG,

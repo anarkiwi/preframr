@@ -28,9 +28,6 @@ from preframr.macros import (
     _pack_back_ref,
     expand_loops,
     iter_self_contained_row_blocks,
-    materialize_back_refs_outside,
-    materialize_gate_palette_outside,
-    materialize_instrument_palette_outside,
     run_passes,
     validate_back_refs,
     validate_gate_replays,
@@ -752,44 +749,6 @@ class TestLoopPass(unittest.TestCase):
             )
 
 
-class TestMaterializeBackRefsOutside(unittest.TestCase):
-    def test_keeps_self_contained_back_refs(self):
-        # Build a stream where BACK_REF target is INSIDE the slice -- should keep it.
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(4, 8, op=SET_OP),
-                _frame(),
-                _row(5, 10, op=SET_OP),
-                _back_ref_row(
-                    distance=2, length=2
-                ),  # target frames 0, 1 (within slice [0,2))
-            ]
-        )
-        out = materialize_back_refs_outside(df, slice_lo_frame=0, slice_hi_frame=2)
-        # back-ref kept (target 0, 1 are >= slice_lo_frame=0)
-        self.assertEqual(int((out["op"] == BACK_REF_OP).sum()), 1)
-
-    def test_materializes_escapee_back_refs(self):
-        # back-ref target is BEFORE slice_lo -- materialize.
-        df = pd.DataFrame(
-            [
-                _frame(),
-                _row(4, 8, op=SET_OP),  # frame 0
-                _frame(),
-                _row(5, 10, op=SET_OP),  # frame 1
-                _back_ref_row(distance=2, length=2),  # target frames 0, 1
-            ]
-        )
-        # Pretend slice starts at frame 2 (i.e. only the back-ref row is in slice)
-        # The back-ref's targets (0, 1) are < slice_lo=2 -> escapee -> materialize.
-        out = materialize_back_refs_outside(df, slice_lo_frame=2, slice_hi_frame=4)
-        self.assertEqual(int((out["op"] == BACK_REF_OP).sum()), 0)
-        # Should have inlined frames 0 and 1's literal rows
-        # Original literal rows + 2 inlined frames (4 rows)
-        self.assertEqual(len(out), 4 + 4)
-
-
 class TestValidateBackRefs(unittest.TestCase):
     def test_valid_passes(self):
         df = pd.DataFrame(
@@ -1004,43 +963,6 @@ class TestGateMacroPass(unittest.TestCase):
             sorted(int(r) for r in replays["reg"].tolist()),
             [4, 4 + VOICE_REG_SIZE],
         )
-
-
-class TestMaterializeGatePaletteOutside(unittest.TestCase):
-    def _three_transition_stream(self):
-        return pd.DataFrame(
-            [_frame()]
-            + _gate_on_bundle()  # frame 0
-            + [_frame()]
-            + _gate_off_bundle()  # frame 1
-            + [_frame()]
-            + _gate_on_bundle()  # frame 2: replay slot 0
-        )
-
-    def test_keeps_in_slice_definition(self):
-        # Slice covers all 3 frames -- the replay's slot is defined at frame 0
-        # which is inside the slice, so leave the replay alone.
-        encoded = GateMacroPass().apply(self._three_transition_stream())
-        out = materialize_gate_palette_outside(
-            encoded, slice_lo_frame=0, slice_hi_frame=3
-        )
-        self.assertEqual(int((out["op"] == GATE_REPLAY_OP).sum()), 1)
-
-    def test_materializes_pre_slice_definition(self):
-        # Slice starts at frame 2 -- the replay's slot was defined at frame 0
-        # (before slice_lo_frame), so inline the literal SETs.
-        encoded = GateMacroPass().apply(self._three_transition_stream())
-        out = materialize_gate_palette_outside(
-            encoded, slice_lo_frame=2, slice_hi_frame=3
-        )
-        self.assertEqual(int((out["op"] == GATE_REPLAY_OP).sum()), 0)
-        # Three SET rows (ctrl, AD, SR) replace the GATE_REPLAY_OP row.
-        materialised = out[
-            (out["op"] == SET_OP) & (out["reg"].isin([4, 5, 6])) & (out["subreg"] == -1)
-        ]
-        # Frame 0 bundle (3 SETs on regs 4/5/6) + frame 1 gate-off (1 SET on
-        # reg 4) + materialised replay at frame 2 (3 SETs) = 7.
-        self.assertEqual(len(materialised), 7)
 
 
 class TestValidateGateReplays(unittest.TestCase):
@@ -1298,62 +1220,6 @@ class TestInstrumentProgramPass(unittest.TestCase):
         # not a count assertion.
         baseline = DedupSetPass().apply(df.copy())
         _assert_round_trip(self, baseline, encoded)
-
-
-class TestMaterializeInstrumentPaletteOutside(unittest.TestCase):
-    """Mirror of TestMaterializeGatePaletteOutside for instrument programs.
-    Programs are post-bundle-decoupling so they exclude ctrl/AD/SR; the
-    materialised expansion is voice-confined to non-bundle regs.
-    """
-
-    def _gate_on(self, voice, ctrl=0x41, ad=0xF0, sr=0x20):
-        base = voice * VOICE_REG_SIZE
-        return [
-            _row(base + 4, ctrl, op=SET_OP),
-            _row(base + 5, ad, op=SET_OP),
-            _row(base + 6, sr, op=SET_OP),
-        ]
-
-    def _gate_off(self, voice, ctrl=0x40):
-        base = voice * VOICE_REG_SIZE
-        return [_row(base + 4, ctrl, op=SET_OP)]
-
-    def _two_freq_program(self):
-        # voice 0 program with non-bundle freq writes that observe_frame
-        # will capture into instrument_palette. Three repeats of:
-        #   gate-on + freq write at frame 0
-        #   freq write at frame 1
-        #   gate-off
-        rows = [_frame()]
-        for _ in range(3):
-            rows += self._gate_on(0)
-            rows += [_row(0, 100, op=SET_OP)]  # freq_lo at rel_frame=0
-            rows += [_frame()]
-            rows += [_row(0, 200, op=SET_OP)]  # freq_lo at rel_frame=1
-            rows += [_frame()]
-            rows += self._gate_off(0)
-            rows += [_frame()]
-        return pd.DataFrame(rows)
-
-    def test_in_slice_definition_kept(self):
-        df = self._two_freq_program()
-        encoded = run_passes(
-            df.copy(),
-            args=FakeArgs(
-                gate_palette_cap=None,
-                instrument_window=8,
-                instrument_palette_cap=None,
-                loop_pass=False,
-                fuzzy_loop_pass=False,
-            ),
-        )
-        # Slice covering everything -- no PLAY_INSTRUMENT_OP should be
-        # expanded (its slot is defined within the slice).
-        play_count = int((encoded["op"] == PLAY_INSTRUMENT_OP).sum())
-        out = materialize_instrument_palette_outside(
-            encoded, slice_lo_frame=0, slice_hi_frame=100
-        )
-        self.assertEqual(int((out["op"] == PLAY_INSTRUMENT_OP).sum()), play_count)
 
 
 class TestIterSelfContainedRowBlocks(unittest.TestCase):

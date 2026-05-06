@@ -3,7 +3,7 @@ import os
 import unittest
 import numpy as np
 
-from preframr.seq_mapper import BlockMapper, SeqMeta
+from preframr.block_mapper import BlockMapper, SeqMeta
 
 
 class TestBlockMapper(unittest.TestCase):
