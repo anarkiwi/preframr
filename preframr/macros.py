@@ -1775,6 +1775,13 @@ class LoopPass(MacroPass):
             _frame_stripped_contents_batch(df, frames) if loop_transposed else None
         )
         sizes = [e - s for s, e in frames]
+        # ``sizes_cumsum[i]`` = sum(sizes[:i]). Lets every body_rows
+        # computation be O(1) instead of an O(length) Python sum genexpr
+        # called inside best_lz / best_lz_transposed / best_lz_fuzzy /
+        # best_do (137M iterations on Techno_Aha before this).
+        sizes_cumsum = np.zeros(n_frames + 1, dtype=np.int64)
+        if sizes:
+            sizes_cumsum[1:] = np.cumsum(np.asarray(sizes, dtype=np.int64))
 
         # Fuzzy match needs per-frame musical fingerprints (so musically
         # equivalent frames hash the same despite byte-level state drift)
@@ -1811,6 +1818,19 @@ class LoopPass(MacroPass):
         # ``df.iloc[r].to_dict()`` pattern (each call ~5ms in pandas).
         all_records = df.to_dict("records")
         snapshot_regs = sorted(snapshots[0].keys()) if snapshots else []
+        # Materialise snapshots into a (n_frames, n_snapshot_regs) ndarray
+        # so ``compute_overlays`` is a numpy slice + nonzero instead of
+        # ``2 * len(snapshot_regs) * length`` dict.get's per call. With
+        # snapshot_regs ~ 24 and ~1.15M overlay computations on the
+        # largest training song, this drops 552M dict.get's (30s self).
+        snapshot_regs_arr = np.asarray(snapshot_regs, dtype=np.int64)
+        if snapshots:
+            snap_arr = np.zeros((len(snapshots), len(snapshot_regs)), dtype=np.int64)
+            for fi, snap in enumerate(snapshots):
+                for ri, r in enumerate(snapshot_regs):
+                    snap_arr[fi, ri] = int(snap.get(r, 0))
+        else:
+            snap_arr = np.zeros((0, 0), dtype=np.int64)
 
         def best_do(i):
             best_save = 0
@@ -1828,7 +1848,7 @@ class LoopPass(MacroPass):
                     j += body_len
                 if n < self.min_do_repeat:
                     continue
-                body_rows = sum(sizes[i + k] for k in range(body_len))
+                body_rows = int(sizes_cumsum[i + body_len] - sizes_cumsum[i])
                 save = (n - 1) * body_rows - self.do_wrap_cost
                 if save > best_save:
                     best_save, best_body, best_n = save, body_len, n
@@ -1856,7 +1876,7 @@ class LoopPass(MacroPass):
                     length += 1
                 if length < self.min_lz_match:
                     continue
-                body_rows = sum(sizes[i + k] for k in range(length))
+                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
                 save = body_rows - self.ref_cost
                 if save > best_save:
                     best_save, best_dist, best_len = save, i - cand, length
@@ -1880,7 +1900,9 @@ class LoopPass(MacroPass):
                 if cand >= i:
                     continue
                 # Walk frames; verify a single uniform delta holds across
-                # all freq SETs and other rows match exactly.
+                # all freq SETs and other rows match exactly. Frames are
+                # ~10-30 rows; per-call numpy overhead exceeds savings,
+                # so the inner loop stays Python tuple comparison.
                 length = 0
                 delta = None
                 while (
@@ -1927,7 +1949,7 @@ class LoopPass(MacroPass):
                 # PATTERN_OVERLAY = 2 rows. Vocab pressure now folds
                 # into the existing PATTERN_REPLAY/PATTERN_OVERLAY
                 # classes (subsuming the old BACK_REF_TRANSPOSED_OP).
-                body_rows = sum(sizes[i + k] for k in range(length))
+                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
                 save = body_rows - (self.ref_cost + 1)
                 if save > best_save:
                     best_save, best_dist, best_len, best_delta = (
@@ -2033,14 +2055,19 @@ class LoopPass(MacroPass):
                     _seed_pair(i + k)
 
         def compute_overlays(src_idx, dst_idx, length):
-            overlays = []  # list of (frame_offset, reg, val)
-            for k in range(length):
-                src = snapshots[src_idx + k]
-                dst = snapshots[dst_idx + k]
-                for r in snapshot_regs:
-                    if src.get(r, 0) != dst.get(r, 0):
-                        overlays.append((k, r, dst.get(r, 0)))
-            return overlays
+            # Vectorised diff of two (length, n_snapshot_regs) views; one
+            # numpy compare instead of length * n_snapshot_regs * 2 dict
+            # lookups. ``np.nonzero`` returns the (k, ridx) pairs where
+            # the snapshots differ; map ridx → reg via snapshot_regs_arr.
+            src_view = snap_arr[src_idx : src_idx + length]
+            dst_view = snap_arr[dst_idx : dst_idx + length]
+            diff_mask = src_view != dst_view
+            ks, ridxs = np.nonzero(diff_mask)
+            if ks.size == 0:
+                return []
+            regs_out = snapshot_regs_arr[ridxs]
+            vals_out = dst_view[ks, ridxs]
+            return list(zip(ks.tolist(), regs_out.tolist(), vals_out.tolist()))
 
         # Fuzzy match: same byte cost as BACK_REF (1 token) plus one
         # PATTERN_OVERLAY_OP per differing reg per frame. Only beats
@@ -2074,7 +2101,7 @@ class LoopPass(MacroPass):
                 if length < min_fuzzy_match:
                     continue
                 overlays = compute_overlays(cand, i, length)
-                body_rows = sum(sizes[i + k] for k in range(length))
+                body_rows = int(sizes_cumsum[i + length] - sizes_cumsum[i])
                 cost = 1 + len(overlays)
                 save = body_rows - cost
                 if save > best_save:
