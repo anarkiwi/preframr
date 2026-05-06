@@ -614,6 +614,61 @@ def _pattern_overlay_row(frame_offset, target_reg, new_val, diff=32):
     }
 
 
+class TestBuildDecodeState(unittest.TestCase):
+    """Coverage for ``_build_decode_state`` -- the consolidated
+    DecodeState constructor that replaced 5 open-coded sites in the
+    pass apply methods."""
+
+    def test_returns_none_without_frame_reg(self):
+        from preframr.macros import _build_decode_state
+
+        df = pd.DataFrame([_row(4, 8, op=SET_OP)])
+        self.assertIsNone(_build_decode_state(df))
+
+    def test_seeds_frame_diff_from_first_frame(self):
+        from preframr.macros import _build_decode_state
+
+        df = pd.DataFrame([_frame(diff=20000), _row(4, 8, op=SET_OP)])
+        state = _build_decode_state(df)
+        self.assertEqual(state.frame_diff, 20000)
+
+    def test_seeds_last_diff_per_reg(self):
+        from preframr.macros import _build_decode_state
+
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP, diff=24),
+                _row(5, 10, op=SET_OP, diff=48),
+            ]
+        )
+        state = _build_decode_state(df)
+        self.assertEqual(state.last_diff[4], 24)
+        self.assertEqual(state.last_diff[5], 48)
+
+    def test_picks_up_args_gate_palette_cap(self):
+        import argparse
+
+        from preframr.macros import _build_decode_state
+
+        args = argparse.Namespace(gate_palette_cap=4)
+        df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)])
+        state = _build_decode_state(df, args=args)
+        self.assertEqual(state.gate_palette_cap, 4)
+
+    def test_picks_up_palettes(self):
+        from preframr.macros import Palettes, _build_decode_state
+
+        palettes = Palettes(
+            instrument_palette=[((0, 4, 1),)],
+            gate_palette={(0, 1): [(1, 2, 3)]},
+        )
+        df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)])
+        state = _build_decode_state(df, palettes=palettes)
+        self.assertTrue(state.instrument_palette_frozen)
+        self.assertTrue(state.gate_palette_frozen)
+
+
 class TestExpandLoops(unittest.TestCase):
     def test_no_loops_passthrough(self):
         df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)])

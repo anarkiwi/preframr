@@ -62,6 +62,24 @@ class _FastRow:
         self.Index = Index
 
 
+def _fastrow_from_arrs(arrs, i):
+    """Build a ``_FastRow`` from the per-column arrays produced by
+    ``_df_arrays_and_frames`` at row index ``i``. Centralises the
+    repeated ``_FastRow(reg=int(regs[i]), val=int(vals[i]), ...)``
+    pattern that appeared in 8+ pass walkers; one place to fix if the
+    columns ever change.
+    """
+    return _FastRow(
+        reg=int(arrs["reg"][i]),
+        val=int(arrs["val"][i]),
+        op=int(arrs["op"][i]),
+        subreg=int(arrs["subreg"][i]),
+        diff=int(arrs["diff"][i]),
+        description=int(arrs["description"][i]),
+        Index=int(arrs["Index"][i]),
+    )
+
+
 def _deserialize_gate_palette(attrs_value):
     """Restore a gate_palette dict from a ``df.attrs`` payload.
 
@@ -1409,25 +1427,7 @@ class SubregPass(MacroPass):
         # "value of the last SET row". Drive a real DecodeState through every
         # row's decoder so GATE_REPLAY's writes show up in last_val, and use
         # state.last_val[reg] as the SET's pre-image.
-        frame_rows = df[df["reg"] == FRAME_REG]["diff"]
-        if frame_rows.empty:
-            state = None
-        else:
-            last_diff = {}
-            for reg in df["reg"].unique():
-                sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
-                last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
-            cap = getattr(args, "gate_palette_cap", None) if args is not None else None
-            frozen_instr = palettes.instrument_palette if palettes is not None else None
-            frozen_gate = palettes.gate_palette if palettes is not None else None
-            state = DecodeState(
-                int(frame_rows.iloc[0]),
-                last_diff=last_diff,
-                strict=False,
-                gate_palette_cap=cap,
-                frozen_instrument_palette=frozen_instr,
-                frozen_gate_palette=frozen_gate,
-            )
+        state = _build_decode_state(df, args=args, palettes=palettes)
 
         last_emitted_reg = None  # most recently emitted subreg row's reg
         last_emitted_nib = None  # ... and nibble (0 or 1)
@@ -2506,15 +2506,7 @@ def _per_frame_state_walk(df):
             decoder = DECODERS.get(op)
             if decoder is None:
                 continue
-            row = _FastRow(
-                reg=reg,
-                val=int(vals[i]),
-                op=op,
-                subreg=subreg,
-                diff=int(diffs[i]),
-                description=int(descs[i]),
-                Index=int(indices[i]),
-            )
+            row = _fastrow_from_arrs(arrs, i)
             writes = decoder.expand(row, state)
             if writes:
                 f_writes.extend(writes)
@@ -2737,18 +2729,49 @@ def expand_loops(df):
     return expanded
 
 
-def _build_decode_state(df):
-    """Construct a ``DecodeState`` seeded the same way ``_expand_ops`` does:
-    ``frame_diff`` from the first FRAME_REG row, and ``last_diff`` per reg
-    from each reg's first SET. Returns ``None`` if there is no FRAME_REG."""
-    fr = df[df["reg"] == FRAME_REG]["diff"]
-    if fr.empty:
-        return None
+def _build_last_diff(df):
+    """Per-reg first-SET diff lookup. Returns ``{int(reg): int(diff)}``
+    with ``MIN_DIFF`` as the fallback when a reg has no SET row.
+
+    Hoisted so the various ``DecodeState``-building call sites
+    (``_build_decode_state`` here + the per-pass apply methods) share
+    the same lookup logic; previously they each open-coded the same
+    loop.
+    """
     last_diff = {}
     for reg in df["reg"].unique():
         sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
         last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
-    return DecodeState(int(fr.iloc[0]), last_diff=last_diff, strict=False)
+    return last_diff
+
+
+def _build_decode_state(df, args=None, palettes=None, strict=False):
+    """Construct a ``DecodeState`` seeded the same way ``_expand_ops`` does:
+    ``frame_diff`` from the first FRAME_REG row, ``last_diff`` per reg
+    from each reg's first SET. Returns ``None`` if there is no FRAME_REG.
+
+    ``args`` (optional Namespace): picks up ``gate_palette_cap`` from
+    ``args.gate_palette_cap`` if present.
+    ``palettes`` (optional ``Palettes``): if provided, seeds the state
+    with frozen instrument / gate palettes so downstream walkers
+    initialise from the encoder's authoritative palette instead of
+    growing their own by observation.
+    """
+    fr = df[df["reg"] == FRAME_REG]["diff"]
+    if fr.empty:
+        return None
+    last_diff = _build_last_diff(df)
+    cap = getattr(args, "gate_palette_cap", None) if args is not None else None
+    frozen_instr = palettes.instrument_palette if palettes is not None else None
+    frozen_gate = palettes.gate_palette if palettes is not None else None
+    return DecodeState(
+        int(fr.iloc[0]),
+        last_diff=last_diff,
+        strict=strict,
+        gate_palette_cap=cap,
+        frozen_instrument_palette=frozen_instr,
+        frozen_gate_palette=frozen_gate,
+    )
 
 
 def _simulate_palette(literal_df):
@@ -3086,19 +3109,9 @@ class GateMacroPass(MacroPass):
         if "description" not in df.columns:
             df["description"] = 0
 
-        frame_diff_rows = df[df["reg"] == FRAME_REG]["diff"]
-        if frame_diff_rows.empty:
+        state = _build_decode_state(df, args=args)
+        if state is None:
             return df
-        frame_diff = int(frame_diff_rows.iloc[0])
-
-        last_diff = {}
-        for reg in df["reg"].unique():
-            sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
-            last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
-        cap = getattr(args, "gate_palette_cap", None) if args is not None else None
-        state = DecodeState(
-            frame_diff, last_diff=last_diff, strict=False, gate_palette_cap=cap
-        )
 
         arrs, frame_starts = _df_arrays_and_frames(df)
         regs_all = arrs["reg"]
@@ -3307,14 +3320,11 @@ class InstrumentProgramPass(MacroPass):
         # will, so ``observe_frame``'s captured programs match and
         # PLAY_INSTRUMENT_OP slot indices stay aligned across walks.
         df = self._sort_strict_voice_order(df)
-        frame_diff_rows = df[df["reg"] == FRAME_REG]["diff"]
-        if frame_diff_rows.empty:
+        fr = df[df["reg"] == FRAME_REG]["diff"]
+        if fr.empty:
             return df
-        frame_diff = int(frame_diff_rows.iloc[0])
-        last_diff = {}
-        for reg in df["reg"].unique():
-            sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
-            last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
+        frame_diff = int(fr.iloc[0])
+        last_diff = _build_last_diff(df)
 
         gate_cap = getattr(args, "gate_palette_cap", None) if args is not None else None
         instr_window = getattr(args, "instrument_window", 8) if args is not None else 8
@@ -3614,26 +3624,9 @@ class DedupSetPass(MacroPass):
         df = _ensure_subreg(df)
         if "description" not in df.columns:
             df["description"] = 0
-        frame_rows = df[df["reg"] == FRAME_REG]["diff"]
-        if frame_rows.empty:
+        state = _build_decode_state(df, args=args, palettes=palettes)
+        if state is None:
             return df
-        frame_diff = int(frame_rows.iloc[0])
-
-        last_diff = {}
-        for reg in df["reg"].unique():
-            sub = df[(df["reg"] == reg) & (df["op"] == SET_OP)]["diff"]
-            last_diff[int(reg)] = int(sub.iloc[0]) if len(sub) else MIN_DIFF
-        cap = getattr(args, "gate_palette_cap", None) if args is not None else None
-        frozen_instr = palettes.instrument_palette if palettes is not None else None
-        frozen_gate = palettes.gate_palette if palettes is not None else None
-        state = DecodeState(
-            frame_diff,
-            last_diff=last_diff,
-            strict=False,
-            gate_palette_cap=cap,
-            frozen_instrument_palette=frozen_instr,
-            frozen_gate_palette=frozen_gate,
-        )
 
         arrs, frame_starts = _df_arrays_and_frames(df)
         regs = arrs["reg"]
