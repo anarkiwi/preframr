@@ -129,6 +129,15 @@ def add_args(parser):
     )
     parser.add_argument("--predictions", type=int, default=1)
     parser.add_argument("--cents", type=int, default=50)
+    # Sampling-time logit guard. When on, predict masks structurally-invalid
+    # macro tokens (BACK_REF / PATTERN_REPLAY whose distance reaches before
+    # frame 0 of the running buffer; PATTERN_OVERLAY at top level) before
+    # sampling. Default off to keep memorize bit-exact; opt-in via the
+    # generalize int test where unconstrained sampling otherwise produces
+    # streams the safety net rejects.
+    parser.add_argument(
+        "--constrained-decode", action=argparse.BooleanOptionalAction, default=False
+    )
     parser.add_argument(
         "--max-autotune", action=argparse.BooleanOptionalAction, default=True
     )

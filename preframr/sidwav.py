@@ -221,6 +221,16 @@ def write_samples(
         for reg, val in sorted(reg_start.items()):
             write_reg(proxy, reg, val, reg_widths)
 
+        # ``delay`` for FRAME_REG rows is ``irq_cycles - sum(diffs in
+        # prev frame) * sidq``. LM-generated streams can produce frames
+        # whose per-row diffs exceed the IRQ window, yielding negative
+        # delay; pyresidfp.clock() rejects negative cycles. Clip to 0 on
+        # a copy of the column so over-budget frames render slightly fast
+        # rather than aborting the render. The clip happens before
+        # ``total_secs`` so the sample buffer is sized for what we'll
+        # actually emit (otherwise the post-clip stream overruns).
+        df = df.copy()
+        df["delay"] = df["delay"].clip(lower=0)
         total_secs = df["delay"].sum() + 1
         sp = 0
         raw_samples = np.zeros(int(sid.sampling_frequency * total_secs), dtype=np.int16)

@@ -7,45 +7,142 @@ import os
 from pathlib import Path
 import sys
 
+import numpy as np
 import pandas as pd
 import pyarrow
 
 pyarrow.PyExtensionType = pyarrow.ExtensionType
-from torchtune.generation import generate
+from torchtune.generation import generate, sample as _tt_sample
 import torch
 import torchmetrics
 
 from preframr.args import add_args, MODEL_PRECISION
+from preframr.constrained_decode import (
+    StreamState,
+    _frame_marker_count,
+    precompute_vocab_arrays,
+)
 from preframr.macros import validate_back_refs, validate_gate_replays
 from preframr.model import get_device, Model
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
 from preframr.sidwav import write_samples, sidq
-from preframr.stfconstants import MODEL_PDTYPE, PAD_ID
+from preframr.stfconstants import MIN_DIFF, MODEL_PDTYPE, PAD_ID
 from preframr.utils import get_logger
 
 
 class Predictor:
-    def __init__(self, args, dataset, model, device):
+    def __init__(self, args, dataset, model, device, vocab_arrays=None, logger=None):
         self.args = args
         self.dataset = dataset
         self.model = model
         self.device = device
         self.rng = torch.Generator(device=self.device)
         self.rng.seed()
+        self.vocab_arrays = vocab_arrays
+        self.logger = logger
 
     @torch.inference_mode()
-    def predict(self, prompt, n, temperature=1.0, top_k=None):
-        output, _logits = generate(
-            self.model.model,
-            prompt.clone().to(self.device),
-            max_generated_tokens=n,
-            pad_id=PAD_ID,
-            top_k=top_k,
-            temperature=temperature,
-            rng=self.rng,
+    def predict(self, prompt, n, temperature=1.0, top_k=None, irq=None):
+        if self.vocab_arrays is None:
+            output, _logits = generate(
+                self.model.model,
+                prompt.clone().to(self.device),
+                max_generated_tokens=n,
+                pad_id=PAD_ID,
+                top_k=top_k,
+                temperature=temperature,
+                rng=self.rng,
+            )
+            return output.squeeze(0)[-n:]
+        return self._predict_constrained(prompt, n, temperature, top_k, irq)
+
+    @torch.inference_mode()
+    def _predict_constrained(self, prompt, n, temperature, top_k, irq):
+        # Forked from torchtune.generation.generate so we can mask logits
+        # uniformly on every step (including the first), not just inside
+        # the custom_generate_next_token loop. KV cache + causal mask
+        # bookkeeping mirrors the upstream incremental-decoding path.
+        model = self.model.model
+        prompt = prompt.clone().to(self.device)
+        prompt = prompt.view(1, -1) if prompt.ndim == 1 else prompt
+        bsz, prompt_length = prompt.size()
+        total_len = prompt_length + n
+        max_seq_len = (
+            total_len
+            if not model.caches_are_enabled()
+            else model.decoder_max_cache_seq_len
         )
-        return output.squeeze(0)[-n:]
+
+        masks = torch.tril(
+            torch.ones(total_len, max_seq_len, dtype=torch.bool, device=self.device)
+        ).unsqueeze(0)
+        input_pos = torch.arange(0, total_len, device=self.device).unsqueeze(0)
+
+        prompt_ids = prompt.squeeze(0).tolist()
+        is_frame_marker_np = self.vocab_arrays["is_frame_marker"].cpu().numpy()
+        is_real_reg_np = self.vocab_arrays["is_real_reg"].cpu().numpy()
+        prompt_frames = _frame_marker_count(prompt_ids, is_frame_marker_np)
+        # Compute the budget remaining at the end of the prompt by walking
+        # back from the last frame marker, charging MIN_DIFF per real-reg
+        # row. Falls back to the full IRQ window if the prompt has no
+        # marker (very short prompt).
+        init_budget = irq
+        prompt_arr = np.asarray(prompt_ids, dtype=np.int64)
+        marker_positions = np.nonzero(is_frame_marker_np[prompt_arr])[0]
+        if marker_positions.size:
+            tail = prompt_arr[marker_positions[-1] + 1 :]
+            charged = int(is_real_reg_np[tail].sum() * MIN_DIFF)
+            init_budget = max(irq - charged, 0)
+        state = StreamState(
+            self.vocab_arrays,
+            init_frame_count=prompt_frames,
+            irq=irq,
+            init_budget=init_budget,
+            logger=self.logger,
+        )
+
+        def _q():
+            return torch.empty(
+                (bsz, model.tok_embeddings.num_embeddings), device=self.device
+            ).exponential_(1, generator=self.rng)
+
+        def _step(curr_input_pos, curr_masks, x):
+            logits = model(x, input_pos=curr_input_pos, mask=curr_masks)[:, -1]
+            masked = state.mask_logits(logits)
+            return _tt_sample(
+                masked.clone(), temperature=temperature, top_k=top_k, q=_q()
+            )
+
+        # Step 0: forward the whole prompt, sample token after it.
+        if model.caches_are_enabled():
+            curr_masks = masks[:, :prompt_length]
+        else:
+            curr_masks = masks[:, :prompt_length, :prompt_length]
+        tok = _step(input_pos[:, :prompt_length].squeeze(), curr_masks, prompt)
+        state.update(tok.item())
+        generated = torch.cat([prompt, tok], dim=-1)
+
+        # Steps 1..n-1: incremental decode with KV cache.
+        # ``curr_pos`` is the sequence index of the token we just sampled
+        # (which becomes the input for the next forward pass), matching
+        # upstream torchtune.generate's bookkeeping.
+        curr_pos = prompt_length
+        for _ in range(n - 1):
+            if model.caches_are_enabled():
+                curr_input_pos = input_pos[:, curr_pos].contiguous()
+                curr_masks = masks[:, curr_pos, None, :].contiguous()
+                x = tok.clone()
+            else:
+                curr_input_pos = input_pos[:, : curr_pos + 1]
+                curr_masks = masks[:, : curr_pos + 1, : curr_pos + 1]
+                x = generated.clone()
+            tok = _step(curr_input_pos, curr_masks, x)
+            state.update(tok.item())
+            generated = torch.cat([generated, tok], dim=-1)
+            curr_pos += 1
+
+        return generated.squeeze(0)[-n:]
 
 
 def describe_cycles(cycles):
@@ -87,7 +184,7 @@ def generate_sequence(args, logger, dataset, predictor, p):
     )
 
     predict_states = predictor.predict(
-        prompt, n, temperature=args.temperature, top_k=args.top_k
+        prompt, n, temperature=args.temperature, top_k=args.top_k, irq=irq
     )
     states.extend(predict_states.tolist())
     completion_df = loader._state_df(
@@ -212,11 +309,17 @@ def load_model(args, logger):
 
 def run_predict(args, logger, dataset, model, device, model_compiler, p):
     model = model.to(device)
+    vocab_arrays = None
+    if getattr(args, "constrained_decode", False):
+        vocab_arrays = precompute_vocab_arrays(dataset.tokenizer.tokens, device)
+        logger.info("constrained decode enabled (vocab=%u)", vocab_arrays["n_vocab"])
     predictor = model_compiler(args, Predictor)(
         args,
         dataset,
         model,
         device,
+        vocab_arrays=vocab_arrays,
+        logger=logger,
     )
     generate_sequence(args, logger, dataset, predictor, p)
     model.cpu()

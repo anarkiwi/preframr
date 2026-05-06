@@ -156,6 +156,7 @@ for _sid in ${EVAL_SIDS}; do
         --min-acc 0 --predictions 1 \
         --predict-set val \
         --start-seq ${i} --start-block 0 \
+        --constrained-decode \
         --wav /scratch/preframr/eval-${i}.wav \
         --csv /scratch/preframr/eval-${i}.csv \
         2>&1 | tee "${LOG_DIR}/predict.${i}.log" || true
