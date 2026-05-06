@@ -18,7 +18,9 @@ def main():
     dataset = RegDataset(args, logger=logger)
     dataset.make_tokens(args.reglog)
     dataset.load()
-    irq, _n, prompt, _prompt_compare, reg_start = get_prompt(args, dataset, logger)
+    irq, _n, prompt, _prompt_compare, reg_start, _prompt_df = get_prompt(
+        args, dataset, logger
+    )
     states = prompt.squeeze(0).tolist()
     loader = RegLogParser()
     prompt_df = loader._state_df(dataset.tokenizer.decode(states), dataset, irq)

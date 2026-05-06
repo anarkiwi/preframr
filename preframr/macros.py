@@ -2905,6 +2905,13 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
     # num_blocks). Compute literal + marker_idx once, slice cheaply,
     # and ``run_passes`` only on each per-block slice.
     literal = expand_to_literal_form(df, args=args)
+    # Clear any inherited ``df.attrs`` (palettes published by run_passes
+    # upstream). The literal stream has no macros left to resolve, so
+    # the palette is dead weight here -- but every subsequent ``.iloc``
+    # / ``.copy`` of ``literal`` would otherwise deep-copy attrs via
+    # pandas ``__finalize__``. Skybox parse profile showed ~30s self
+    # in copy.deepcopy attributable to that storm.
+    literal.attrs.clear()
     lit_is_marker = literal["reg"].isin({FRAME_REG, DELAY_REG})
     marker_idx = literal.index[lit_is_marker].tolist()
     n_lit_frames = len(marker_idx)
@@ -2931,6 +2938,14 @@ def iter_self_contained_row_blocks(df, frames_per_block, args=None, stride=None)
         )
         if block.empty:
             continue
+        # ``run_passes`` attaches the per-block palette to ``block.attrs``
+        # (one-time write at end of run_passes). Downstream consumers
+        # (``_add_voice_reg``, ``_consolidate_frames``, BlockMapper)
+        # don't need it -- the block is fully encoded -- but every
+        # subsequent pandas op would deep-copy the attrs via
+        # ``__finalize__``. Clear here so the block ships with empty
+        # attrs.
+        block.attrs.clear()
         # Re-pack runs of FRAME_REG back into DELAY_REG so blocks use
         # the compact encoding. ``expand_to_literal_form`` (above)
         # destructured DELAY_REG val=N into N FRAME_REGs so per-frame
