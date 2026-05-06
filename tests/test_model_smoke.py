@@ -12,7 +12,7 @@ from preframr.model import Model
 from preframr.stfconstants import FRAME_REG, MODEL_PDTYPE, SET_OP
 
 
-def _tiny_args():
+def _tiny_args(**overrides):
     args = argparse.Namespace(
         embed=32,
         heads=4,
@@ -36,6 +36,8 @@ def _tiny_args():
         label_smoothing=0.0,
         model="llama3_2",
     )
+    for k, v in overrides.items():
+        setattr(args, k, v)
     return args
 
 
@@ -70,6 +72,68 @@ class TestModelInit(unittest.TestCase):
         with torch.no_grad():
             out = model.model(x)
         self.assertEqual(out.shape, torch.Size([1, 4, 3]))
+
+    def test_training_step_returns_scalar_loss(self):
+        # Cover the training_step body: per-token CE -> focal -> pad
+        # masking -> frame-weight reduction.
+        args = _tiny_args()
+        tokens = _tiny_tokens()
+        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
+        y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
+        loss = model.training_step((x, y), 0)
+        self.assertEqual(loss.dim(), 0)
+        self.assertTrue(torch.isfinite(loss))
+
+    def test_training_step_focal_loss_branch(self):
+        # focal_gamma > 0 takes the focal-scaling branch.
+        args = _tiny_args(focal_gamma=2.0, focal_alpha=0.5)
+        tokens = _tiny_tokens()
+        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
+        y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
+        loss = model.training_step((x, y), 0)
+        self.assertTrue(torch.isfinite(loss))
+
+    def test_training_step_l1_branch(self):
+        # l1_lambda > 0 adds the L1 norm to the loss.
+        args = _tiny_args(l1_lambda=0.001)
+        tokens = _tiny_tokens()
+        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
+        y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
+        loss = model.training_step((x, y), 0)
+        self.assertTrue(torch.isfinite(loss))
+
+    def test_validation_step_logs_acc_and_loss(self):
+        # validation_step does its own CE + pad_mask + accuracy. The
+        # underlying ``self.log`` call is a no-op in this test (no
+        # Trainer attached) but the math runs to completion.
+        args = _tiny_args()
+        tokens = _tiny_tokens()
+        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        # Stub out self.log so it doesn't try to talk to a Trainer.
+        log_calls = []
+
+        def _log(*args_, **kw_):
+            log_calls.append((args_, kw_))
+
+        model.log = _log
+        x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
+        y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
+        out = model.validation_step((x, y), 0)
+        self.assertTrue(torch.isfinite(out))
+        # val_loss + val_acc both logged.
+        names = [a[0] for (a, _) in log_calls]
+        self.assertIn("val_loss", names)
+        self.assertIn("val_acc", names)
+
+    def test_configure_optimizers(self):
+        args = _tiny_args()
+        tokens = _tiny_tokens()
+        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        opt = model.configure_optimizers()
+        self.assertIsNotNone(opt)
 
 
 if __name__ == "__main__":

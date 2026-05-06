@@ -160,6 +160,25 @@ class TestRegDatasetBasics(unittest.TestCase):
         self.assertIsNotNone(ds.tokenizer)
         self.assertEqual(len(ds), 0)
 
+    def test_preload_with_tokens_short_circuits(self):
+        # When ``tokens`` is passed explicitly, ``preload`` skips the
+        # alphabet-building chain entirely and just loads them.
+        from preframr.regdataset import RegDataset
+        from preframr.stfconstants import MODEL_PDTYPE, SET_OP
+
+        ds = RegDataset(self._args())
+        tokens = pd.DataFrame(
+            [
+                {"op": SET_OP, "reg": -1, "subreg": -1, "val": 0, "n": 0},
+                {"op": SET_OP, "reg": 0, "subreg": -1, "val": 5, "n": 1},
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+        ds.preload(tokens=tokens, tkmodel=None)
+        # Tokens loaded into the tokenizer.
+        self.assertIsNotNone(ds.tokenizer.tokens)
+        self.assertEqual(len(ds.tokenizer.tokens), 2)
+
     def test_load_dfs_requires_reglogs_or_dump_files(self):
         from preframr.regdataset import RegDataset
 

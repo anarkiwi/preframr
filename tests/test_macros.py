@@ -47,6 +47,8 @@ from preframr.stfconstants import (
     FRAME_REG,
     GATE_REPLAY_OP,
     INTERVAL_OP,
+    PATTERN_OVERLAY_OP,
+    PATTERN_REPLAY_OP,
     PLAY_INSTRUMENT_OP,
     LOOP_OP_REG,
     MODE_VOL_REG,
@@ -589,6 +591,29 @@ def _do_loop_end_row(diff=32):
     }
 
 
+def _pattern_replay_row(distance, length, num_overlays=0, diff=32):
+    return {
+        "reg": LOOP_OP_REG,
+        "subreg": num_overlays,
+        "val": _pack_back_ref(distance, length),
+        "diff": diff,
+        "op": PATTERN_REPLAY_OP,
+        "description": 0,
+    }
+
+
+def _pattern_overlay_row(frame_offset, target_reg, new_val, diff=32):
+    packed = (int(target_reg) << 16) | (int(new_val) & 0xFFFF)
+    return {
+        "reg": LOOP_OP_REG,
+        "subreg": frame_offset,
+        "val": packed,
+        "diff": diff,
+        "op": PATTERN_OVERLAY_OP,
+        "description": 0,
+    }
+
+
 class TestExpandLoops(unittest.TestCase):
     def test_no_loops_passthrough(self):
         df = pd.DataFrame([_frame(), _row(4, 8, op=SET_OP)])
@@ -648,6 +673,126 @@ class TestExpandLoops(unittest.TestCase):
                 _frame(),
                 _row(4, 8, op=SET_OP),
                 _back_ref_row(distance=2, length=4),  # overlaps current
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            expand_loops(df)
+
+    def test_pattern_replay_zero_overlays_copies_body(self):
+        # PATTERN_REPLAY with no overlays acts like BACK_REF: copies
+        # the body verbatim. This exercises the PATTERN_REPLAY branch
+        # of ``expand_loops`` (separate from BACK_REF_OP) with a
+        # trivial overlay block.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 0
+                _frame(),
+                _row(5, 10, op=SET_OP),  # frame 1
+                _pattern_replay_row(distance=2, length=2, num_overlays=0),
+            ]
+        )
+        out = expand_loops(df)
+        # Original 4 rows + 4 copied (2 frames x 2 rows each).
+        self.assertEqual(len(out), 8)
+        self.assertEqual(int(out.iloc[5]["val"]), 8)
+        self.assertEqual(int(out.iloc[7]["val"]), 10)
+
+    def test_pattern_replay_with_per_frame_overlay(self):
+        # PATTERN_REPLAY length=1 with one PATTERN_OVERLAY at
+        # frame_offset=0 substitutes a register write at that frame.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),  # frame 0
+                _frame(),
+                _pattern_replay_row(distance=2, length=1, num_overlays=1),
+                _pattern_overlay_row(frame_offset=0, target_reg=4, new_val=99),
+            ]
+        )
+        out = expand_loops(df)
+        # Body copy adds 1 frame's worth of rows; the overlay adds one
+        # extra SET row.
+        self.assertGreater(len(out), len(df))
+        # The overlay-applied SET should be in the output.
+        applied = out[(out["reg"] == 4) & (out["val"] == 99)]
+        self.assertEqual(len(applied), 1)
+
+    def test_orphan_pattern_overlay_raises(self):
+        # PATTERN_OVERLAY at top level (no preceding PATTERN_REPLAY)
+        # is the orphan condition the constrained-decode mask blocks
+        # at sample time; expand_loops still asserts it as a safety
+        # net. ``expand_loops`` only iterates when at least one
+        # BACK_REF / DO_LOOP / PATTERN_REPLAY is present, so include
+        # a BACK_REF to engage the walker.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _back_ref_row(distance=1, length=1),  # makes walker enter
+                _pattern_overlay_row(frame_offset=0, target_reg=4, new_val=99),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            expand_loops(df)
+
+    def test_pattern_replay_target_before_start_raises(self):
+        # distance > current frame count -> PATTERN_REPLAY reaches
+        # before frame 0.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _pattern_replay_row(distance=5, length=1, num_overlays=0),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            expand_loops(df)
+
+    def test_pattern_replay_body_wide_freq_delta(self):
+        # PATTERN_REPLAY with a body-wide-delta overlay (subreg=-1,
+        # target_reg=OVERLAY_BODY_FREQ_DELTA). Source body has a freq
+        # SET on reg=0; the delta is added to that reg in the copy.
+        from preframr.macros import OVERLAY_BODY_FREQ_DELTA
+
+        body_wide_overlay = {
+            "reg": LOOP_OP_REG,
+            "subreg": -1,  # body-wide marker
+            "val": (OVERLAY_BODY_FREQ_DELTA << 16) | (5 & 0xFFFF),
+            "diff": 32,
+            "op": PATTERN_OVERLAY_OP,
+            "description": 0,
+        }
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(0, 100, op=SET_OP),  # voice 0 freq lo
+                _frame(),
+                _pattern_replay_row(distance=2, length=1, num_overlays=1),
+                body_wide_overlay,
+            ]
+        )
+        out = expand_loops(df)
+        # The replayed body's freq SET should have val += 5.
+        freq_writes = out[(out["reg"] == 0) & (out["op"] == SET_OP)]
+        # First (literal) is val=100; second (replayed with delta) is
+        # val=105.
+        vals = sorted(int(v) for v in freq_writes["val"].tolist())
+        self.assertIn(100, vals)
+        self.assertIn(105, vals)
+
+    def test_pattern_replay_overlap_present_raises(self):
+        # PATTERN_REPLAY whose target range overlaps the present frame
+        # is invalid.
+        df = pd.DataFrame(
+            [
+                _frame(),
+                _row(4, 8, op=SET_OP),
+                _frame(),
+                _row(5, 10, op=SET_OP),
+                _pattern_replay_row(distance=2, length=4),  # overlaps current
             ]
         )
         with self.assertRaises(AssertionError):

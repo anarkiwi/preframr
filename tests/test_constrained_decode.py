@@ -266,6 +266,50 @@ class TestStreamStateMasking(unittest.TestCase):
         m = _mask_bool(state, self.n)
         self.assertIn(False, m, "all-masked safety valve should leave one")
 
+    def test_safety_valve_logger_warning_once(self):
+        # Force the all-masked branch by setting pending_overlays > 0
+        # AND using a vocab with no PATTERN_OVERLAY token. mask_logits
+        # then masks everything; the safety valve unmasks the first
+        # frame-marker token and logs a warning (once -- repeat calls
+        # are suppressed via ``_stuck_warned``).
+        import pandas as pd
+        import torch
+
+        from preframr.constrained_decode import StreamState, precompute_vocab_arrays
+        from preframr.stfconstants import FRAME_REG, SET_OP
+
+        class _CountingLogger:
+            def __init__(self):
+                self.warnings = 0
+
+            def warning(self, *_args, **_kwargs):
+                self.warnings += 1
+
+        # Vocab: PAD + a SET + a FRAME_REG. No PATTERN_OVERLAY.
+        tokens = pd.DataFrame(
+            [
+                {"op": SET_OP, "reg": -1, "subreg": -1, "val": 0},
+                {"op": SET_OP, "reg": 0, "subreg": -1, "val": 7},
+                {"op": SET_OP, "reg": FRAME_REG, "subreg": -1, "val": 1},
+            ]
+        )
+        arrs = precompute_vocab_arrays(tokens, torch.device("cpu"))
+        logger = _CountingLogger()
+        state = StreamState(
+            arrs,
+            init_frame_count=0,
+            irq=19656,
+            init_budget=19656,
+            logger=logger,
+        )
+        # Force the "must be PATTERN_OVERLAY" branch.
+        state.pending_overlays = 1
+        _ = state.mask_logits(torch.zeros(arrs["n_vocab"], dtype=torch.float32))
+        _ = state.mask_logits(torch.zeros(arrs["n_vocab"], dtype=torch.float32))
+        # Logs once on first all-masked; the second call is squelched
+        # by ``_stuck_warned``.
+        self.assertEqual(logger.warnings, 1)
+
 
 class TestStreamStateUpdate(unittest.TestCase):
     def setUp(self):

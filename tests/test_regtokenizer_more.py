@@ -72,6 +72,58 @@ class TestEncodeDecodeNoTkmodel(unittest.TestCase):
         self.assertTrue((loader.decode(seq) == seq).all())
 
 
+class TestMergeTokensWrapper(unittest.TestCase):
+    def test_merge_tokens_iterates_dfs(self):
+        # ``merge_tokens`` wraps ``merge_token_df`` with a tqdm; call
+        # it with a tokens vocab + a couple of input dfs that exercise
+        # both the FRAME_REG branch in _merged_and_missing and the
+        # successful-merge path.
+        from preframr.stfconstants import FRAME_REG
+
+        loader = RegTokenizer(FakeArgs(), tokens=None)
+        tokens = pd.DataFrame(
+            [
+                {
+                    "op": 0,
+                    "reg": FRAME_REG,
+                    "subreg": -1,
+                    "val": 1,
+                    "count": 1,
+                    "n": 0,
+                },
+                {
+                    "op": 0,
+                    "reg": 1,
+                    "subreg": -1,
+                    "val": 5,
+                    "count": 1,
+                    "n": 1,
+                },
+            ],
+            dtype=MODEL_PDTYPE,
+        )
+
+        def _df():
+            return pd.DataFrame(
+                [
+                    {
+                        "op": 0,
+                        "reg": FRAME_REG,
+                        "subreg": -1,
+                        "val": 1,
+                        "diff": 19656,
+                    },
+                    {"op": 0, "reg": 1, "subreg": -1, "val": 5, "diff": 32},
+                ],
+                dtype=MODEL_PDTYPE,
+            )
+
+        result = loader.merge_tokens(tokens, [_df(), _df()])
+        self.assertEqual(len(result), 2)
+        for merged in result:
+            self.assertIn("n", merged.columns)
+
+
 class TestAccumulateAutoCrunch(unittest.TestCase):
     def test_auto_crunches_at_threshold(self):
         # accumulate_tokens auto-calls crunch_tokens when frame_tokens

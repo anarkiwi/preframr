@@ -2,9 +2,6 @@
 
 import argparse
 import copy
-import glob
-import os
-from pathlib import Path
 import sys
 
 import numpy as np
@@ -29,6 +26,7 @@ from preframr.macros import (
     validate_gate_replays,
 )
 from preframr.model import get_device, Model
+from preframr.predict_lib import add_ext, describe_cycles, get_ckpt
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
 from preframr.sidwav import write_samples, sidq
@@ -194,18 +192,6 @@ class Predictor:
         return generated.squeeze(0)[-n:]
 
 
-def describe_cycles(cycles):
-    return f"{int(cycles)} cycles {cycles*sidq():.2f} seconds"
-
-
-def add_ext(path, p):
-    if p > 0:
-        path = Path(path)
-        path = str(path.parent / (path.stem + f".{p}" + path.suffix))
-        return path
-    return path
-
-
 def generate_sequence(args, logger, dataset, predictor, p):
     (
         irq,
@@ -342,25 +328,6 @@ def generate_sequence(args, logger, dataset, predictor, p):
         sysex_delay=args.sysex_delay,
         descriptions=["prompt", "predictions"],
     )
-
-
-def get_ckpt(ckpt, tb_logs):
-    if ckpt:
-        return ckpt
-    # Prefer best-by-val_loss checkpoints written by
-    # ``ModelCheckpoint(monitor="val_loss")`` (filename starts
-    # ``best-``). Generalisation runs train two checkpointers in
-    # parallel: the per-epoch saver and the best-val saver. The
-    # best-val one is the right model state to evaluate on held-out
-    # songs. Memorise runs have no val data and write only per-epoch
-    # ckpts, so the second glob picks the latest of those instead.
-    for pattern in (f"{tb_logs}/**/best-*.ckpt", f"{tb_logs}/**/*.ckpt"):
-        ckpts = sorted(
-            [(os.path.getmtime(p), p) for p in glob.glob(pattern, recursive=True)]
-        )
-        if ckpts:
-            return ckpts[-1][1]
-    raise IndexError("no checkpoint")
 
 
 def load_model(args, logger):
