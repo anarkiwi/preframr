@@ -10,12 +10,13 @@ set -e
 LOCAL_HVSC=/scratch/hvsc
 TEST_SIDS="MUSICIANS/G/Goto80/Truth.sid MUSICIANS/G/Goto80/Acid_10000.sid MUSICIANS/G/Goto80/CBM_85.sid MUSICIANS/G/Goto80/Skybox.sid"
 STOP_LOSS=0.02
-# Was 0.1: training plateaued at +0.11/epoch and EarlyStopping fired
-# at train_loss=11.7, well above STOP_LOSS=0.02. The model couldn't
-# memorise enough to predict valid macro tokens (back-ref distances
-# stayed out-of-bounds). 0.01 lets convergence continue past the
-# plateau down toward STOP_LOSS.
-STOP_DELTA=0.01
+# Was 0.1, then 0.01. With macros disabled the encoded stream is all
+# literal SETs (no BACK_REF/PATTERN_REPLAY/GATE_REPLAY compression),
+# so per-token loss starts higher and decays more slowly. 0.001
+# matches the typical per-epoch improvement on this regime; without
+# it EarlyStopping fired at epoch 10 with the model nowhere near
+# memorisation. STOP_LOSS=0.02 still bounds total training time.
+STOP_DELTA=0.001
 MAX_EPOCHS=500    # ceiling: with the bigger model + smaller stop-delta
                   # convergence should fire well before this.
 MIN_ACC=0.2
