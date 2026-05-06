@@ -10,7 +10,14 @@ set -e
 LOCAL_HVSC=/scratch/hvsc
 TEST_SIDS="MUSICIANS/G/Goto80/Truth.sid MUSICIANS/G/Goto80/Acid_10000.sid MUSICIANS/G/Goto80/CBM_85.sid MUSICIANS/G/Goto80/Skybox.sid"
 STOP_LOSS=0.02
-STOP_DELTA=0.1
+# Was 0.1: training plateaued at +0.11/epoch and EarlyStopping fired
+# at train_loss=11.7, well above STOP_LOSS=0.02. The model couldn't
+# memorise enough to predict valid macro tokens (back-ref distances
+# stayed out-of-bounds). 0.01 lets convergence continue past the
+# plateau down toward STOP_LOSS.
+STOP_DELTA=0.01
+MAX_EPOCHS=500    # ceiling: with the bigger model + smaller stop-delta
+                  # convergence should fire well before this.
 MIN_ACC=0.2
 SLEN=1024
 PLEN=$(expr $SLEN / 2)
@@ -135,7 +142,15 @@ CARGS="--no-require-pq --seq-len ${SLEN} --tkvocab ${TKVOCAB} --df-map-csv /scra
 # train to the stop loss. ``-ti`` is dropped because we redirect output
 # through ``tee``; the log file is the sole record if the container is
 # OOM-killed by the kernel.
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/train.py ${CARGS} --model=llama3_2 --shuffle 1 --min-dump-size 1 --accumulate-grad-batches 1 --stop-loss ${STOP_LOSS} --stop-delta ${STOP_DELTA} --learning-rate 1e-4 --l1-lambda 0 --weight-decay 0.01 --layers 4 --heads 4 --kv-heads 4 --embed 128 --attn-dropout 0.2 --batch-size 32 --reglogs /scratch/preframr/*.dump.parquet --dataset-csv /scratch/preframr/dataset.csv.zst --token-csv /scratch/preframr/tokens.csv 2>&1 | tee "${LOG_DIR}/train.log"
-# predict with min accuracy.
-echo docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10
-docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 2>&1 | tee "${LOG_DIR}/predict.log"
+# Memorisation needs more capacity than the original 4L/embed=128/1M-
+# param config, which plateaued at train_loss=11.7. 8L/embed=256/~5M
+# params is enough to memorise 4 ~10K-token songs. attn-dropout 0.0
+# (was 0.2) because we WANT memorisation here -- regularisation works
+# against the goal of this specific test.
+docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-train-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/train.py ${CARGS} --model=llama3_2 --shuffle 1 --min-dump-size 1 --accumulate-grad-batches 1 --max-epochs ${MAX_EPOCHS} --stop-loss ${STOP_LOSS} --stop-delta ${STOP_DELTA} --learning-rate 1e-4 --l1-lambda 0 --weight-decay 0.01 --layers 8 --heads 8 --kv-heads 4 --embed 256 --intermediate 704 --attn-dropout 0.0 --batch-size 32 --reglogs /scratch/preframr/*.dump.parquet --dataset-csv /scratch/preframr/dataset.csv.zst --token-csv /scratch/preframr/tokens.csv 2>&1 | tee "${LOG_DIR}/train.log"
+# Predict with greedy decoding (top-k=1, near-zero temperature) so a
+# fully-memorised model deterministically reproduces the trained
+# tokens; this is also what makes the safety-net in predict.py (which
+# rejects out-of-bounds BACK_REF / PATTERN_REPLAY payloads) the
+# right shape for a memorise-back test.
+docker run ${FLAGS} ${LIMITS_TRAIN} --rm --name preframr-predict-test -v ${ROOT}:/scratch/preframr ${IMG} /preframr/predict.py ${CARGS} --prompt-seq-len ${PLEN} --max-seq-len ${SLEN} --min-acc ${MIN_ACC} --predictions 10 --temperature 0.1 --top-k 1 2>&1 | tee "${LOG_DIR}/predict.log"
