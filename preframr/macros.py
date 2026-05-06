@@ -1014,6 +1014,16 @@ class PwmPass(MacroPass):
     min_run = 2
 
     def apply(self, df, args=None):
+        # Sparse early-out: skip the per-reg loop entirely if no DIFF
+        # rows touch any PWM target reg. Cheap mask-and-any() scan
+        # avoids the f_idx/reset_index/copy overhead on small slices
+        # that have no PWM activity (the common case for short
+        # self-contained blocks).
+        if (
+            "op" not in df.columns
+            or not (df["op"].eq(DIFF_OP) & df["reg"].isin(self.target_regs)).any()
+        ):
+            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -1069,6 +1079,15 @@ class TransposePass(MacroPass):
     target_regs = FREQ_REGS_BY_VOICE
 
     def apply(self, df, args=None):
+        # Sparse early-out: TransposePass needs at least 2 voices'
+        # freq-DIFFs in the same frame. Cheap any() check on freq-DIFFs
+        # avoids the reset_index/copy/numpy-conversion overhead on
+        # blocks with no freq-DIFF activity.
+        if (
+            "op" not in df.columns
+            or not (df["op"].eq(DIFF_OP) & df["reg"].isin(self.target_regs)).any()
+        ):
+            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
 
@@ -1124,6 +1143,10 @@ class Flip2Pass(MacroPass):
     min_run = 3
 
     def apply(self, df, args=None):
+        # Sparse early-out: Flip2Pass needs DIFF rows. Slices with no
+        # DIFFs (literal-only blocks) skip immediately.
+        if "op" not in df.columns or not df["op"].eq(DIFF_OP).any():
+            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -1190,6 +1213,14 @@ class IntervalPass(MacroPass):
     target_regs = FREQ_REGS_BY_VOICE
 
     def apply(self, df, args=None):
+        # Sparse early-out: IntervalPass needs freq-DIFFs from at least
+        # two voices in the same frame. If there are no freq-DIFFs at
+        # all, exit before any work.
+        if (
+            "op" not in df.columns
+            or not (df["op"].eq(DIFF_OP) & df["reg"].isin(self.target_regs)).any()
+        ):
+            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -1270,6 +1301,10 @@ class FilterSweepPass(MacroPass):
     min_run = 2
 
     def apply(self, df, args=None):
+        # Sparse early-out: FilterSweepPass only acts on FC_LO_REG
+        # writes. Slices without any filter-cutoff activity skip.
+        if not df["reg"].eq(FC_LO_REG).any():
+            return df
         df = df.reset_index(drop=True).copy()
         f_idx = _frame_index(df)
         df["mf"] = f_idx
@@ -1340,6 +1375,10 @@ class SubregPass(MacroPass):
     target_regs = SUBREG_REGS
 
     def apply(self, df, args=None):
+        # Sparse early-out: SubregPass only splits ctrl/AD/SR SETs.
+        # Slices with none skip the DecodeState construction below.
+        if not df["reg"].isin(self.target_regs).any():
+            return df
         df = df.reset_index(drop=True).copy()
         df = _ensure_subreg(df)
         if "description" not in df.columns:
@@ -2209,6 +2248,21 @@ def _per_frame_state_walk(df):
             if reg < 0:
                 continue
             op = int(ops[i])
+            # SET fast-path: the most common op (~90% of rows on a
+            # typical block) and its decode is just ``last_val[reg] =
+            # val`` plus a write tuple for downstream simulators. Skip
+            # the _FastRow construction + DECODERS dispatch + the
+            # subreg-flush bookkeeping (which is moot here since
+            # _per_frame_state_walk doesn't produce subreg-split rows
+            # -- they were already collapsed by SubregPass before
+            # this walk runs).
+            subreg = int(subregs[i])
+            if op == SET_OP and subreg == -1:
+                val = int(vals[i])
+                state.last_val[reg] = val
+                state.last_diff[reg] = int(diffs[i])
+                f_writes.append((reg, val, int(diffs[i]), description_default))
+                continue
             decoder = DECODERS.get(op)
             if decoder is None:
                 continue
@@ -2216,7 +2270,7 @@ def _per_frame_state_walk(df):
                 reg=reg,
                 val=int(vals[i]),
                 op=op,
-                subreg=int(subregs[i]),
+                subreg=subreg,
                 diff=int(diffs[i]),
                 description=int(descs[i]),
                 Index=int(indices[i]),
