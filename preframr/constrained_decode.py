@@ -10,12 +10,13 @@ Scope (v1):
   * PATTERN_OVERLAY structural pairing with PATTERN_REPLAY (orphan
     overlays at top level are masked; inside an open PATTERN_REPLAY's
     overlay block only PATTERN_OVERLAY rows are legal).
-  * GATE_REPLAY and PLAY_INSTRUMENT masked entirely. Both reference a
-    palette grown by the encoder's ``DecodeState.observe_frame``;
-    mirroring that growth in StreamState would require porting the
-    full instrument-capture / gate-bundle bookkeeping. v1 trades the
-    macro replays' expressiveness for guaranteed-resolvable streams;
-    the underlying writes can still be emitted as literal SETs.
+  * GATE_REPLAY / PLAY_INSTRUMENT: palette sizes are seeded from a
+    walk of the prompt (``_simulate_palette(expand_loops(prompt_df))``).
+    Tokens whose slot lies outside the seeded palette are masked.
+    The palette is conservative -- not grown during generation, so
+    the model can replay bundles / instruments the prompt already
+    established but cannot introduce new ones. Lifts the previous
+    blanket mask of these two ops.
   * Per-frame diff budget: each row whose ``reg`` is a real SID reg
     (0..MAX_REG) consumes ``MIN_DIFF`` cycles. Mask those rows when
     the running frame budget can't absorb another ``MIN_DIFF``.
@@ -25,9 +26,11 @@ Scope (v1):
 
 Follow-ups: DO_LOOP / END_REPEAT / END_FLIP nesting (END decoders are
 no-ops so they don't crash; expand_loops handles orphan DO_LOOP_END
-gracefully -- so these aren't blockers today). Palette tracking for
-GATE_REPLAY / PLAY_INSTRUMENT once the encoder logic can be lifted
-out.
+gracefully -- so these aren't blockers today). Per-step palette
+growth (so the model can introduce new gate bundles / instruments
+during generation) needs the full ``DecodeState.observe_frame``
+ported here; the conservative seed-only path is good enough for the
+qualitative-listen use case.
 """
 
 import numpy as np
@@ -45,6 +48,8 @@ from preframr.stfconstants import (
     PATTERN_REPLAY_OP,
     PLAY_INSTRUMENT_OP,
     SET_OP,
+    VOICES,
+    VOICE_REG_SIZE,
 )
 
 
@@ -74,7 +79,8 @@ def precompute_vocab_arrays(tokens_df, device):
     is_back_ref = op == BACK_REF_OP
     is_pattern_replay = op == PATTERN_REPLAY_OP
     is_pattern_overlay = op == PATTERN_OVERLAY_OP
-    is_palette_macro = (op == GATE_REPLAY_OP) | (op == PLAY_INSTRUMENT_OP)
+    is_gate_replay = op == GATE_REPLAY_OP
+    is_play_instrument = op == PLAY_INSTRUMENT_OP
 
     distance = np.zeros(n, dtype=np.int64)
     has_distance = is_back_ref | is_pattern_replay
@@ -82,6 +88,19 @@ def precompute_vocab_arrays(tokens_df, device):
 
     overlay_count = np.zeros(n, dtype=np.int64)
     overlay_count[is_pattern_replay] = np.maximum(subreg[is_pattern_replay], 0)
+
+    # Per-token GATE_REPLAY indexing. Encoder packs ``reg`` = the voice's
+    # ctrl reg, ``subreg`` = direction (0/1), ``val`` = palette slot.
+    gate_voice = np.zeros(n, dtype=np.int64)
+    gate_dir = np.zeros(n, dtype=np.int64)
+    gate_slot = np.zeros(n, dtype=np.int64)
+    gate_voice[is_gate_replay] = reg[is_gate_replay] // VOICE_REG_SIZE
+    gate_dir[is_gate_replay] = subreg[is_gate_replay] & 1
+    gate_slot[is_gate_replay] = val[is_gate_replay]
+
+    # Per-token PLAY_INSTRUMENT indexing. ``val`` = palette slot.
+    instr_slot = np.zeros(n, dtype=np.int64)
+    instr_slot[is_play_instrument] = val[is_play_instrument]
 
     return {
         "n_vocab": n,
@@ -98,9 +117,16 @@ def precompute_vocab_arrays(tokens_df, device):
         "is_pattern_overlay": torch.from_numpy(is_pattern_overlay.astype(np.bool_)).to(
             device
         ),
-        "is_palette_macro": torch.from_numpy(is_palette_macro.astype(np.bool_)).to(
+        "is_gate_replay": torch.from_numpy(is_gate_replay.astype(np.bool_)).to(device),
+        "is_play_instrument": torch.from_numpy(is_play_instrument.astype(np.bool_)).to(
             device
         ),
+        # Per-token gate-replay indexing. (gate_voice, gate_dir) selects
+        # the per-(voice, dir) palette; gate_slot is the requested slot.
+        "gate_voice": torch.from_numpy(gate_voice).to(device),
+        "gate_dir": torch.from_numpy(gate_dir).to(device),
+        "gate_slot": torch.from_numpy(gate_slot).to(device),
+        "instr_slot": torch.from_numpy(instr_slot).to(device),
         "distance": torch.from_numpy(distance).to(device),
         "overlay_count_cpu": overlay_count,
     }
@@ -116,7 +142,14 @@ class StreamState:
     """
 
     def __init__(
-        self, vocab_arrays, init_frame_count, irq, init_budget=None, logger=None
+        self,
+        vocab_arrays,
+        init_frame_count,
+        irq,
+        init_budget=None,
+        gate_palette_sizes=None,
+        instrument_palette_size=0,
+        logger=None,
     ):
         self.arrays = vocab_arrays
         self.frame_count = int(init_frame_count)
@@ -130,6 +163,30 @@ class StreamState:
         # compute the prompt's last-frame consumption.
         self.irq = int(irq)
         self.frame_budget = int(init_budget) if init_budget is not None else int(irq)
+        # Palette sizes seeded from the prompt walk. Conservative: not
+        # grown during generation -- the model can replay slots the
+        # prompt already established but cannot introduce new ones.
+        # gate_palette_sizes is a (VOICES, 2) ndarray of slot counts per
+        # (voice, dir); instrument_palette_size is the global slot count.
+        if gate_palette_sizes is None:
+            gate_palette_sizes = np.zeros((VOICES, 2), dtype=np.int64)
+        else:
+            gate_palette_sizes = np.asarray(gate_palette_sizes, dtype=np.int64)
+        device = vocab_arrays["is_pad"].device
+        self.gate_palette_sizes = torch.from_numpy(gate_palette_sizes).to(device)
+        self.instrument_palette_size = int(instrument_palette_size)
+        # Precompute the static palette-validity mask once. Mask any
+        # GATE_REPLAY whose (voice, dir, slot) lies outside the seeded
+        # palette, and any PLAY_INSTRUMENT whose slot does. Both arrays
+        # are bool tensors of length n_vocab. With non-grown palettes
+        # this is constant across the run, so we build it once.
+        a = vocab_arrays
+        gate_size_per_token = self.gate_palette_sizes[a["gate_voice"], a["gate_dir"]]
+        invalid_gate = a["is_gate_replay"] & (a["gate_slot"] >= gate_size_per_token)
+        invalid_instr = a["is_play_instrument"] & (
+            a["instr_slot"] >= self.instrument_palette_size
+        )
+        self._palette_invalid = invalid_gate | invalid_instr
         self.logger = logger
         self._stuck_warned = False
 
@@ -156,10 +213,11 @@ class StreamState:
             # frame 0 of the safety-net buffer.
             too_far = a["distance"] > self.frame_count
             invalid |= a["is_back_ref_or_pattern_replay"] & too_far
-            # GATE_REPLAY / PLAY_INSTRUMENT reference an encoder-side
-            # palette we don't yet mirror. Mask them entirely; the
-            # underlying writes can still be issued as literal SETs.
-            invalid |= a["is_palette_macro"]
+            # GATE_REPLAY / PLAY_INSTRUMENT: mask only slots beyond the
+            # palette established by the prompt. Slots within the prompt's
+            # palette are legal; the model can replay existing bundles
+            # / instruments but cannot grow the palette (conservative).
+            invalid |= self._palette_invalid
             # DELAY_REG is a frame marker for variable-IRQ idle frames.
             # Training has FRAME_REG:DELAY_REG = 40:1 but constrained-
             # decode runs see the model fall onto DELAY_REG val=98 (a

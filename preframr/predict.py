@@ -22,12 +22,17 @@ from preframr.constrained_decode import (
     _frame_marker_count,
     precompute_vocab_arrays,
 )
-from preframr.macros import validate_back_refs, validate_gate_replays
+from preframr.macros import (
+    expand_loops,
+    _simulate_palette,
+    validate_back_refs,
+    validate_gate_replays,
+)
 from preframr.model import get_device, Model
 from preframr.regdataset import RegDataset, get_prompt
 from preframr.reglogparser import RegLogParser, prepare_df_for_audio
 from preframr.sidwav import write_samples, sidq
-from preframr.stfconstants import MIN_DIFF, MODEL_PDTYPE, PAD_ID
+from preframr.stfconstants import MIN_DIFF, MODEL_PDTYPE, PAD_ID, VOICES
 from preframr.utils import get_logger
 
 
@@ -43,7 +48,16 @@ class Predictor:
         self.logger = logger
 
     @torch.inference_mode()
-    def predict(self, prompt, n, temperature=1.0, top_k=None, irq=None):
+    def predict(
+        self,
+        prompt,
+        n,
+        temperature=1.0,
+        top_k=None,
+        irq=None,
+        gate_palette_sizes=None,
+        instrument_palette_size=0,
+    ):
         if self.vocab_arrays is None:
             output, _logits = generate(
                 self.model.model,
@@ -55,10 +69,27 @@ class Predictor:
                 rng=self.rng,
             )
             return output.squeeze(0)[-n:]
-        return self._predict_constrained(prompt, n, temperature, top_k, irq)
+        return self._predict_constrained(
+            prompt,
+            n,
+            temperature,
+            top_k,
+            irq,
+            gate_palette_sizes,
+            instrument_palette_size,
+        )
 
     @torch.inference_mode()
-    def _predict_constrained(self, prompt, n, temperature, top_k, irq):
+    def _predict_constrained(
+        self,
+        prompt,
+        n,
+        temperature,
+        top_k,
+        irq,
+        gate_palette_sizes,
+        instrument_palette_size,
+    ):
         # Forked from torchtune.generation.generate so we can mask logits
         # uniformly on every step (including the first), not just inside
         # the custom_generate_next_token loop. KV cache + causal mask
@@ -99,6 +130,8 @@ class Predictor:
             init_frame_count=prompt_frames,
             irq=irq,
             init_budget=init_budget,
+            gate_palette_sizes=gate_palette_sizes,
+            instrument_palette_size=instrument_palette_size,
             logger=self.logger,
         )
 
@@ -183,8 +216,39 @@ def generate_sequence(args, logger, dataset, predictor, p):
         n,
     )
 
+    # Seed the constrained-decode palette sizes from a walk of the
+    # prompt. ``_simulate_palette`` mirrors what ``validate_gate_replays``
+    # does, so the palette indices StreamState recognises match what
+    # ``GateReplayDecoder`` / ``PlayInstrumentDecoder`` will resolve at
+    # audio-render time.
+    gate_palette_sizes = np.zeros((VOICES, 2), dtype=np.int64)
+    instrument_palette_size = 0
+    if getattr(args, "constrained_decode", False):
+        try:
+            sim_state = _simulate_palette(expand_loops(prompt_df.copy()))
+        except (AssertionError, ValueError, IndexError):
+            sim_state = None
+        if sim_state is not None:
+            for v in range(VOICES):
+                for d in (0, 1):
+                    gate_palette_sizes[v, d] = len(
+                        sim_state.gate_palette.get((v, d), [])
+                    )
+            instrument_palette_size = len(sim_state.instrument_palette)
+        logger.info(
+            "prompt palette: gate %s, instrument %u",
+            gate_palette_sizes.tolist(),
+            instrument_palette_size,
+        )
+
     predict_states = predictor.predict(
-        prompt, n, temperature=args.temperature, top_k=args.top_k, irq=irq
+        prompt,
+        n,
+        temperature=args.temperature,
+        top_k=args.top_k,
+        irq=irq,
+        gate_palette_sizes=gate_palette_sizes,
+        instrument_palette_size=instrument_palette_size,
     )
     states.extend(predict_states.tolist())
     completion_df = loader._state_df(
