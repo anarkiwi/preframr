@@ -1,5 +1,8 @@
 name: docker-test
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   docker-cuda-test:
     runs-on: ubuntu-latest
