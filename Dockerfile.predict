@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+# Predict / eval image. No tensorboard, no test+lint tooling; keeps Lightning
+# because Model still inherits LightningModule. Targets eval experiments
+# (generate_for_audit + the audit_*.py scripts) and serving via predict.py.
+# Used as-is for cuda; with BASE override for xpu; with BASE+REQ override
+# for jetson (see build.sh).
+ARG BASE="pytorch/pytorch:2.12.0-cuda13.2-cudnn9-runtime"
+FROM ${BASE}
+ARG REQ="predict-requirements.txt"
+ARG PIP_OPTS=""
+ENV PIP_OPTS=$PIP_OPTS
+WORKDIR /
+ENV PYTHONPATH=/code
+ENV PATH="$PATH:/root/.local/bin"
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils build-essential && apt-get -y dist-upgrade
+COPY ${REQ} /root/
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    export BREAK=$(pip help install|grep -o ..break-system-packages) && pip install $PIP_OPTS --user $BREAK -U pip && pip install $PIP_OPTS --user $BREAK -r /root/${REQ} && pip uninstall $BREAK -y rich
+COPY preframr /preframr
+RUN mkdir -p /code && ln -s /preframr /code/preframr
+WORKDIR /code
+RUN python3 -m preframr_tokens.render_play --help \
+    && python3 -m preframr.inference.predict --help
+WORKDIR /

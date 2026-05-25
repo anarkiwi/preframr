@@ -1,0 +1,24 @@
+[run]
+# CLI shims (argparse + delegate; the load-bearing modules they
+# wrap are covered separately) and orchestration around real model
+# inference (needs a GPU checkpoint). End-to-end paths are covered
+# by ``run_memorize_int_test.sh`` / ``run_generalize_int_test.sh``
+# and the build-gate integration tests.
+#
+# ``augment.py`` and ``augment_ops.py`` are credited via
+# ``test_augment_round_trip.py`` once the build-gate pytest call runs
+# with ``--cov-append`` (see ``run_tests.sh``); not in omit.
+omit =
+    preframr/parse.py
+    preframr/stftokenize.py
+    preframr/inference/predict.py
+    preframr/train/regdataset.py
+
+[report]
+# ``@njit``-decorated bodies are JIT-compiled by numba; coverage can't
+# trace into the compiled machine code, but the functions ARE executed
+# (verified via the unit tests that exercise LoopPass + the integration
+# test). Mark them as excluded so the metric reflects reality.
+exclude_also =
+    @njit\(
+    pragma: no cover

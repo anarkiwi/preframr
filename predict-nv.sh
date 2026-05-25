@@ -11,4 +11,4 @@ if [[ ! -z "${NVGPUS}" ]] ; then
         FLAGS=--runtime=nvidia
     fi
 fi
-exec docker run ${FLAGS} -eTORCHINDUCTOR_FX_GRAPH_CACHE=1 -eTORCHINDUCTOR_CACHE_DIR=/scratch/preframr/inductorcache --rm --name preframr-predict -v /scratch:/scratch --device /dev/snd -ti ${IMG} /preframr/predict.py $*
+exec docker run ${FLAGS} -eTORCHINDUCTOR_FX_GRAPH_CACHE=1 -eTORCHINDUCTOR_CACHE_DIR=/scratch/preframr/inductorcache --rm --name preframr-predict -v /scratch:/scratch --device /dev/snd -ti ${IMG} /preframr/inference/predict.py $*
