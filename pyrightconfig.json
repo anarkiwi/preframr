@@ -1,0 +1,35 @@
+{
+  "include": ["preframr"],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+
+  "//": [
+    "Skeleton config so future ``pyright preframr`` runs aren't drowning",
+    "in library-typing noise. Default mode = basic. Categories below are",
+    "currently disabled; flip each back to ``error`` as cleanups land,",
+    "mirroring the curated pylint warning gate in run_tests.sh.",
+
+    "reportPrivateImportUsage off: torch's stubs don't list common names",
+    "(``from_numpy``, ``cat``, etc.) in ``__all__`` even though they're",
+    "public API, and pyresidfp similarly mis-exports. ~86 of the 211",
+    "first-pass errors come from this category and are all noise.",
+
+    "Remaining 12 categories below cover the 116 errors observed at the",
+    "time pyright was wired into run_tests.sh. Cleaning up a category",
+    "and flipping its entry to ``error`` is the contract."
+  ],
+
+  "reportPrivateImportUsage": "none",
+  "reportArgumentType": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalSubscript": "none",
+  "reportCallIssue": "none",
+  "reportOptionalCall": "none",
+  "reportAssignmentType": "none",
+  "reportOperatorIssue": "none",
+  "reportMissingImports": "none",
+  "reportInvalidTypeForm": "none",
+  "reportIndexIssue": "none",
+  "reportGeneralTypeIssues": "none"
+}

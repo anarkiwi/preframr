@@ -1,6 +1,11 @@
+# syntax=docker/dockerfile:1
 FROM ubuntu:24.04
 ARG PIP_OPTS=""
 ENV PIP_OPTS=$PIP_OPTS
-RUN apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip && pip install --break-system-package $PIP_OPTS tensorboard
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip && pip install --break-system-package $PIP_OPTS tensorboard
 EXPOSE 6006
 CMD ["tensorboard", "--bind_all", "--logdir", "/tb_logs", "serve"]

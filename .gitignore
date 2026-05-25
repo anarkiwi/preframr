@@ -173,3 +173,21 @@ cython_debug/
 *.swp
 *.orig
 *.rej
+
+# Workspace bucket for one-off study scripts, scraped tables, and other
+# non-canonical artifacts that don't belong in version control.
+untracked/
+
+# Claude Code session state.
+.claude/
+
+# 116MB prodlike fingerprint-palette artifact: too large for GitHub (100MB
+# limit); kept on disk for experiments, regenerated via the engine_fingerprint
+# pipeline. Removed from history 2026-05-24.
+integration_tests/data/prodlike/engine_fp_palettes.json
+
+# Local build config (PIP_OPTS cache); per-host .env.<hostname> override, both
+# untracked. Template tracked as .env.example.
+/.env
+/.env.*
+!/.env.example

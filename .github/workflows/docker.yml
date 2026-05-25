@@ -29,13 +29,13 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
-        file: Dockerfile
+        file: Dockerfile.predict
         push: false
         tags: anarkiwi/preframr-xpu
         cache-from: type=gha
         cache-to: type=gha,mode=max
         build-args: |
-            BASE=anarkiwi/pytorch-xpu:v2.10.0
+            BASE=anarkiwi/pytorch-xpu:v2.12.0
   docker-jetson-test:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -47,12 +47,12 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.predict
           platforms: linux/arm64
           push: false
           tags: anarkiwi/preframr-jetson
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-              BASE=anarkiwi/jetson-pytorch:v2.10.0
-              REQ=jetson-requirements.txt
+              BASE=anarkiwi/jetson-triton:v2.12.0
+              REQ=predict-jetson-requirements.txt
