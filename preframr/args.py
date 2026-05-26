@@ -329,6 +329,16 @@ def add_args(parser):
     parser.add_argument(
         "--lonely-catch-all", action=argparse.BooleanOptionalAction, default=False
     )
+    parser.add_argument(
+        "--motif-pass", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
+        "--motif-dict",
+        type=str,
+        default="",
+        help="Path to a motif_dict.json (mined by preframr/mine_motifs.py); "
+        "loaded lazily when --motif-pass is set.",
+    )
     parser.add_argument("--coarsen-min-len", type=int, default=16)
     parser.add_argument(
         "--write-blocks", action=argparse.BooleanOptionalAction, default=True
