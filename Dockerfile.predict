@@ -23,9 +23,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/sources.list.d/oneAPI.list /etc/apt/sources.list.d/intel-graphics.list \
     && apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils build-essential && apt-get -y dist-upgrade
-COPY ${REQ} /root/
+# REQ may carry a path component (e.g. jetson/predict-requirements.txt, kept in
+# its own dir so dependabot's pip discovery -- rooted at / and non-recursive --
+# never bumps the Jetson pins). Copy to a fixed name so the install path does
+# not depend on REQ's directory.
+COPY ${REQ} /root/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    export BREAK=$(pip help install|grep -o ..break-system-packages) && pip install $PIP_OPTS --user $BREAK -U pip && pip install $PIP_OPTS --user $BREAK -r /root/${REQ} && pip uninstall $BREAK -y rich
+    export BREAK=$(pip help install|grep -o ..break-system-packages) && pip install $PIP_OPTS --user $BREAK -U pip && pip install $PIP_OPTS --user $BREAK -r /root/requirements.txt && pip uninstall $BREAK -y rich
 COPY preframr /preframr
 RUN mkdir -p /code && ln -s /preframr /code/preframr
 WORKDIR /code

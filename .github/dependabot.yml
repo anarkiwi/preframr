@@ -1,5 +1,11 @@
 ---
 version: 2
+# pip discovery below is rooted at / and is non-recursive, so it scans the
+# requirements files in / but NOT jetson/predict-requirements.txt. That file is
+# deliberately kept out: its pins are the known-good set for the old Jetson
+# Ubuntu fork (anarkiwi/jetson-triton base), and dependabot -- which only reads
+# PyPI and has no notion of that platform constraint -- would otherwise open
+# broken bump PRs against it. Do NOT add a "jetson/" entry here.
 updates:
   - package-ecosystem: "pip"
     directory: "/"
