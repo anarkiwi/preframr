@@ -10,6 +10,7 @@ import pyarrow
 
 pyarrow.PyExtensionType = pyarrow.ExtensionType
 from torchtune.generation import generate, sample as _tt_sample
+from torchtune.modules import RMSNorm
 import torch
 import torchmetrics
 
@@ -181,9 +182,7 @@ class Predictor:
                 model(x, input_pos=curr_input_pos, mask=curr_masks)
             )
             masked = state.mask_logits(logits)
-            return _tt_sample(
-                masked.clone(), temperature=temperature, top_k=top_k, q=_q()
-            )
+            return _tt_sample(masked, temperature=temperature, top_k=top_k, q=_q())
 
         if caches_on:
             curr_masks = prompt_mask
@@ -192,25 +191,29 @@ class Predictor:
             curr_masks = full_mask[:, :prompt_length, :prompt_length]
         tok = _step(input_pos[:, :prompt_length].squeeze(), curr_masks, prompt)
         state.update(tok.item())
-        generated = torch.cat([prompt, tok], dim=-1)
-
+        generated = torch.empty(
+            (bsz, total_len), dtype=prompt.dtype, device=self.device
+        )
+        generated[:, :prompt_length] = prompt
         curr_pos = prompt_length
+        generated[:, curr_pos] = tok[:, 0]
+
         for _ in range(n - 1):
             if caches_on:
                 assert step_mask is not None
                 curr_input_pos = input_pos[:, curr_pos].contiguous()
                 step_mask[..., : curr_pos + 1] = True
                 curr_masks = step_mask
-                x = tok.clone()
+                x = tok
             else:
                 assert full_mask is not None
                 curr_input_pos = input_pos[:, : curr_pos + 1]
                 curr_masks = full_mask[:, : curr_pos + 1, : curr_pos + 1]
-                x = generated.clone()
+                x = generated[:, : curr_pos + 1].clone()
             tok = _step(curr_input_pos, curr_masks, x)
             state.update(tok.item())
-            generated = torch.cat([generated, tok], dim=-1)
             curr_pos += 1
+            generated[:, curr_pos] = tok[:, 0]
 
         return generated.squeeze(0)[-n:]
 
@@ -369,6 +372,15 @@ def _patch_unembed_keep_dtype(decoder):
     decoder.unembed = types.MethodType(unembed, decoder)
 
 
+def _keep_norms_fp32(model):
+    """Keep RMSNorm scale params fp32 after a bf16 model cast so the fp32-input
+    fused ``F.rms_norm`` kernel dispatches; a bf16 weight against the fp32
+    activation forces the slow non-fused path plus extra dtype copies."""
+    for module in model.modules():
+        if isinstance(module, RMSNorm):
+            module.scale.data = module.scale.data.float()
+
+
 def load_model(args, logger):
     from preframr.args import apply_pipeline_spec_to_args
 
@@ -402,13 +414,20 @@ def load_model(args, logger):
     model.model.eval()
     predict_precision = MODEL_PRECISION[args.model_precision]
     model = model.to(predict_precision)
+    _keep_norms_fp32(model)
     with device:
         model.model.setup_caches(
             batch_size=1,
             dtype=predict_precision,
             decoder_max_seq_len=args.max_seq_len,
         )
-    model = model_compiler(args, model)
+    if getattr(args, "compile", True) and device.type == "cuda":
+        model.model = torch.compile(
+            model.model,
+            options={"epilogue_fusion": True, "triton.cudagraphs": True},
+        )
+    else:
+        model = model_compiler(args, model)
     return dataset, model, device, model_compiler
 
 
