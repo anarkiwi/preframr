@@ -421,7 +421,13 @@ def load_model(args, logger):
             dtype=predict_precision,
             decoder_max_seq_len=args.max_seq_len,
         )
-    model = model_compiler(args, model)
+    if getattr(args, "compile", True) and device.type == "cuda":
+        model.model = torch.compile(
+            model.model,
+            options={"epilogue_fusion": True, "triton.cudagraphs": True},
+        )
+    else:
+        model = model_compiler(args, model)
     return dataset, model, device, model_compiler
 
 
