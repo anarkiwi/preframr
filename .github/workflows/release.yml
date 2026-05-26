@@ -125,4 +125,4 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
               BASE=anarkiwi/jetson-triton:v2.12.0
-              REQ=predict-jetson-requirements.txt
+              REQ=jetson/predict-requirements.txt

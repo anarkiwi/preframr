@@ -4,7 +4,7 @@
 #              anarkiwi/preframr-predict (predict-only slim; Dockerfile.predict)
 #   xpu:       anarkiwi/preframr-xpu (predict-only slim; Dockerfile.predict + xpu base)
 #   jetson:    anarkiwi/preframr-jetson (predict-only slim; Dockerfile.predict +
-#              jetson base + predict-jetson-requirements.txt)
+#              jetson base + jetson/predict-requirements.txt)
 # Training runs on cuda only. xpu + jetson are predict-only (eval experiments,
 # generation, serving).
 set -e
@@ -28,7 +28,7 @@ if [[ ! -z "${NVGPUS}" ]] ; then
         # so torch.compile's Inductor backend can emit Triton kernels on Jetson.
         docker build --build-arg PIP_OPTS="$PIP_OPTS" \
             --build-arg="BASE=anarkiwi/jetson-triton:v2.12.0" \
-            --build-arg="REQ=predict-jetson-requirements.txt" \
+            --build-arg="REQ=jetson/predict-requirements.txt" \
             -f Dockerfile.predict . -t anarkiwi/preframr-jetson
         wait $B0
         exit 0
