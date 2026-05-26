@@ -13,9 +13,16 @@ WORKDIR /
 ENV PYTHONPATH=/code
 ENV PATH="$PATH:/root/.local/bin"
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+# The xpu base (intel/oneapi-runtime) ships the Intel apt repos enabled, with a
+# oneAPI runtime matched to its bundled torch+xpu build. Drop those repos before
+# dist-upgrade so it applies only Ubuntu security updates and does NOT pull a
+# second, newer Intel oneAPI stack on top of the base's -- which ~doubled the
+# image (+5-6GB of duplicate /opt/intel that torch+xpu was never built against).
+# rm -f is a no-op on the cuda/jetson bases (no such repo files).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils build-essential && apt-get -y dist-upgrade
+    rm -f /etc/apt/sources.list.d/oneAPI.list /etc/apt/sources.list.d/intel-graphics.list \
+    && apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils build-essential && apt-get -y dist-upgrade
 COPY ${REQ} /root/
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     export BREAK=$(pip help install|grep -o ..break-system-packages) && pip install $PIP_OPTS --user $BREAK -U pip && pip install $PIP_OPTS --user $BREAK -r /root/${REQ} && pip uninstall $BREAK -y rich
