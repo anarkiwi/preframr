@@ -309,6 +309,9 @@ def add_args(parser):
         "--freq-trajectory-pass", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
+        "--trajectory-anchor-pass", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
         "--preset-pass", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
