@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--motif-k", type=int, default=256)
     parser.add_argument("--motif-min-count", type=int, default=3)
     parser.add_argument("--motif-min-composers", type=int, default=3)
+    parser.add_argument("--motif-mine-version", type=int, default=1, choices=(1, 2))
     args = parser.parse_args()
     apply_pipeline_spec_to_args(args)
     logger = get_logger("INFO")
@@ -29,6 +30,7 @@ def main():
         k=args.motif_k,
         min_count=args.motif_min_count,
         min_composers=args.motif_min_composers,
+        version=args.motif_mine_version,
         logger=logger,
     )
     with open(args.motif_out, "w") as f:
