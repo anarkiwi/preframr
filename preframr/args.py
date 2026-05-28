@@ -41,6 +41,14 @@ def add_args(parser):
         ),
     )
     parser.add_argument("--csv", type=str, default=None)
+    parser.add_argument(
+        "--predict-dump",
+        type=str,
+        default=None,
+        help="Write the prediction window of the audio-ready df as parquet "
+        "(register-level rows, description=1 only). For automated melody-quality "
+        "scoring downstream of predict.",
+    )
     parser.add_argument("--dataset-csv", type=str, default=None)
     parser.add_argument("--tokenizer", type=str, default="unigram")
     parser.add_argument("--token-csv", type=str, default="/scratch/preframr/token.csv")
