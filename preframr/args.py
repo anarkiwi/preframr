@@ -105,6 +105,7 @@ def add_args(parser):
     parser.add_argument(
         "--token-weighting", action=argparse.BooleanOptionalAction, default=True
     )
+    parser.add_argument("--onset-loss-weight", type=float, default=1.0)
     parser.add_argument("--structural-loss-lambda", type=float, default=0.0)
     parser.add_argument(
         "--token-class-loss", action=argparse.BooleanOptionalAction, default=False

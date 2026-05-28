@@ -2,7 +2,13 @@
 
 import torch
 
-from preframr_tokens.stfconstants import LOSS_TIER_NAMES
+from preframr_tokens.stfconstants import (
+    FREQ_TRAJ_OP,
+    FREQ_TRAJ_REGS,
+    FT_SUBREG_V0_HI,
+    FT_SUBREG_V0_LO,
+    LOSS_TIER_NAMES,
+)
 from preframr_tokens import (
     CONTENT_TIER,
     build_vocab_tier_ids,
@@ -15,6 +21,48 @@ _N_LOSS_TIERS = len(_LOSS_TIER_ORDER)
 _LOSS_TIER_TO_ID = {name: i for i, name in enumerate(_LOSS_TIER_ORDER)}
 _CONTENT_TIER_ID = _LOSS_TIER_TO_ID[CONTENT_TIER]
 _STRUCTURAL_TIER_ID = _LOSS_TIER_TO_ID["structural"]
+
+_FREQ_ONSET_REGS = frozenset(FREQ_TRAJ_REGS)
+_V0_SUBREGS = frozenset({FT_SUBREG_V0_HI, FT_SUBREG_V0_LO})
+
+
+def _is_freq_onset_atom(op, reg, subreg) -> bool:
+    """A FREQ_TRAJ V0 onset atom: op 45, a per-voice freq reg (0/7/14), V0_HI/V0_LO subreg.
+    This is the melodic note-onset pitch (absolute or interval-coded -- same subregs).
+    """
+    return (
+        int(op) == FREQ_TRAJ_OP
+        and int(reg) in _FREQ_ONSET_REGS
+        and int(subreg) in _V0_SUBREGS
+    )
+
+
+def _build_vocab_onset_weight(args, n_vocab, tokens, tkmodel):
+    """Per-vocab-id CE weight that up-weights FREQ V0-onset vids by --onset-loss-weight, to
+    force capacity onto the rare melodic onset. A vid counts as onset if its first decoded
+    base atom is a freq onset. W==1.0 (default) returns ones (no-op)."""
+    weight = float(getattr(args, "onset_loss_weight", 1.0))
+    weights = torch.ones(n_vocab, dtype=torch.float32)
+    if weight == 1.0 or tokens is None or len(tokens) == 0:
+        return weights
+    from preframr_tokens import RegTokenizer  # pylint: disable=import-outside-toplevel
+
+    if tkmodel is not None and not isinstance(tkmodel, str):
+        tkmodel = tkmodel.to_str()
+    rt = RegTokenizer(args, tokens=tokens)
+    rt.load(tkmodel, tokens)
+    n_base = len(tokens)
+    for vid in range(n_vocab):
+        base_ids = rt.decode([vid]) if rt.tkmodel else [vid]
+        for bid in base_ids:
+            bid = int(bid)
+            if bid >= n_base:
+                continue
+            row = tokens.iloc[bid]
+            if _is_freq_onset_atom(row["op"], row["reg"], row["subreg"]):
+                weights[vid] = weight
+            break
+    return weights
 
 
 def _build_vocab_class_weight(args, n_vocab, tokens, tkmodel):

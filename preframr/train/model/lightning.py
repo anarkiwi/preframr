@@ -17,6 +17,7 @@ from preframr.train.model.tier_map import (
     _STRUCTURAL_TIER_ID,
     _build_tier_vocab_partition,
     _build_vocab_class_weight,
+    _build_vocab_onset_weight,
     _build_vocab_tier_id,
 )
 
@@ -55,6 +56,11 @@ class Model(LightningModule):
         self.register_buffer(
             "vocab_class_weight",
             class_weight,
+            persistent=False,
+        )
+        self.register_buffer(
+            "vocab_onset_weight",
+            _build_vocab_onset_weight(args, n_vocab, tokens, tkmodel),
             persistent=False,
         )
         tier_ids = _build_vocab_tier_id(args, n_vocab, tokens, tkmodel)
@@ -157,15 +163,16 @@ class Model(LightningModule):
         if self.mask_structural_tier_loss:
             pad_mask = pad_mask * (self.vocab_tier_id[y] != _STRUCTURAL_TIER_ID).float()
         per_tok = per_tok * pad_mask
+        onset_w = self.vocab_onset_weight[y]
         if self.learnable_class_loss:
             tier_ids = self.vocab_tier_id[y]
             log_sigma = self.log_sigma_per_tier[tier_ids]
             sigma_sq_inv_half = torch.exp(-2.0 * log_sigma) * 0.5
-            base_w = self.vocab_frame_weight[y] * pad_mask
+            base_w = self.vocab_frame_weight[y] * onset_w * pad_mask
             adjusted = per_tok * sigma_sq_inv_half + log_sigma * pad_mask
             loss = (adjusted * base_w).sum() / base_w.sum().clamp(min=1.0)
         else:
-            weights = self.vocab_frame_weight[y] * self.vocab_class_weight[y]
+            weights = self.vocab_frame_weight[y] * self.vocab_class_weight[y] * onset_w
             weights = weights * pad_mask
             loss = (per_tok * weights).sum() / weights.sum().clamp(min=1.0)
         if self.structural_loss_fn is not None:
