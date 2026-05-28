@@ -319,6 +319,9 @@ def add_args(parser):
         "--freq-onset-pass", action=argparse.BooleanOptionalAction, default=False
     )
     parser.add_argument(
+        "--melody-merge-split", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
         "--preset-pass", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
