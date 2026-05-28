@@ -316,6 +316,9 @@ def add_args(parser):
         "--freq-v0-interval", action=argparse.BooleanOptionalAction, default=False
     )
     parser.add_argument(
+        "--freq-onset-pass", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
         "--preset-pass", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
