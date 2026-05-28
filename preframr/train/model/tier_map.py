@@ -2,17 +2,12 @@
 
 import torch
 
-from preframr_tokens.stfconstants import (
-    FREQ_TRAJ_OP,
-    FREQ_TRAJ_REGS,
-    FT_SUBREG_V0_HI,
-    FT_SUBREG_V0_LO,
-    LOSS_TIER_NAMES,
-)
+from preframr_tokens.stfconstants import LOSS_TIER_NAMES
 from preframr_tokens import (
     CONTENT_TIER,
     build_vocab_tier_ids,
     build_vocab_tier_map,
+    is_freq_onset_atom,
     vocab_id_tier,
 )
 
@@ -21,20 +16,6 @@ _N_LOSS_TIERS = len(_LOSS_TIER_ORDER)
 _LOSS_TIER_TO_ID = {name: i for i, name in enumerate(_LOSS_TIER_ORDER)}
 _CONTENT_TIER_ID = _LOSS_TIER_TO_ID[CONTENT_TIER]
 _STRUCTURAL_TIER_ID = _LOSS_TIER_TO_ID["structural"]
-
-_FREQ_ONSET_REGS = frozenset(FREQ_TRAJ_REGS)
-_V0_SUBREGS = frozenset({FT_SUBREG_V0_HI, FT_SUBREG_V0_LO})
-
-
-def _is_freq_onset_atom(op, reg, subreg) -> bool:
-    """A FREQ_TRAJ V0 onset atom: op 45, a per-voice freq reg (0/7/14), V0_HI/V0_LO subreg.
-    This is the melodic note-onset pitch (absolute or interval-coded -- same subregs).
-    """
-    return (
-        int(op) == FREQ_TRAJ_OP
-        and int(reg) in _FREQ_ONSET_REGS
-        and int(subreg) in _V0_SUBREGS
-    )
 
 
 def _build_vocab_onset_weight(args, n_vocab, tokens, tkmodel):
@@ -59,7 +40,7 @@ def _build_vocab_onset_weight(args, n_vocab, tokens, tkmodel):
             if bid >= n_base:
                 continue
             row = tokens.iloc[bid]
-            if _is_freq_onset_atom(row["op"], row["reg"], row["subreg"]):
+            if is_freq_onset_atom(row["op"], row["reg"], row["subreg"]):
                 weights[vid] = weight
             break
     return weights
