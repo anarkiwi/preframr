@@ -345,6 +345,12 @@ def generate_sequence(args, logger, dataset, predictor, p):
         reg_start=reg_start,
         descriptions=["prompt", "predictions"],
     )
+    if getattr(args, "predict_dump", None):
+        dump_path = add_ext(args.predict_dump, p)
+        pred_only = df[df["description"] == 1].reset_index(drop=True)
+        pred_only.attrs["irq"] = int(irq) if irq is not None else 0
+        pred_only.to_parquet(dump_path)
+        logger.info("wrote prediction dump (%u rows) to %s", len(pred_only), dump_path)
     if getattr(args, "play", False):
         try:
             logger.info("starting real-time playback...")
