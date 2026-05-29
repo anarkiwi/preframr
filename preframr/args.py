@@ -295,6 +295,21 @@ def add_args(parser):
         default=False,
     )
     parser.add_argument(
+        "--voice-id-on-marker",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--voice-order-on-marker",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--freq-onset-interval",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
         "--voice-trajectory-pass",
         action=argparse.BooleanOptionalAction,
         default=False,
