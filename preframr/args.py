@@ -310,26 +310,6 @@ def add_args(parser):
         default=False,
     )
     parser.add_argument(
-        "--voice-trajectory-pass",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument(
-        "--voice-trajectory-window",
-        type=int,
-        default=8,
-    )
-    parser.add_argument(
-        "--voice-trajectory-distributed-pass",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument(
-        "--set-to-diff-pass",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument(
         "--freq-trajectory-pass", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
@@ -437,9 +417,6 @@ _PIPELINE_NAME_TO_FLAG = {
     "hard_restart": ("hard_restart_pass", True),
     "ctrl_bigram": ("ctrl_bigram_pass", True),
     "voice_block_order": ("voice_canonical_block_order", True),
-    "voice_trajectory": ("voice_trajectory_pass", True),
-    "voice_trajectory_distributed": ("voice_trajectory_distributed_pass", True),
-    "set_to_diff": ("set_to_diff_pass", True),
     "freq_trajectory": ("freq_trajectory_pass", True),
     "preset": ("preset_pass", True),
     "loop": ("loop_pass", True),
@@ -480,8 +457,4 @@ def apply_pipeline_spec_to_args(args):
         if name in _PIPELINE_NAME_TO_FLAG:
             attr, value = _PIPELINE_NAME_TO_FLAG[name]
             setattr(args, attr, value)
-        if name == "voice_trajectory":
-            window = params.get("window")
-            if window is not None:
-                setattr(args, "voice_trajectory_window", int(window))
     return spec
