@@ -422,6 +422,7 @@ _PIPELINE_NAME_TO_FLAG = {
     "loop": ("loop_pass", True),
     "coarsen": ("coarsen_pass", True),
     "fuzzy_loop": ("fuzzy_loop_pass", True),
+    "stamp": ("stamp_pass", True),
 }
 
 _LEGATO_CLUSTERS = tuple(
