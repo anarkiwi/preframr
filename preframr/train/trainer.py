@@ -202,11 +202,11 @@ def _require_pretokenized(args):
 
 
 def main():
-    from preframr.args import apply_pipeline_spec_to_args
+    from preframr.args import apply_macro_flags_to_args
 
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
-    apply_pipeline_spec_to_args(args)
+    apply_macro_flags_to_args(args)
     logger = get_logger("INFO")
     ckpt_path = None
     if args.model_state:

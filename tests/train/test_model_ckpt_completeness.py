@@ -38,7 +38,8 @@ def _tiny_args(**overrides):
         weight_decay=0.01,
         label_smoothing=0.0,
         model="llama3_2",
-        pipeline_spec='{"transforms":[{"name":"hard_restart"}]}',
+        macro_flags="hard_restart_pass",
+        macro_config="",
     )
     for k, v in overrides.items():
         setattr(args, k, v)
@@ -84,60 +85,33 @@ class TestModelCkptCompleteness(unittest.TestCase):
             ),
         )
 
-    def test_args_carries_pipeline_spec(self):
+    def test_args_carries_macro_flags(self):
         model = self._make_model()
         self.assertTrue(
-            hasattr(model.hparams.args, "pipeline_spec"),
+            hasattr(model.hparams.args, "macro_flags"),
             msg=(
-                "args.pipeline_spec missing — pipeline-spec MUST be in args so "
-                "the inferer can reconstruct the encoder configuration without "
-                "external state."
+                "args.macro_flags missing — the resolved macro-flag set MUST be "
+                "in args so the inferer can reconstruct the encoder configuration "
+                "without external state."
             ),
         )
 
-    def test_pipeline_spec_is_resolved_json_not_path_reference(self):
-        import json
-
+    def test_macro_flags_is_resolved_csv(self):
         model = self._make_model()
-        raw = getattr(model.hparams.args, "pipeline_spec", "")
-        self.assertFalse(
-            raw.startswith("@"),
-            msg=(
-                "args.pipeline_spec stashed as '@path' reference — "
-                "apply_pipeline_spec_to_args must resolve @path into JSON "
-                "content before training, otherwise the checkpoint depends "
-                "on an external file that may be moved/deleted."
-            ),
+        raw = getattr(model.hparams.args, "macro_flags", "")
+        self.assertNotIn("{", raw)
+        self.assertNotIn("@", raw)
+
+    def test_apply_macro_flags_sets_booleans(self):
+        from preframr.args import apply_macro_flags_to_args
+
+        ns = argparse.Namespace(macro_flags="wavetable_pass", macro_config="")
+        apply_macro_flags_to_args(ns)
+        self.assertTrue(
+            getattr(ns, "skeleton_pass"), "wavetable_pass must auto-add skeleton_pass"
         )
-        if raw:
-            parsed = json.loads(raw)
-            self.assertIn(
-                "transforms",
-                parsed,
-                msg="args.pipeline_spec JSON missing 'transforms' key.",
-            )
-
-    def test_apply_pipeline_spec_resolves_at_path(self):
-        import json
-        import tempfile
-
-        from preframr.args import apply_pipeline_spec_to_args
-
-        spec_dict = {"transforms": [{"name": "hard_restart"}, {"name": "ctrl_bigram"}]}
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump(spec_dict, f)
-            path = f.name
-        ns = argparse.Namespace(pipeline_spec=f"@{path}")
-        apply_pipeline_spec_to_args(ns)
-        self.assertFalse(
-            ns.pipeline_spec.startswith("@"),
-            msg=(
-                f"after apply_pipeline_spec_to_args, args.pipeline_spec is still "
-                f"a @path reference: {ns.pipeline_spec}"
-            ),
-        )
-        recovered = json.loads(ns.pipeline_spec)
-        self.assertEqual(recovered, spec_dict)
+        self.assertTrue(getattr(ns, "wavetable_pass"))
+        self.assertIn("skeleton_pass", ns.macro_flags.split(","))
 
     def test_reg_widths_carried_through(self):
         model = self._make_model()

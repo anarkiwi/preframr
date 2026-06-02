@@ -44,7 +44,7 @@ def _tiny_args(**overrides):
         token_class_weight_content=2.0,
         token_class_weight_zero=4.0,
         learnable_class_loss=False,
-        pipeline_spec="",
+        macro_flags="",
     )
     for k, v in overrides.items():
         setattr(args, k, v)

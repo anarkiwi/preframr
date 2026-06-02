@@ -1,7 +1,6 @@
 import argparse
 
 from preframr.train.model import MODEL_GETTERS, MODEL_PRECISION
-from preframr_tokens.macros.flag_registry import macro_flag_names
 
 
 def add_args(parser):
@@ -254,45 +253,28 @@ def add_args(parser):
         "--compile", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
-        "--loop-pass", action=argparse.BooleanOptionalAction, default=True
+        "--macro-flags",
+        type=str,
+        default="",
+        help=(
+            "Comma/space-separated macro-pass names to enable; each must be in "
+            "preframr_tokens.tokenizer_config.MACRO_FLAGS. Dependencies are added "
+            "automatically and conflicting passes are rejected. Default: all macro "
+            "passes OFF."
+        ),
     )
     parser.add_argument(
-        "--loop-transposed", action=argparse.BooleanOptionalAction, default=True
-    )
-    parser.add_argument(
-        "--fuzzy-loop-pass", action=argparse.BooleanOptionalAction, default=True
-    )
-    parser.add_argument(
-        "--fuzzy-fp-adsr", action=argparse.BooleanOptionalAction, default=False
+        "--macro-config",
+        type=str,
+        default="",
+        help=(
+            "Named macro preset from tokenizer_config.NAMED_CONFIGS "
+            "(baseline|full_macros), merged under --macro-flags."
+        ),
     )
     parser.add_argument("--loop-lookahead", type=int, default=3)
     parser.add_argument(
         "--mode-vol-flip-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--hard-restart-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--ctrl-bigram-pass",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument(
-        "--legato-pass-c2", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--legato-pass-c4", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--legato-pass-c7", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--coarsen-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--voice-canonical-block-order",
-        action=argparse.BooleanOptionalAction,
-        default=False,
     )
     parser.add_argument(
         "--voice-id-on-marker",
@@ -310,40 +292,7 @@ def add_args(parser):
         default=False,
     )
     parser.add_argument(
-        "--freq-trajectory-pass", action=argparse.BooleanOptionalAction, default=True
-    )
-    parser.add_argument(
-        "--trajectory-anchor-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--freq-v0-interval", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--freq-onset-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
         "--melody-merge-split", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--preset-pass", action=argparse.BooleanOptionalAction, default=True
-    )
-    parser.add_argument(
-        "--voice-track-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--freq-nudge-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--release-update-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--ctrl-triple-pass", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--strict-lonely", action=argparse.BooleanOptionalAction, default=False
-    )
-    parser.add_argument(
-        "--lonely-catch-all", action=argparse.BooleanOptionalAction, default=False
     )
     parser.add_argument("--coarsen-min-len", type=int, default=16)
     parser.add_argument(
@@ -355,16 +304,6 @@ def add_args(parser):
         default=True,
     )
     parser.add_argument("--block-stride", type=int, default=None)
-    parser.add_argument(
-        "--pipeline-spec",
-        type=str,
-        default="",
-        help=(
-            "Parse pipeline as JSON-serialised list of transforms. Accepts an "
-            "inline JSON string or '@/path/to/spec.json'. Empty = use legacy "
-            "boolean flags."
-        ),
-    )
     parser.add_argument(
         "--meta-exclude-digi",
         action=argparse.BooleanOptionalAction,
@@ -401,64 +340,37 @@ def add_args(parser):
     return parser
 
 
-def load_pipeline_spec(pipeline_spec_arg):
-    if not pipeline_spec_arg:
-        return None
-    import json
+def apply_macro_flags_to_args(args):
+    """Resolve ``--macro-flags`` (+ optional ``--macro-config`` preset) into a boolean attr on
+    ``args`` for every flag in ``macro_flag_names()``. Validates each requested name, adds
+    transitive dependencies, and raises on a conflicting combination (``resolve_flags``). The
+    resolved set is written back to ``args.macro_flags`` as a canonical sorted CSV so the
+    checkpoint carries the full pipeline and predict can reconstruct it."""
+    import re
 
-    raw = pipeline_spec_arg
-    if raw.startswith("@"):
-        with open(raw[1:]) as f:
-            raw = f.read()
-    return json.loads(raw)
+    from preframr_tokens.macros.flag_registry import macro_flag_names, resolve_flags
+    from preframr_tokens.tokenizer_config import NAMED_CONFIGS
 
-
-_PIPELINE_NAME_TO_FLAG = {
-    "hard_restart": ("hard_restart_pass", True),
-    "ctrl_bigram": ("ctrl_bigram_pass", True),
-    "voice_block_order": ("voice_canonical_block_order", True),
-    "freq_trajectory": ("freq_trajectory_pass", True),
-    "preset": ("preset_pass", True),
-    "loop": ("loop_pass", True),
-    "coarsen": ("coarsen_pass", True),
-    "fuzzy_loop": ("fuzzy_loop_pass", True),
-    "stamp": ("stamp_pass", True),
-    "sweep": ("sweep_pass", True),
-    "held_arp": ("held_arp", True),
-    "patch": ("patch_pass", True),
-}
-
-_LEGATO_CLUSTERS = tuple(
-    sorted(
-        int(flag[len("legato_pass_c") :])
-        for flag in macro_flag_names()
-        if flag.startswith("legato_pass_c")
-    )
-)
-
-
-def apply_pipeline_spec_to_args(args):
-    """Translate a pipeline_spec arg into the legacy boolean flag attrs. Resolves @path references and stashes the JSON content back into args.pipeline_spec so the checkpoint always carries the resolved spec."""
-    import json
-
-    spec = load_pipeline_spec(getattr(args, "pipeline_spec", ""))
-    if spec is None:
-        return None
-    args.pipeline_spec = json.dumps(spec, separators=(",", ":"))
-    for cluster in _LEGATO_CLUSTERS:
-        setattr(args, f"legato_pass_c{cluster}", False)
-    for flag_pair in _PIPELINE_NAME_TO_FLAG.values():
-        attr, _ = flag_pair
-        setattr(args, attr, False)
-    entries = spec.get("transforms", []) if isinstance(spec, dict) else spec
-    for entry in entries:
-        name = entry["name"] if isinstance(entry, dict) else entry
-        params = entry.get("params", {}) if isinstance(entry, dict) else {}
-        if name == "legato_per_cluster":
-            for cluster in params.get("clusters", []):
-                setattr(args, f"legato_pass_c{int(cluster)}", True)
-            continue
-        if name in _PIPELINE_NAME_TO_FLAG:
-            attr, value = _PIPELINE_NAME_TO_FLAG[name]
-            setattr(args, attr, value)
-    return spec
+    all_flags = set(macro_flag_names())
+    names = [
+        tok
+        for tok in re.split(r"[,\s]+", (getattr(args, "macro_flags", "") or "").strip())
+        if tok
+    ]
+    config = getattr(args, "macro_config", "") or ""
+    requested = set()
+    if config:
+        if config not in NAMED_CONFIGS:
+            raise KeyError(
+                f"unknown macro_config {config!r}; known: {sorted(NAMED_CONFIGS)}"
+            )
+        requested |= {flag for flag, on in NAMED_CONFIGS[config].items() if on}
+    bad = [name for name in names if name not in all_flags]
+    if bad:
+        raise ValueError(f"unknown macro flag(s) {bad}; valid: {sorted(all_flags)}")
+    requested |= set(names)
+    resolved = resolve_flags(requested)
+    for flag in all_flags:
+        setattr(args, flag, flag in resolved)
+    args.macro_flags = ",".join(sorted(resolved))
+    return resolved

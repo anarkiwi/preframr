@@ -8,6 +8,7 @@ from preframr_tokens import (
     build_vocab_tier_ids,
     build_vocab_tier_map,
     is_freq_onset_atom,
+    op_name_by_id,
     vocab_id_tier,
 )
 
@@ -105,30 +106,13 @@ def build_tier_map(args, n_vocab, tokens, tkmodel):
     return build_vocab_tier_map(rt, tokens, n_vocab)
 
 
-def _op_name_by_id():
-    """Reverse map ``{op_int: OP_NAME}`` from the ``*_OP`` constants (SET, DIFF, FLIP, BACK_REF,
-    STAMP_REF, PATTERN_REPLAY, WAVETABLE_*, FREQ_TRAJ, ...). The op IS the pattern-compressing class.
-    """
-    from preframr_tokens import (
-        stfconstants as stf,
-    )  # pylint: disable=import-outside-toplevel
-
-    names = {}
-    for name in dir(stf):
-        if name.endswith("_OP"):
-            val = getattr(stf, name)
-            if isinstance(val, int):
-                names.setdefault(val, name[:-3])
-    return names
-
-
 def build_op_map(args, n_vocab, tokens, tkmodel):
     """Return ``{vocab_id: op_class_name}`` — the op of each vid's first decoded base atom. Lets the
     GeneralizationGate report per-op-class accuracy, i.e. WHICH pattern-compressing token actually learns
     on the (byte-exact) data: the DIFF delta vs the BACK_REF distance vs the STAMP_REF / WAVETABLE
     codebook id, separately from the structural/content tier split. Mirrors ``build_tier_map``.
     """
-    names = _op_name_by_id()
+    names = op_name_by_id()
     if tokens is None or len(tokens) == 0:
         return {vid: "SET" for vid in range(n_vocab)}
     from preframr_tokens import RegTokenizer  # pylint: disable=import-outside-toplevel

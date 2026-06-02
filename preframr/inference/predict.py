@@ -388,7 +388,7 @@ def _keep_norms_fp32(model):
 
 
 def load_model(args, logger):
-    from preframr.args import apply_pipeline_spec_to_args
+    from preframr.args import apply_macro_flags_to_args
 
     ckpt = get_ckpt(args.model_state, args.tb_logs)
     logger.info("loading %s", ckpt)
@@ -397,14 +397,14 @@ def load_model(args, logger):
         model = Model.load_from_checkpoint(ckpt, weights_only=False, map_location="cpu")
     if not getattr(model, "per_tier_heads_on", False):
         _patch_unembed_keep_dtype(model.model)
-    if not getattr(args, "pipeline_spec", "") and getattr(
+    if not getattr(args, "macro_flags", "") and getattr(
         getattr(model, "hparams", {}), "args", None
     ):
-        recovered = getattr(model.hparams.args, "pipeline_spec", "")
+        recovered = getattr(model.hparams.args, "macro_flags", "")
         if recovered:
-            args.pipeline_spec = recovered
-            apply_pipeline_spec_to_args(args)
-            logger.info("recovered pipeline_spec from checkpoint")
+            args.macro_flags = recovered
+            logger.info("recovered macro_flags from checkpoint: %s", recovered)
+    apply_macro_flags_to_args(args)
     dataset = RegDataset(args, logger=logger)
     recovered_reg_widths = getattr(model, "reg_widths", {}) or {}
     if recovered_reg_widths:
@@ -469,11 +469,11 @@ def run_predict(args, logger, dataset, model, device, model_compiler, p):
 
 
 def main():
-    from preframr.args import apply_pipeline_spec_to_args
+    from preframr.args import apply_macro_flags_to_args
 
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
-    apply_pipeline_spec_to_args(args)
+    apply_macro_flags_to_args(args)
     logger = get_logger("INFO")
     dataset, model, device, model_compiler = load_model(args, logger)
     for p in range(args.predictions):
