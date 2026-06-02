@@ -7,10 +7,10 @@ import pandas as pd
 import torch
 
 from preframr_tokens.stfconstants import (
-    BACK_REF_OP,
-    BACK_REF_SUBREG_DIST_HI,
-    BACK_REF_SUBREG_DIST_LO,
-    BACK_REF_SUBREG_LEN,
+    PATTERN_REPLAY_OP,
+    PATTERN_REPLAY_SUBREG_DIST_HI,
+    PATTERN_REPLAY_SUBREG_DIST_LO,
+    PATTERN_REPLAY_SUBREG_LEN,
     FRAME_REG,
     PAD_REG,
     PATTERN_OVERLAY_OP,
@@ -30,9 +30,24 @@ def _build_tokens():
         {"op": SET_OP, "reg": PAD_REG, "subreg": -1, "val": 0},
         {"op": SET_OP, "reg": 0, "subreg": -1, "val": 7},
         {"op": SET_OP, "reg": FRAME_REG, "subreg": -1, "val": 11},
-        {"op": BACK_REF_OP, "reg": -125, "subreg": BACK_REF_SUBREG_DIST_HI, "val": 0},
-        {"op": BACK_REF_OP, "reg": -125, "subreg": BACK_REF_SUBREG_DIST_LO, "val": 1},
-        {"op": BACK_REF_OP, "reg": -125, "subreg": BACK_REF_SUBREG_LEN, "val": 1},
+        {
+            "op": PATTERN_REPLAY_OP,
+            "reg": -125,
+            "subreg": PATTERN_REPLAY_SUBREG_DIST_HI,
+            "val": 0,
+        },
+        {
+            "op": PATTERN_REPLAY_OP,
+            "reg": -125,
+            "subreg": PATTERN_REPLAY_SUBREG_DIST_LO,
+            "val": 1,
+        },
+        {
+            "op": PATTERN_REPLAY_OP,
+            "reg": -125,
+            "subreg": PATTERN_REPLAY_SUBREG_LEN,
+            "val": 1,
+        },
         {
             "op": PATTERN_OVERLAY_OP,
             "reg": -125,

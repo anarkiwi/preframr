@@ -67,20 +67,26 @@ class TestBuildOpMap(unittest.TestCase):
 
     def test_op_map_labels_by_op(self):
         from preframr.train.model import build_op_map
-        from preframr_tokens.stfconstants import BACK_REF_OP, DIFF_OP
+        from preframr_tokens.stfconstants import PATTERN_REPLAY_OP, DIFF_OP
 
         tokens = pd.DataFrame(
             [
                 {"op": SET_OP, "reg": FRAME_REG, "subreg": -1, "val": 0, "n": 0},
                 {"op": int(DIFF_OP), "reg": 0, "subreg": -1, "val": 5, "n": 1},
-                {"op": int(BACK_REF_OP), "reg": -1, "subreg": 0, "val": 2, "n": 2},
+                {
+                    "op": int(PATTERN_REPLAY_OP),
+                    "reg": -1,
+                    "subreg": 0,
+                    "val": 2,
+                    "n": 2,
+                },
             ],
             dtype=MODEL_PDTYPE,
         )
         op_map = build_op_map(_tiny_args(), len(tokens), tokens, tkmodel=None)
         self.assertEqual(op_map[0], "SET")
         self.assertEqual(op_map[1], "DIFF")
-        self.assertEqual(op_map[2], "BACK_REF")
+        self.assertEqual(op_map[2], "PATTERN_REPLAY")
 
     def test_empty_tokens_defaults_set(self):
         from preframr.train.model import build_op_map

@@ -7,7 +7,7 @@ import torch
 
 from preframr.train.model import _build_vocab_frame_weight, chunked_cross_entropy
 from preframr_tokens.stfconstants import (
-    BACK_REF_OP,
+    PATTERN_REPLAY_OP,
     DELAY_REG,
     DO_LOOP_OP,
     FRAME_REG,
@@ -44,9 +44,9 @@ class TestVocabFrameWeight(unittest.TestCase):
 
     def test_back_ref_weight_equals_length(self):
         from preframr_tokens.stfconstants import (
-            BACK_REF_SUBREG_DIST_HI,
-            BACK_REF_SUBREG_DIST_LO,
-            BACK_REF_SUBREG_LEN,
+            PATTERN_REPLAY_SUBREG_DIST_HI,
+            PATTERN_REPLAY_SUBREG_DIST_LO,
+            PATTERN_REPLAY_SUBREG_LEN,
         )
 
         tokens = _tokens_df(
@@ -54,21 +54,21 @@ class TestVocabFrameWeight(unittest.TestCase):
                 {"reg": 4, "subreg": -1, "val": 8, "op": SET_OP},
                 {
                     "reg": LOOP_OP_REG,
-                    "subreg": BACK_REF_SUBREG_DIST_HI,
+                    "subreg": PATTERN_REPLAY_SUBREG_DIST_HI,
                     "val": 0,
-                    "op": BACK_REF_OP,
+                    "op": PATTERN_REPLAY_OP,
                 },
                 {
                     "reg": LOOP_OP_REG,
-                    "subreg": BACK_REF_SUBREG_DIST_LO,
+                    "subreg": PATTERN_REPLAY_SUBREG_DIST_LO,
                     "val": 10,
-                    "op": BACK_REF_OP,
+                    "op": PATTERN_REPLAY_OP,
                 },
                 {
                     "reg": LOOP_OP_REG,
-                    "subreg": BACK_REF_SUBREG_LEN,
+                    "subreg": PATTERN_REPLAY_SUBREG_LEN,
                     "val": 8,
-                    "op": BACK_REF_OP,
+                    "op": PATTERN_REPLAY_OP,
                 },
             ]
         )

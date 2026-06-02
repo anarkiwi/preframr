@@ -99,7 +99,9 @@ class TestPerOpAccuracy(unittest.TestCase):
         )
 
     def test_per_op_acc_logged(self):
-        gate = self._gate({1: "BACK_REF", 2: "BACK_REF", 10: "DIFF", 11: "STAMP_REF"})
+        gate = self._gate(
+            {1: "PATTERN_REPLAY", 2: "PATTERN_REPLAY", 10: "DIFF", 11: "STAMP_REF"}
+        )
         trainer = _FakeTrainer(epoch=1)
         mod = _FakeModule()
         gate.on_validation_epoch_start(trainer, mod)
@@ -108,7 +110,7 @@ class TestPerOpAccuracy(unittest.TestCase):
         gate.on_validation_batch_end(trainer, mod, _outputs(preds, gt), None, 0)
         gate.on_validation_epoch_end(trainer, mod)
         self.assertFalse(trainer.should_stop)
-        self.assertAlmostEqual(mod.logged["gate/op_acc/BACK_REF"], 0.5)
+        self.assertAlmostEqual(mod.logged["gate/op_acc/PATTERN_REPLAY"], 0.5)
         self.assertAlmostEqual(mod.logged["gate/op_acc/DIFF"], 0.5)
         self.assertAlmostEqual(mod.logged["gate/op_acc/STAMP_REF"], 1.0)
 
