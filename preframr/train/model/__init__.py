@@ -44,5 +44,6 @@ from preframr.train.model.tier_map import (
     _build_tier_vocab_partition,
     _build_vocab_class_weight,
     _build_vocab_tier_id,
+    build_op_map,
     build_tier_map,
 )

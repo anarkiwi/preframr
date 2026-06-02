@@ -32,6 +32,7 @@ class GeneralizationGate(pl.Callback):
         self,
         *,
         tier_map: dict,
+        op_map: Optional[dict] = None,
         audit_prompts: Optional[list] = None,
         generate_fn: Optional[Callable] = None,
         generate_n: int = 512,
@@ -40,6 +41,7 @@ class GeneralizationGate(pl.Callback):
     ):
         super().__init__()
         self.tier_map = tier_map
+        self.op_map = op_map
         self.audit_prompts = audit_prompts or []
         self.generate_fn = generate_fn
         self.generate_n = generate_n
@@ -67,6 +69,8 @@ class GeneralizationGate(pl.Callback):
             pca = tier_accuracy(self._preds, self._gt, self.tier_map)
             ratio = pca["content_over_structural"]
             pl_module.log("gate/content_over_structural", ratio, sync_dist=True)
+            if self.op_map is not None:
+                self._log_per_op(pl_module)
             if (
                 epoch >= th.content_over_structural_min_epoch
                 and ratio < th.content_over_structural_min
@@ -110,6 +114,20 @@ class GeneralizationGate(pl.Callback):
                     f"distinct_n4 {distinct:.1f} < {th.distinct_n_min} at epoch {epoch}",
                 )
                 return
+
+    def _log_per_op(self, pl_module):
+        """Per-op-class validation accuracy (``gate/op_acc/{op}``): which pattern-compressing token
+        actually learns -- the DIFF delta vs BACK_REF distance vs STAMP_REF / WAVETABLE codebook id,
+        separate from the tier split. Logs each op + a rank-zero summary of the lowest-acc ops.
+        """
+        per_op = tier_accuracy(self._preds, self._gt, self.op_map)["per_tier"]
+        laggards = []
+        for op, d in sorted(per_op.items(), key=lambda kv: kv[1]["acc"]):
+            pl_module.log(f"gate/op_acc/{op}", d["acc"], sync_dist=True)
+            laggards.append(f"{op} {d['acc']:.2f}(n={d['n']})")
+        rank_zero_info(
+            "[GeneralizationGate] per-op acc (lowest first): " + "; ".join(laggards[:8])
+        )
 
     def _abort(self, trainer, pl_module, reason: str):
         rank_zero_info(f"[GeneralizationGate] ABORT: {reason}")

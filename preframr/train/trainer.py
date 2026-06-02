@@ -8,7 +8,12 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from preframr.args import add_args
 from preframr.train.regdataset import RegDataset, get_loader, get_val_loader
-from preframr.train.model import build_tier_map, get_model, SchedulerFreeModelCheckpoint
+from preframr.train.model import (
+    build_op_map,
+    build_tier_map,
+    get_model,
+    SchedulerFreeModelCheckpoint,
+)
 from preframr.utils import get_logger
 
 
@@ -65,19 +70,22 @@ def _maybe_generalization_gate(args, model, val_dataloader, logger):
     from preframr.train.generalization_gate import GateThresholds, GeneralizationGate
 
     tier_map = build_tier_map(args, model.n_vocab, model.tokens, model.tkmodel)
+    op_map = build_op_map(args, model.n_vocab, model.tokens, model.tkmodel)
     audit_prompts = _build_audit_prompts(
         val_dataloader,
         n_prompts=args.gate_audit_prompts,
         prompt_len=args.gate_audit_prompt_len,
     )
     logger.info(
-        "GeneralizationGate: %d tier entries, %d audit prompts (len %d)",
+        "GeneralizationGate: %d tier entries, %d op classes, %d audit prompts (len %d)",
         len(tier_map),
+        len(set(op_map.values())),
         len(audit_prompts),
         args.gate_audit_prompt_len,
     )
     return GeneralizationGate(
         tier_map=tier_map,
+        op_map=op_map,
         audit_prompts=audit_prompts,
         generate_fn=_make_generate_fn(),
         generate_n=args.gate_generate_n,
