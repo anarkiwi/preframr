@@ -37,7 +37,7 @@ First, preframr applies configurable bit resolution reduction and register combi
     * remove redundant control register values (for example, PCM modulation changes removed where pulse waveform is not selected)
 * voice registers and augmentation
     * each training sequence sample is rendered 3 times with each voice rotated to assume each original voice assignment
-    * register programming order within a frame is normalized in voice by voice order, sorted by current voice frequency and control register values (ensuring intra-frame register order is consistent and comparable between sequences and can be tokenized to the same token)
+    * register programming order within a frame is preserved in input order per voice (voice blocks grouped then filter/volume last). Intra-frame write order IS audible under the SID renderer's real per-write timing — the gate must stay in place relative to the freq it gates and the AD/SR around it, because the SID ADSR bug makes envelope behaviour order- and value-dependent (see preframr-xpt `design/sid_render_fidelity_contract.md`). So writes are NOT sorted into register order. An optional gated pass additionally sorts the independent voice blocks by current frequency/control for tokenization consistency across the voice rotations.
     * virtual register FRAME_REG encodes the high bits of current frequency assignments and the order of voice registers with a frame (retaining beyond context frequency information)
     * virtual register VOICE_REG signifies voice selection within a frame
 * change opcodes (encoding common SID music ornamentation techniques)
