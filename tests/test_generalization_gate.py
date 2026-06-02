@@ -88,6 +88,40 @@ class TestContentStructuralGate(unittest.TestCase):
         self.assertEqual(mod.logged["gate/content_over_structural"], 1.0)
 
 
+class TestPerOpAccuracy(unittest.TestCase):
+    """The per-op-class accuracy instrument: which pattern-compressing token learns."""
+
+    def _gate(self, op_map):
+        return GeneralizationGate(
+            tier_map={1: "structural", 2: "structural", 10: "content", 11: "content"},
+            op_map=op_map,
+            thresholds=GateThresholds(content_over_structural_min_epoch=999),
+        )
+
+    def test_per_op_acc_logged(self):
+        gate = self._gate({1: "BACK_REF", 2: "BACK_REF", 10: "DIFF", 11: "STAMP_REF"})
+        trainer = _FakeTrainer(epoch=1)
+        mod = _FakeModule()
+        gate.on_validation_epoch_start(trainer, mod)
+        gt = [1, 1, 1, 1, 10, 10, 11, 11]
+        preds = [1, 1, 9, 9, 10, 99, 11, 11]
+        gate.on_validation_batch_end(trainer, mod, _outputs(preds, gt), None, 0)
+        gate.on_validation_epoch_end(trainer, mod)
+        self.assertFalse(trainer.should_stop)
+        self.assertAlmostEqual(mod.logged["gate/op_acc/BACK_REF"], 0.5)
+        self.assertAlmostEqual(mod.logged["gate/op_acc/DIFF"], 0.5)
+        self.assertAlmostEqual(mod.logged["gate/op_acc/STAMP_REF"], 1.0)
+
+    def test_no_op_map_no_per_op_logging(self):
+        gate = self._gate(None)
+        trainer = _FakeTrainer(epoch=1)
+        mod = _FakeModule()
+        gate.on_validation_epoch_start(trainer, mod)
+        gate.on_validation_batch_end(trainer, mod, _outputs([1, 10], [1, 10]), None, 0)
+        gate.on_validation_epoch_end(trainer, mod)
+        self.assertFalse(any(k.startswith("gate/op_acc/") for k in mod.logged))
+
+
 class TestLoopCollapseGate(unittest.TestCase):
     def test_collapse_above_min_epoch_aborts(self):
         prompts = [[0, 1, 2]] * 3

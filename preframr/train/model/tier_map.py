@@ -105,6 +105,54 @@ def build_tier_map(args, n_vocab, tokens, tkmodel):
     return build_vocab_tier_map(rt, tokens, n_vocab)
 
 
+def _op_name_by_id():
+    """Reverse map ``{op_int: OP_NAME}`` from the ``*_OP`` constants (SET, DIFF, FLIP, BACK_REF,
+    STAMP_REF, PATTERN_REPLAY, WAVETABLE_*, FREQ_TRAJ, ...). The op IS the pattern-compressing class.
+    """
+    from preframr_tokens import (
+        stfconstants as stf,
+    )  # pylint: disable=import-outside-toplevel
+
+    names = {}
+    for name in dir(stf):
+        if name.endswith("_OP"):
+            val = getattr(stf, name)
+            if isinstance(val, int):
+                names.setdefault(val, name[:-3])
+    return names
+
+
+def build_op_map(args, n_vocab, tokens, tkmodel):
+    """Return ``{vocab_id: op_class_name}`` — the op of each vid's first decoded base atom. Lets the
+    GeneralizationGate report per-op-class accuracy, i.e. WHICH pattern-compressing token actually learns
+    on the (byte-exact) data: the DIFF delta vs the BACK_REF distance vs the STAMP_REF / WAVETABLE
+    codebook id, separately from the structural/content tier split. Mirrors ``build_tier_map``.
+    """
+    names = _op_name_by_id()
+    if tokens is None or len(tokens) == 0:
+        return {vid: "SET" for vid in range(n_vocab)}
+    from preframr_tokens import RegTokenizer  # pylint: disable=import-outside-toplevel
+
+    if tkmodel is not None and not isinstance(tkmodel, str):
+        tkmodel = tkmodel.to_str()
+    rt = RegTokenizer(args, tokens=tokens)
+    rt.load(tkmodel, tokens)
+    n_base = len(tokens)
+    out = {}
+    for vid in range(n_vocab):
+        base_ids = rt.decode([vid]) if rt.tkmodel else [vid]
+        label = "_unknown"
+        for bid in base_ids:
+            bid = int(bid)
+            if bid >= n_base:
+                continue
+            op = int(tokens.iloc[bid]["op"])
+            label = names.get(op, f"OP{op}")
+            break
+        out[vid] = label
+    return out
+
+
 def _build_tier_vocab_partition(args, n_vocab, tokens, tkmodel):
     """For each tier name, return (vocab_ids_in_tier, full_to_local_map) tensors. full_to_local_map[v] = local-within-tier id if v is in tier, else -1."""
     tier_ids = _build_vocab_tier_id(args, n_vocab, tokens, tkmodel)
