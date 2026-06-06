@@ -1,0 +1,22 @@
+# Pre-commit checks: black formatting + pylint unused-import / unused-variable.
+# Run over the whole package + tests (not just staged files).
+# Framework usage:  pip install pre-commit && pre-commit install
+# A self-contained .git/hooks/pre-commit mirrors these checks for clones
+# that don't have the pre-commit framework installed.
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black (check formatting)
+        entry: black --check preframr tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        types: [python]
+      - id: pylint-unused
+        name: pylint (unused-import / unused-variable)
+        entry: pylint --disable=all --enable=unused-import,unused-variable preframr tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        types: [python]
