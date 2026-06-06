@@ -107,7 +107,6 @@ class TestLossTierRegistry(unittest.TestCase):
         from preframr_tokens.stfconstants import (
             HARD_RESTART_OP,
             PATTERN_REPLAY_OP,
-            SET_OP,
         )
 
         self.assertEqual(op_tier[int(HARD_RESTART_OP)], "structural")
