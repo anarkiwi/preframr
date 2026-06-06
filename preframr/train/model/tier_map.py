@@ -2,15 +2,33 @@
 
 import torch
 
-from preframr_tokens.stfconstants import LOSS_TIER_NAMES
+from preframr_tokens.stfconstants import (
+    LOSS_TIER_NAMES,
+    MELODY_INTERVAL_OP,
+    MELODY_INTERVAL_SUBREG_VOICE,
+    GEN_FREQ_REGS,
+)
 from preframr_tokens import (
     CONTENT_TIER,
     build_vocab_tier_ids,
     build_vocab_tier_map,
-    is_freq_onset_atom,
     op_name_by_id,
     vocab_id_tier,
 )
+
+_FREQ_REGS = frozenset(int(r) for r in GEN_FREQ_REGS)
+
+
+def is_freq_onset_atom(op, reg, subreg):
+    """A melodic freq onset: the MELODY_INTERVAL atom -- the generator-era successor to the deleted
+    FREQ_TRAJ V0-onset (tokens<0.45.0). Identified once per atom by its VOICE subreg on a freq register,
+    so the onset-loss-weight buffer up-weights only the rare melodic onset vids."""
+    return (
+        int(op) == int(MELODY_INTERVAL_OP)
+        and int(reg) in _FREQ_REGS
+        and int(subreg) == int(MELODY_INTERVAL_SUBREG_VOICE)
+    )
+
 
 _LOSS_TIER_ORDER = LOSS_TIER_NAMES
 _N_LOSS_TIERS = len(_LOSS_TIER_ORDER)

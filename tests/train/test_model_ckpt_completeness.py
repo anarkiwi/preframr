@@ -105,13 +105,14 @@ class TestModelCkptCompleteness(unittest.TestCase):
     def test_apply_macro_flags_sets_booleans(self):
         from preframr.args import apply_macro_flags_to_args
 
-        ns = argparse.Namespace(macro_flags="wavetable_pass", macro_config="")
+        ns = argparse.Namespace(macro_flags="melody_skeleton", macro_config="")
         apply_macro_flags_to_args(ns)
         self.assertTrue(
-            getattr(ns, "skeleton_pass"), "wavetable_pass must auto-add skeleton_pass"
+            getattr(ns, "generator_pass"),
+            "melody_skeleton must auto-add generator_pass",
         )
-        self.assertTrue(getattr(ns, "wavetable_pass"))
-        self.assertIn("skeleton_pass", ns.macro_flags.split(","))
+        self.assertTrue(getattr(ns, "melody_skeleton"))
+        self.assertIn("generator_pass", ns.macro_flags.split(","))
 
     def test_reg_widths_carried_through(self):
         model = self._make_model()

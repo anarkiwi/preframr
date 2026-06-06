@@ -105,14 +105,14 @@ class TestLossTierRegistry(unittest.TestCase):
     def test_op_tier_map_has_expected_classes(self):
         op_tier = collect_op_loss_tiers()
         from preframr_tokens.stfconstants import (
-            CTRL_BIGRAM_OP,
-            FREQ_TRAJ_OP,
             HARD_RESTART_OP,
+            PATTERN_REPLAY_OP,
+            SET_OP,
         )
 
         self.assertEqual(op_tier[int(HARD_RESTART_OP)], "structural")
-        self.assertEqual(op_tier[int(CTRL_BIGRAM_OP)], "zero")
-        self.assertEqual(op_tier[int(FREQ_TRAJ_OP)], "content")
+        self.assertEqual(op_tier[int(PATTERN_REPLAY_OP)], "structural")
+        self.assertEqual(op_tier[int(SET_OP)], "content")
 
     def test_all_registered_transforms_declare_valid_loss_tier(self):
         for op, tier in collect_op_loss_tiers().items():
