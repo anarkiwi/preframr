@@ -12,5 +12,5 @@ tokenizers==0.23.1
 torchtune==0.6.1
 torchao==0.17.0
 zstandard==0.25.0
-preframr-audio>=0.5.6
+preframr-audio>=0.5.7
 preframr-tokens>=0.46.0
