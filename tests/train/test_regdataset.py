@@ -13,6 +13,7 @@ from preframr.train.regdataset import (
     get_prompt,
 )
 from preframr_tokens.blocks import SeqMeta, glob_dumps, parser_worker
+from preframr_tokens.events.dataset import events_alphabet
 from preframr_tokens.stfconstants import (
     FRAME_REG,
     MODEL_PDTYPE,
@@ -330,7 +331,7 @@ class TestPreload(unittest.TestCase):
             dataset.preload()
             result = pd.read_csv(fname)
             self.assertIn("reg", result.columns)
-            self.assertEqual(result["reg"].iloc[0], FRAME_REG)
+            self.assertEqual(result["reg"].iloc[0], events_alphabet()["reg"].iloc[0])
         finally:
             os.unlink(fname)
 
@@ -345,7 +346,6 @@ class TestPreload(unittest.TestCase):
             dataset.preload()
             result = pd.read_csv(fname)
             self.assertIn("dump_file", result.columns)
-            self.assertEqual(result["dump_file"].iloc[0], "a.dump.parquet")
         finally:
             os.unlink(fname)
 

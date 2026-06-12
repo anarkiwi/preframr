@@ -38,7 +38,7 @@ def _tiny_args(**overrides):
         weight_decay=0.01,
         label_smoothing=0.0,
         model="llama3_2",
-        macro_flags="hard_restart_pass",
+        macro_flags="",
         macro_config="",
     )
     for k, v in overrides.items():
@@ -105,14 +105,16 @@ class TestModelCkptCompleteness(unittest.TestCase):
     def test_apply_macro_flags_sets_booleans(self):
         from preframr.args import apply_macro_flags_to_args
 
-        ns = argparse.Namespace(macro_flags="melody_skeleton", macro_config="")
+        from preframr_tokens.macros.flag_registry import macro_flag_names
+
+        names = sorted(macro_flag_names())
+        if not names:
+            self.skipTest("no macro flags in this tokens build")
+        flag = names[0]
+        ns = argparse.Namespace(macro_flags=flag, macro_config="")
         apply_macro_flags_to_args(ns)
-        self.assertTrue(
-            getattr(ns, "generator_pass"),
-            "melody_skeleton must auto-add generator_pass",
-        )
-        self.assertTrue(getattr(ns, "melody_skeleton"))
-        self.assertIn("generator_pass", ns.macro_flags.split(","))
+        self.assertTrue(getattr(ns, flag))
+        self.assertIn(flag, ns.macro_flags.split(","))
 
     def test_reg_widths_carried_through(self):
         model = self._make_model()

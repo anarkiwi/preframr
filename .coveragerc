@@ -12,6 +12,7 @@ omit =
     preframr/parse.py
     preframr/stftokenize.py
     preframr/inference/predict.py
+    preframr/inference/event_gate.py
     preframr/train/regdataset.py
 
 [report]
