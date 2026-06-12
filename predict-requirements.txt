@@ -12,4 +12,4 @@ torchtune==0.6.1
 torchao==0.17.0
 zstandard==0.25.0
 preframr-audio>=0.5.9
-preframr-tokens>=0.49.0
+preframr-tokens>=0.50.0
