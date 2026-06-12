@@ -349,7 +349,7 @@ def apply_macro_flags_to_args(args):
     import re
 
     from preframr_tokens.macros.flag_registry import macro_flag_names, resolve_flags
-    from preframr_tokens.tokenizer_config import NAMED_CONFIGS
+    from preframr_tokens.tokenizer_config import NAMED_CONFIGS, named_config
 
     all_flags = set(macro_flag_names())
     names = [
@@ -364,7 +364,8 @@ def apply_macro_flags_to_args(args):
             raise KeyError(
                 f"unknown macro_config {config!r}; known: {sorted(NAMED_CONFIGS)}"
             )
-        requested |= {flag for flag, on in NAMED_CONFIGS[config].items() if on}
+        cfg = named_config(config)
+        requested |= {flag for flag in all_flags if getattr(cfg, flag, False)}
     bad = [name for name in names if name not in all_flags]
     if bad:
         raise ValueError(f"unknown macro flag(s) {bad}; valid: {sorted(all_flags)}")
