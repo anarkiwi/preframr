@@ -6,14 +6,18 @@ import wave
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from preframr_tokens.events import oracle, stream
+from preframr_tokens.events.constrained import EventStreamState
 from preframr.inference.event_render import (
+    EventConstraint,
     writes_to_timed_dump_df,
     render_writes_to_wav,
 )
 
 PAL_FRAME_CYCLES = 19656
+N_VOCAB = stream.VOCAB_SIZE + 1
 
 
 def _synth_df(n_frames=12, seed=3):
@@ -39,6 +43,60 @@ def _synth_df(n_frames=12, seed=3):
             "val": np.array([w[2] for w in writes], dtype=np.int64),
         }
     )
+
+
+def _event_nspace(df):
+    """A synthetic tune's event atoms in model n-space (atom + 1; the model's vocab)."""
+    atoms = stream.encode(oracle.ordered_writes(df))
+    return [a + 1 for a in atoms]
+
+
+def test_primed_constraint_admits_the_true_continuation():
+    """The core audition fix: an EventConstraint PRIMED with a prompt prefix admits the real
+    continuation at every step (its grammar mask is correct at the prompt/generation boundary), so a
+    well-trained model is never masked away from a valid stream."""
+    ids = _event_nspace(_synth_df(n_frames=24))
+    split = len(ids) // 3
+    prompt, cont = ids[:split], ids[split:]
+    ec = EventConstraint(prompt, N_VOCAB)
+    for j, tok in enumerate(cont):
+        allowed = ec.allowed_nspace()
+        assert allowed[tok], f"primed mask rejected the true atom at step {j}"
+        assert (
+            0 < int(allowed.sum()) < N_VOCAB
+        ), "mask must be a non-trivial restriction"
+        ec.update(tok)
+
+
+def test_unprimed_state_rejects_a_mid_frame_continuation_that_priming_admits():
+    """Control: split mid-frame-group (just before an event-kind atom). A FRESH state expects the
+    leading frame-count varint and rejects it immediately; the PRIMED state knows it is mid-frame and
+    admits it. This is exactly why unprimed constrained generation drifted off-grammar.
+    """
+    ids = _event_nspace(_synth_df(n_frames=24))
+    kinds = set(range(stream.NI_STEP, stream.G_RAMP + 1))
+    split = next(i for i, t in enumerate(ids) if (t - 1) in kinds and i > 0)
+    prompt, nxt = ids[:split], ids[split]
+    fresh_mask = EventStreamState().valid_mask()
+    assert not fresh_mask[nxt - 1], "a fresh state must reject a mid-frame event atom"
+    assert EventConstraint(prompt, N_VOCAB).allowed_nspace()[
+        nxt
+    ], "the primed state must admit it"
+
+
+def test_mask_logits_blocks_invalid_and_keeps_valid():
+    """mask_logits sets every grammar-invalid id to -inf and leaves valid ones finite (PAD always -inf)."""
+    torch = pytest.importorskip("torch")
+    if not hasattr(torch, "zeros"):
+        pytest.skip("torch unavailable (namespace stub)")
+    ids = _event_nspace(_synth_df(n_frames=24))
+    ec = EventConstraint(ids[: len(ids) // 3], N_VOCAB)
+    logits = torch.zeros(1, N_VOCAB)
+    masked = ec.mask_logits(logits)[0].numpy()
+    allowed = ec.allowed_nspace()
+    assert np.isneginf(masked[~allowed]).all(), "invalid ids must be -inf"
+    assert np.isfinite(masked[allowed]).all(), "valid ids must stay finite"
+    assert np.isneginf(masked[0]), "PAD (id 0) is never valid"
 
 
 def test_timed_dump_has_absolute_frame_paced_clock():

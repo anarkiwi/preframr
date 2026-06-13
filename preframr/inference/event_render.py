@@ -17,6 +17,7 @@ import pandas as pd
 from preframr_audio.audio_driver import render_to_wav
 from preframr_audio.sidwav import sidq
 from preframr_tokens import prepare_df_for_audio, read_initial_irq
+from preframr_tokens.events.constrained import EventStreamState
 from preframr_tokens.events.generate import tokens_to_writes, writes_to_dump_df
 from preframr_tokens.reglogparser import RegLogParser
 from preframr_tokens.stfconstants import DUMP_SUFFIX
@@ -24,6 +25,40 @@ from preframr_tokens.tokenizer_config import named_config
 
 _INTRA_FRAME_GAP = 8
 PAL_FRAME_CYCLES = 19656
+
+
+class EventConstraint:
+    """Event-grammar logit mask for constrained generation, PRIMED with the prompt so the mask is
+    correct at the prompt/generation boundary. The old ``StreamState`` mask keys on FRAME_REG, absent
+    from the event alphabet, so it is a no-op here and the model drifts off-grammar. Atom space ``a``
+    maps to model n-space id ``a + 1`` (id 0 = PAD)."""
+
+    def __init__(self, prompt_ids, n_vocab):
+        self.state = EventStreamState()
+        for tok in prompt_ids:
+            atom = int(tok) - 1
+            if atom >= 0:
+                self.state.push(atom)
+        self.n_vocab = int(n_vocab)
+
+    def allowed_nspace(self) -> np.ndarray:
+        """Boolean over model n-space ids: id a+1 allowed iff atom a is grammar-valid next; PAD never."""
+        vm = self.state.valid_mask()
+        nmask = np.zeros(self.n_vocab, dtype=bool)
+        k = min(len(vm), self.n_vocab - 1)
+        nmask[1 : 1 + k] = vm[:k]
+        return nmask
+
+    def mask_logits(self, logits):
+        import torch  # pylint: disable=import-outside-toplevel
+
+        allow = torch.as_tensor(self.allowed_nspace(), device=logits.device)
+        return logits.masked_fill(~allow, float("-inf"))
+
+    def update(self, tok) -> None:
+        atom = int(tok) - 1
+        if atom >= 0:
+            self.state.push(atom)
 
 
 def writes_to_timed_dump_df(writes, frame_cycles, chipno: int = 0) -> pd.DataFrame:
@@ -105,22 +140,13 @@ def run_render(args, logger):
         Predictor,
         load_model,
     )
-    from preframr_tokens import (  # pylint: disable=import-outside-toplevel
-        precompute_subtoken_arrays,
-        precompute_vocab_arrays,
-    )
 
     dataset, model, device, _ = load_model(args, logger)
     model = model.to(device)
-    if getattr(args, "tkvocab", 0) and dataset.tokenizer.tkmodel is not None:
-        vocab_arrays = precompute_subtoken_arrays(
-            dataset.tokenizer.tokens, dataset.tokenizer
-        )
-    else:
-        vocab_arrays = precompute_vocab_arrays(dataset.tokenizer.tokens)
     predictor = Predictor(
-        args, dataset, model, device, vocab_arrays=vocab_arrays, logger=logger
+        args, dataset, model, device, vocab_arrays=None, logger=logger
     )
+    n_vocab = model.model.tok_embeddings.num_embeddings
     tokenizer = dataset.tokenizer
     prompts = load_prompts(
         args.blocks_glob, args.n_prompts, args.prompt_seq_len, args.gen_tokens, logger
@@ -140,6 +166,7 @@ def run_render(args, logger):
                 temperature=temperature,
                 top_k=top_k,
                 irq=args.frame_cycles,
+                event_constraint=EventConstraint(prompt_ids, n_vocab),
             )
             .cpu()
             .numpy()
