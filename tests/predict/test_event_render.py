@@ -57,8 +57,8 @@ def test_timed_dump_has_absolute_frame_paced_clock():
 
 
 def test_decoded_writes_render_to_wav_at_frame_duration(tmp_path):
-    """The event-native path: canonical writes -> WAV via the standard render chain, at the duration the
-    frame count implies (frames * frame_cycles), proving the timing reconstruction is right.
+    """The event-native path: canonical writes -> WAV via the standard render chain, at the duration
+    the frame count implies (frames * frame_cycles), proving the timing reconstruction is right.
     """
     df = _synth_df(n_frames=12)
     writes = stream.canonical_writes(oracle.ordered_writes(df))
@@ -69,7 +69,6 @@ def test_decoded_writes_render_to_wav_at_frame_duration(tmp_path):
     with wave.open(wav) as w:
         rate = w.getframerate()
         assert w.getnframes() == n
-    # duration ~ frames * frame_cycles / SID clock; allow the renderer's per-frame quantisation.
     secs = n / rate
     assert (
         0.1 < secs < 5.0

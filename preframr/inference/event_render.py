@@ -1,14 +1,8 @@
-"""Event-model render-to-WAV: generated/decoded canonical writes -> a frame-paced raw dump ->
-the existing render chain (``RegLogParser`` reparse -> ``prepare_df_for_audio`` -> ``render_to_wav``).
-
-The event codec drops dumps to frame-resolution ``(frame, reg, val)`` writes; ``predict.py``'s
-``_state_df`` path is the old (op,reg,subreg,val) substrate and cannot decode event atoms, so this is
-the event-native render. The one piece the decode side leaves open is absolute cycle timing:
-``events.generate.writes_to_dump_df`` emits a surrogate clock with no frame structure, so the parser
-finds no rotations. :func:`writes_to_timed_dump_df` reconstructs an absolute clock from the player's
-frame period (``frame_cycles`` = the tune's ``irq``), after which the unchanged render chain produces
-a byte-faithful WAV (a frame with no writes renders as held SID state, i.e. sustained sound).
-"""
+"""Event-native render-to-WAV: decoded canonical writes -> a frame-paced raw dump -> the existing
+RegLogParser-reparse + prepare_df_for_audio + render_to_wav chain. predict.py's _state_df path is
+old-substrate and cannot decode event atoms; this is the replacement. writes_to_timed_dump_df adds
+the one missing piece -- absolute cycle timing (clock = frame * frame_cycles, the player frame
+period) -- since the decode emits a surrogate clock with no frame structure."""
 
 from __future__ import annotations
 
@@ -28,26 +22,19 @@ from preframr_tokens.reglogparser import RegLogParser
 from preframr_tokens.stfconstants import DUMP_SUFFIX
 from preframr_tokens.tokenizer_config import named_config
 
-_INTRA_FRAME_GAP = (
-    8  # cycles between writes within a frame (<< frame_cycles; sub-frame, ~inaudible)
-)
-PAL_FRAME_CYCLES = (
-    19656  # PAL cycles per player tick; the single-speed-corpus default frame period
-)
+_INTRA_FRAME_GAP = 8
+PAL_FRAME_CYCLES = 19656
 
 
 def writes_to_timed_dump_df(writes, frame_cycles, chipno: int = 0) -> pd.DataFrame:
-    """``(frame, reg, val)`` writes -> a raw dump with ABSOLUTE cycle timing the parser/renderer accept.
-    ``clock`` = ``frame * frame_cycles`` + an intra-frame offset; ``frame_cycles`` is the player's frame
-    period in cycles (PAL ~19656), i.e. the tune's ``irq``. Skipped frames widen the clock gap -> the SID
-    holds state -> sustained audio (correct). Reuses :func:`writes_to_dump_df` for the (reg, val) columns.
+    """(frame, reg, val) writes -> a raw dump with absolute cycle timing (clock = frame*frame_cycles
+    + intra-frame offset; frame_cycles = the player frame period, PAL ~19656). Skipped frames widen
+    the clock gap so the SID holds state (sustained audio). Reuses writes_to_dump_df for (reg, val).
     """
     base = writes_to_dump_df(writes, chipno=chipno)
     if base.empty:
         return base
-    frame = (
-        base["irq"].to_numpy().astype(np.int64)
-    )  # writes_to_dump_df puts the frame index in irq
+    frame = base["irq"].to_numpy().astype(np.int64)
     intra = base.groupby("irq").cumcount().to_numpy().astype(np.int64)
     clock = frame * int(frame_cycles) + intra * _INTRA_FRAME_GAP
     base["clock"] = clock
@@ -104,9 +91,9 @@ def render_tokens_to_wav(
 
 
 def run_render(args, logger):
-    """Audition CLI body: load a checkpoint, generate continuations from ``.blocks.npy`` prompts
-    (reusing the event_gate machinery), decode + render each to a WAV under ``--wav-dir``. Returns 0
-    if any WAV was written. The generate step (GPU) is unchanged; only the render is added.
+    """Audition CLI body: load a ckpt, generate continuations from .blocks.npy prompts (reusing the
+    event_gate machinery), constrained-decode, then decode + render each to a WAV under --wav-dir.
+    Returns 0 if any WAV was written; the generate step is unchanged, only render is added.
     """
     import numpy as _np  # pylint: disable=import-outside-toplevel
     import torch as _torch  # pylint: disable=import-outside-toplevel
@@ -126,8 +113,6 @@ def run_render(args, logger):
 
     dataset, model, device, _ = load_model(args, logger)
     model = model.to(device)
-    # Constrained decode (grammar mask) -- unconstrained generation from a generalize model is
-    # ungrammatical and won't decode; the mask keeps every sampled token stream-valid.
     if getattr(args, "tkvocab", 0) and dataset.tokenizer.tkmodel is not None:
         vocab_arrays = precompute_subtoken_arrays(
             dataset.tokenizer.tokens, dataset.tokenizer
