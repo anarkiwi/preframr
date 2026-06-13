@@ -66,7 +66,12 @@ class Predictor:
         temperature=1.0,
         top_k=None,
         irq=None,
+        event_constraint=None,
     ):
+        if event_constraint is not None:
+            return self._predict_constrained(
+                prompt, n, temperature, top_k, irq, state=event_constraint
+            )
         if self.vocab_arrays is None:
             output, _logits = generate(
                 self.model.model,
@@ -94,6 +99,7 @@ class Predictor:
         temperature,
         top_k,
         irq,
+        state=None,
     ):
         model = self.model.model
         prompt = prompt.clone().to(self.device)
@@ -123,7 +129,9 @@ class Predictor:
         input_pos = torch.arange(0, total_len, device=self.device).unsqueeze(0)
 
         prompt_ids = prompt.squeeze(0).tolist()
-        if self.vocab_arrays.get("subtoken_mode"):
+        if state is not None:
+            pass
+        elif self.vocab_arrays.get("subtoken_mode"):
             seed = StreamState(
                 self.vocab_arrays,
                 init_frame_count=0,
