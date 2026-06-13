@@ -95,7 +95,6 @@ def run_render(args, logger):
     event_gate machinery), constrained-decode, then decode + render each to a WAV under --wav-dir.
     Returns 0 if any WAV was written; the generate step is unchanged, only render is added.
     """
-    import numpy as _np  # pylint: disable=import-outside-toplevel
     import torch as _torch  # pylint: disable=import-outside-toplevel
 
     from preframr.inference.event_gate import (  # pylint: disable=import-outside-toplevel
@@ -144,9 +143,9 @@ def run_render(args, logger):
             )
             .cpu()
             .numpy()
-            .astype(_np.int64)
+            .astype(np.int64)
         )
-        full = _np.concatenate([prompt_ids, gen]).tolist()
+        full = np.concatenate([prompt_ids, gen]).tolist()
         writes, trim, err = decode_tolerant(tokenizer, full, len(prompt_ids))
         if not writes:
             logger.error("prompt %s: no decodable writes (%s)", path, err)
