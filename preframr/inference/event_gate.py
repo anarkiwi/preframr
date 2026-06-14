@@ -19,6 +19,7 @@ import torch
 from preframr.args import add_args
 from preframr.inference.predict import Predictor, load_model
 from preframr.utils import get_logger
+from preframr_tokens.events.dataset import unit_starts
 from preframr_tokens.events.generate import tokens_to_writes
 
 
@@ -34,8 +35,27 @@ def add_gate_args(parser):
     return parser
 
 
+def _frame_cut(nonzero, prompt_seq_len):
+    """Largest whole-frame boundary at or before ``prompt_seq_len``. A prefix
+    parses iff it is a whole number of frames, so the longest prefix (capped at
+    ``prompt_seq_len``) that ``unit_starts`` accepts is the snap point. The block
+    is a seq_len window that may itself end mid-frame, so never parse the whole
+    row -- only the bounded prefix."""
+    hi = min(len(nonzero), prompt_seq_len)
+    while hi > 0:
+        try:
+            unit_starts(nonzero[:hi].tolist())
+            return hi
+        except ValueError:
+            hi -= 1
+    return prompt_seq_len
+
+
 def load_prompts(blocks_glob, n_prompts, prompt_seq_len, gen_tokens, logger):
-    """First qualifying block per file (deduped songs), up to ``n_prompts``."""
+    """First qualifying block per file (deduped songs), up to ``n_prompts``. The
+    prompt is cut at the last grammar-unit (whole-frame) boundary at or before
+    ``prompt_seq_len``; a fixed atom cut lands mid-frame, so the prompt is not a
+    self-contained decodable stream and the audition renders silent."""
     prompts = []
     for path in sorted(glob.glob(blocks_glob, recursive=True)):
         arr = np.load(path)
@@ -43,10 +63,9 @@ def load_prompts(blocks_glob, n_prompts, prompt_seq_len, gen_tokens, logger):
             nonzero = row[row > 0]
             if len(nonzero) < prompt_seq_len + 1:
                 continue
-            prompt = nonzero[:prompt_seq_len].astype(np.int64)
-            truth = nonzero[prompt_seq_len : prompt_seq_len + gen_tokens].astype(
-                np.int64
-            )
+            cut = _frame_cut(nonzero, prompt_seq_len)
+            prompt = nonzero[:cut].astype(np.int64)
+            truth = nonzero[cut : cut + gen_tokens].astype(np.int64)
             if len(truth):
                 prompts.append((path, prompt, truth))
                 break
