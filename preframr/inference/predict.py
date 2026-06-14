@@ -185,11 +185,44 @@ class Predictor:
                 (bsz, model.tok_embeddings.num_embeddings), device=self.device
             ).exponential_(1, generator=self.rng)
 
-        def _step(curr_input_pos, curr_masks, x):
+        rep_penalty = float(getattr(self.args, "repetition_penalty", 1.0) or 1.0)
+        no_repeat_n = int(getattr(self.args, "no_repeat_ngram_size", 0) or 0)
+        pen_window = int(getattr(self.args, "decode_penalty_window", 128) or 128)
+
+        def _penalize(masked, recent):
+            """Tier-1 anti-collapse: repetition penalty + no-repeat-n-gram on the recent window, applied
+            after the grammar mask. Reverts the n-gram ban if it would leave no grammatically-valid token.
+            """
+            if not recent:
+                return masked
+            if rep_penalty != 1.0:
+                idx = torch.tensor(
+                    sorted(set(recent)), device=masked.device, dtype=torch.long
+                )
+                v = masked.index_select(-1, idx)
+                masked.index_copy_(
+                    -1, idx, torch.where(v > 0, v / rep_penalty, v * rep_penalty)
+                )
+            if no_repeat_n >= 2 and len(recent) >= no_repeat_n:
+                prefix = tuple(recent[-(no_repeat_n - 1) :])
+                banned = {
+                    recent[i + no_repeat_n - 1]
+                    for i in range(len(recent) - no_repeat_n + 1)
+                    if tuple(recent[i : i + no_repeat_n - 1]) == prefix
+                }
+                if banned:
+                    saved = masked.clone()
+                    for t in banned:
+                        masked[..., t] = float("-inf")
+                    if bool(torch.isinf(masked).all()):
+                        masked = saved
+            return masked
+
+        def _step(curr_input_pos, curr_masks, x, recent):
             logits = _last_token_logits(
                 model(x, input_pos=curr_input_pos, mask=curr_masks)
             )
-            masked = state.mask_logits(logits)
+            masked = _penalize(state.mask_logits(logits), recent)
             return _tt_sample(masked, temperature=temperature, top_k=top_k, q=_q())
 
         if caches_on:
@@ -197,7 +230,12 @@ class Predictor:
         else:
             assert full_mask is not None
             curr_masks = full_mask[:, :prompt_length, :prompt_length]
-        tok = _step(input_pos[:, :prompt_length].squeeze(), curr_masks, prompt)
+        tok = _step(
+            input_pos[:, :prompt_length].squeeze(),
+            curr_masks,
+            prompt,
+            prompt.reshape(-1).tolist()[-pen_window:],
+        )
         state.update(tok.item())
         generated = torch.empty(
             (bsz, total_len), dtype=prompt.dtype, device=self.device
@@ -218,7 +256,10 @@ class Predictor:
                 curr_input_pos = input_pos[:, : curr_pos + 1]
                 curr_masks = full_mask[:, : curr_pos + 1, : curr_pos + 1]
                 x = generated[:, : curr_pos + 1].clone()
-            tok = _step(curr_input_pos, curr_masks, x)
+            recent = generated[
+                0, max(0, curr_pos + 1 - pen_window) : curr_pos + 1
+            ].tolist()
+            tok = _step(curr_input_pos, curr_masks, x, recent)
             state.update(tok.item())
             curr_pos += 1
             generated[:, curr_pos] = tok[:, 0]
