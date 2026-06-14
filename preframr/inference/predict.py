@@ -190,8 +190,8 @@ class Predictor:
         pen_window = int(getattr(self.args, "decode_penalty_window", 128) or 128)
 
         def _penalize(masked, recent):
-            """Tier-1 anti-collapse: repetition penalty + no-repeat-n-gram on the recent window, applied
-            after the grammar mask. Reverts the n-gram ban if it would leave no grammatically-valid token.
+            """Tier-1 anti-collapse: repetition penalty + no-repeat-n-gram on the recent window (after
+            the grammar mask). Reverts the n-gram ban if it leaves no grammatically-valid token.
             """
             if not recent:
                 return masked
