@@ -46,7 +46,7 @@ def _frame_cut(nonzero, prompt_seq_len):
         try:
             unit_starts(nonzero[:hi].tolist())
             return hi
-        except ValueError:
+        except (ValueError, IndexError):
             hi -= 1
     return prompt_seq_len
 
