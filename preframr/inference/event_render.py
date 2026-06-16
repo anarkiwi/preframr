@@ -207,6 +207,7 @@ def main():
     parser = add_gate_args(add_args(argparse.ArgumentParser()))
     parser.add_argument("--wav-dir", default="/scratch/tmp/auditions")
     parser.add_argument("--frame-cycles", type=int, default=PAL_FRAME_CYCLES)
+    parser.set_defaults(repetition_penalty=1.3, no_repeat_ngram_size=4, top_k=8)
     args = parser.parse_args()
     sys.exit(run_render(args, get_logger("INFO")))
 
