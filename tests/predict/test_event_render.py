@@ -74,10 +74,9 @@ def test_unprimed_state_rejects_a_mid_frame_continuation_that_priming_admits():
     admits it. This is exactly why unprimed constrained generation drifted off-grammar.
     """
     ids = _event_nspace(_synth_df(n_frames=24))
-    kinds = set(range(stream.NI_STEP, stream.G_RAMP + 1))
-    split = next(i for i, t in enumerate(ids) if (t - 1) in kinds and i > 0)
-    prompt, nxt = ids[:split], ids[split]
     fresh_mask = EventStreamState().valid_mask()
+    split = next(i for i, t in enumerate(ids) if i > 0 and not fresh_mask[t - 1])
+    prompt, nxt = ids[:split], ids[split]
     assert not fresh_mask[nxt - 1], "a fresh state must reject a mid-frame event atom"
     assert EventConstraint(prompt, N_VOCAB).allowed_nspace()[
         nxt
