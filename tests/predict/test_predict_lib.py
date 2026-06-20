@@ -8,23 +8,7 @@ import tempfile
 import time
 import unittest
 
-from preframr.inference.predict_lib import add_ext, describe_cycles, get_ckpt
-
-
-class TestDescribeCycles(unittest.TestCase):
-    def test_format(self):
-        s = describe_cycles(0)
-        self.assertIn("0 cycles", s)
-        self.assertIn("seconds", s)
-
-    def test_pal_irq_window(self):
-        s = describe_cycles(19656)
-        self.assertIn("19656 cycles", s)
-        self.assertIn("0.02 seconds", s)
-
-    def test_int_cast(self):
-        s = describe_cycles(123.7)
-        self.assertIn("123 cycles", s)
+from preframr.inference.predict_lib import add_ext, get_ckpt
 
 
 class TestAddExt(unittest.TestCase):

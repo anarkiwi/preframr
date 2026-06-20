@@ -1,18 +1,16 @@
 #!/usr/bin/env python
-"""Thin CLI shim around preframr_tokens.parse_runner.parse_corpus."""
+"""Thin CLI shim around preframr.corpus.parse_corpus: builds (and caches) each tune's BACC token block array from its (.sid + .dump) pair so a later train run reads ready-made ``.blocks.npy`` files."""
 
 import argparse
 
-from preframr_tokens import parse_corpus
-
-from preframr.args import add_args, apply_macro_flags_to_args
+from preframr.args import add_args
+from preframr.corpus import parse_corpus
 from preframr.utils import get_logger
 
 
 def main():
     parser = add_args(argparse.ArgumentParser())
     args = parser.parse_args()
-    apply_macro_flags_to_args(args)
     parse_corpus(args, get_logger("INFO"))
 
 

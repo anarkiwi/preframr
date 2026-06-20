@@ -42,7 +42,6 @@ def get_model(dataset, args, logger, args_override=None):
         dataset.tokenizer.tokens.copy(),
         copy.deepcopy(dataset.tokenizer.tkmodel),
         dataset.tokenizer.token_metadata(),
-        reg_widths=getattr(dataset, "reg_widths", {}),
     )
     _device, model_compiler = get_device(args, logger)
     return model_compiler(args, model)

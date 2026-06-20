@@ -5,30 +5,8 @@ import time
 import unittest
 from pathlib import Path
 
-import torch
-
 from preframr.inference import predict
-from preframr.inference.predict import (
-    _last_token_logits,
-    add_ext,
-    describe_cycles,
-    get_ckpt,
-)
-
-
-class TestDescribeCycles(unittest.TestCase):
-    def test_zero(self):
-        out = describe_cycles(0)
-        self.assertIn("0 cycles", out)
-        self.assertIn("0.00 seconds", out)
-
-    def test_nonzero_format(self):
-        out = describe_cycles(985248)
-        self.assertRegex(out, r"^\d+ cycles \d+\.\d{2} seconds$")
-
-    def test_seconds_precision(self):
-        self.assertTrue(describe_cycles(123).endswith(" seconds"))
-        self.assertRegex(describe_cycles(123), r"\d+\.\d{2} seconds")
+from preframr.inference.predict import add_ext, get_ckpt
 
 
 class TestAddExt(unittest.TestCase):
@@ -77,7 +55,6 @@ class TestModuleSurface(unittest.TestCase):
 
     def test_public_callables_exist(self):
         for name in (
-            "describe_cycles",
             "add_ext",
             "get_ckpt",
             "load_model",
@@ -90,33 +67,6 @@ class TestModuleSurface(unittest.TestCase):
                 callable(getattr(predict, name, None)),
                 f"predict.{name} missing or not callable",
             )
-
-
-class TestLastTokenLogits(unittest.TestCase):
-    """``Model.set_num_output_chunks > 0`` makes the lm_head return a
-    ``list[Tensor]`` of seq-dim chunks instead of one ``(B, S, V)``
-    tensor. ``_last_token_logits`` slices the right last-token row in
-    either shape; without this, predict-time inference crashed with
-    ``TypeError: list indices must be integers or slices`` at
-    """
-
-    def test_single_tensor_returns_last_row(self):
-        out = torch.arange(12).reshape(1, 4, 3)
-        logits = _last_token_logits(out)
-        self.assertEqual(logits.shape, (1, 3))
-        self.assertTrue(torch.equal(logits, torch.tensor([[9, 10, 11]])))
-
-    def test_chunked_list_picks_last_chunk_last_row(self):
-        chunk0 = torch.arange(6).reshape(1, 2, 3)
-        chunk1 = torch.arange(6, 12).reshape(1, 2, 3)
-        logits = _last_token_logits([chunk0, chunk1])
-        self.assertEqual(logits.shape, (1, 3))
-        self.assertTrue(torch.equal(logits, torch.tensor([[9, 10, 11]])))
-
-    def test_single_chunk_list(self):
-        chunk = torch.arange(3).reshape(1, 1, 3)
-        logits = _last_token_logits([chunk])
-        self.assertTrue(torch.equal(logits, torch.tensor([[0, 1, 2]])))
 
 
 if __name__ == "__main__":

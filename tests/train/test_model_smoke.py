@@ -1,15 +1,13 @@
-"""Smoke test for ``Model.__init__`` + a single training_step on a
-tiny synthetic vocab. Covers the LightningModule glue + forward path
-without standing up a Trainer."""
+"""Smoke test for ``Model.__init__`` + a single training/validation step on a
+tiny synthetic vocab. Covers the LightningModule glue + forward path without
+standing up a Trainer."""
 
 import argparse
 import unittest
 
-import pandas as pd
 import torch
 
-from preframr.train.model import Model, build_tier_map
-from preframr_tokens.stfconstants import FRAME_REG, MODEL_PDTYPE, SET_OP
+from preframr.train.model import Model
 
 
 def _tiny_args(**overrides):
@@ -31,6 +29,7 @@ def _tiny_args(**overrides):
         learning_rate=1e-4,
         weight_decay=0.01,
         label_smoothing=0.0,
+        log_embeddings=False,
         model="llama3_2",
     )
     for k, v in overrides.items():
@@ -39,29 +38,28 @@ def _tiny_args(**overrides):
 
 
 def _tiny_tokens():
-    return pd.DataFrame(
-        [
-            {"op": SET_OP, "reg": -1, "subreg": -1, "val": 0, "n": 0},
-            {"op": SET_OP, "reg": FRAME_REG, "subreg": -1, "val": 1, "n": 1},
-            {"op": SET_OP, "reg": 0, "subreg": -1, "val": 5, "n": 2},
-        ],
-        dtype=MODEL_PDTYPE,
+    return ["PAD", "c0", "t0"]
+
+
+def _model(metadata=None):
+    return Model(
+        _tiny_args(),
+        n_vocab=3,
+        tokens=_tiny_tokens(),
+        tkmodel=None,
+        metadata=metadata,
     )
 
 
 class TestModelInit(unittest.TestCase):
     def test_init_builds_underlying_model(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        model = _model()
         self.assertEqual(model.n_vocab, 3)
         self.assertEqual(model.metadata, None)
-        self.assertEqual(model.vocab_frame_weight.shape, torch.Size([3]))
+        self.assertEqual(model.model.tok_embeddings.num_embeddings, 3)
 
     def test_forward_on_random_input(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        model = _model()
         model.eval()
         x = torch.tensor([[0, 1, 2, 1]], dtype=torch.long)
         with torch.no_grad():
@@ -69,38 +67,25 @@ class TestModelInit(unittest.TestCase):
         self.assertEqual(out.shape, torch.Size([1, 4, 3]))
 
     def test_training_step_returns_scalar_loss(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        model = _model()
         x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
         y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
         loss = model.training_step((x, y), 0)
         self.assertEqual(loss.dim(), 0)
         self.assertTrue(torch.isfinite(loss))
 
-    def test_build_tier_map_returns_named_tiers(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        tier_map = build_tier_map(args, n_vocab=3, tokens=tokens, tkmodel=None)
-        self.assertEqual(set(tier_map.keys()), {0, 1, 2})
-        for tier in tier_map.values():
-            self.assertIn(tier, {"structural", "mid", "content", "zero"})
-
-    def test_build_tier_map_empty_tokens_default_content(self):
-        args = _tiny_args()
-        tier_map = build_tier_map(args, n_vocab=5, tokens=None, tkmodel=None)
-        self.assertEqual(tier_map, {i: "content" for i in range(5)})
+    def test_training_step_all_pad_is_finite(self):
+        """All-PAD targets must not divide by zero (clamp(min=1.0))."""
+        model = _model()
+        x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
+        y = torch.zeros((1, 4), dtype=torch.long)
+        loss = model.training_step((x, y), 0)
+        self.assertTrue(torch.isfinite(loss))
 
     def test_validation_step_logs_acc_and_loss(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
+        model = _model()
         log_calls = []
-
-        def _log(*args_, **kw_):
-            log_calls.append((args_, kw_))
-
-        model.log = _log
+        model.log = lambda *a, **k: log_calls.append((a, k))
         x = torch.tensor([[1, 2, 1, 2]], dtype=torch.long)
         y = torch.tensor([[2, 1, 2, 1]], dtype=torch.long)
         out = model.validation_step((x, y), 0)
@@ -114,11 +99,32 @@ class TestModelInit(unittest.TestCase):
         self.assertIn("val_acc", names)
 
     def test_configure_optimizers(self):
-        args = _tiny_args()
-        tokens = _tiny_tokens()
-        model = Model(args, n_vocab=3, tokens=tokens, tkmodel=None, metadata=None)
-        opt = model.configure_optimizers()
+        opt = _model().configure_optimizers()
         self.assertIsNotNone(opt)
+
+
+class _FakeTokenizer:
+    tokens = _tiny_tokens()
+    tkmodel = None
+
+    def token_metadata(self):
+        return list(self.tokens)
+
+
+class _FakeDataset:
+    n_vocab = 3
+    tokenizer = _FakeTokenizer()
+
+
+class TestGetModel(unittest.TestCase):
+    def test_get_model_builds_via_factory(self):
+        import logging
+
+        from preframr.train.model import get_model
+
+        model = get_model(_FakeDataset(), _tiny_args(compile=False), logging)
+        self.assertEqual(model.n_vocab, 3)
+        self.assertEqual(len(model.tokens), 3)
 
 
 if __name__ == "__main__":

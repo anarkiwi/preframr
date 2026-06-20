@@ -2,4 +2,4 @@
 set -o noglob
 
 IMG=anarkiwi/preframr
-exec docker run --rm --name preframr-parse -v /scratch:/scratch -ti $IMG /preframr/parse.py --min-dump-size 0 --max-files 999999 --max-perm 99 $*
+exec docker run --rm --name preframr-parse -v /scratch:/scratch -ti $IMG /preframr/parse.py --max-files 999999 $*

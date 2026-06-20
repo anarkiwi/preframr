@@ -4,78 +4,11 @@
 import argparse
 import os
 import tempfile
-import types
 import unittest
 from unittest import mock
 
 import preframr.train.trainer as train_module
-from preframr.train.trainer import _require_pretokenized, train
-
-
-def _args(**kw):
-    """Tiny stand-in for argparse.Namespace; only the fields the guard
-    inspects are relevant."""
-    defaults = {
-        "tkvocab": 131072,
-        "tkmodel": None,
-        "token_csv": None,
-    }
-    defaults.update(kw)
-    return types.SimpleNamespace(**defaults)
-
-
-class TestRequirePretokenized(unittest.TestCase):
-    def test_tkvocab_zero_is_exempt(self):
-        _require_pretokenized(_args(tkvocab=0))
-
-    def test_missing_paths_raise(self):
-        with self.assertRaises(SystemExit) as cm:
-            _require_pretokenized(_args(tkmodel=None, token_csv=None))
-        self.assertIn("--tkmodel", str(cm.exception))
-        self.assertIn("--token-csv", str(cm.exception))
-        self.assertIn("stftokenize.py", str(cm.exception))
-
-    def test_nonexistent_paths_raise(self):
-        with self.assertRaises(SystemExit) as cm:
-            _require_pretokenized(
-                _args(
-                    tkmodel="/nonexistent/tkmodel.json",
-                    token_csv="/nonexistent/tokens.csv",
-                )
-            )
-        self.assertIn("/nonexistent/tkmodel.json", str(cm.exception))
-
-    def test_empty_files_raise(self):
-        with tempfile.TemporaryDirectory() as td:
-            empty_tk = os.path.join(td, "tkmodel.json")
-            empty_csv = os.path.join(td, "tokens.csv")
-            open(empty_tk, "w").close()
-            open(empty_csv, "w").close()
-            with self.assertRaises(SystemExit) as cm:
-                _require_pretokenized(_args(tkmodel=empty_tk, token_csv=empty_csv))
-            self.assertIn(empty_tk, str(cm.exception))
-
-    def test_populated_files_pass(self):
-        with tempfile.TemporaryDirectory() as td:
-            tk = os.path.join(td, "tkmodel.json")
-            csv = os.path.join(td, "tokens.csv")
-            with open(tk, "w") as f:
-                f.write("{}")
-            with open(csv, "w") as f:
-                f.write("n,reg,val\n0,-128,0\n")
-            _require_pretokenized(_args(tkmodel=tk, token_csv=csv))
-
-    def test_only_tkmodel_missing_still_raises(self):
-        with tempfile.TemporaryDirectory() as td:
-            csv = os.path.join(td, "tokens.csv")
-            with open(csv, "w") as f:
-                f.write("n,reg,val\n0,-128,0\n")
-            with self.assertRaises(SystemExit) as cm:
-                _require_pretokenized(
-                    _args(tkmodel="/nope/tkmodel.json", token_csv=csv)
-                )
-            self.assertIn("/nope/tkmodel.json", str(cm.exception))
-            self.assertNotIn(csv, str(cm.exception))
+from preframr.train.trainer import train
 
 
 def _train_args(**kw):
@@ -296,7 +229,6 @@ class TestMain(unittest.TestCase):
             train_module.main()
 
     def _common_main_mocks(self, stack):
-        stack.enter_context(mock.patch.object(train_module, "_require_pretokenized"))
         stack.enter_context(mock.patch.object(train_module, "RegDataset"))
         stack.enter_context(
             mock.patch.object(train_module, "get_loader", return_value=mock.MagicMock())

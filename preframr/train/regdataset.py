@@ -1,60 +1,33 @@
-"""Thin torch.utils.data.Dataset adapter around preframr_tokens.corpus.Corpus + preframr.train.block_mapper.BlockMapper. Corpus owns the torch-free state (RegTokenizer, reg_widths, n_vocab, tokenize metadata) + the parse/tokenize/load orchestration; this module routes Corpus's yielded (kind, blocks_path, seq_meta) tuples into per-subset BlockMappers and exposes the torch Dataset protocol."""
+"""Thin torch.utils.data.Dataset adapter around preframr.corpus.Corpus + preframr.train.block_mapper.BlockMapper. Corpus owns the torch-free state (BaccTokenizer, n_vocab) + the (.sid,.dump)->block-array orchestration; this module routes Corpus's yielded (kind, blocks_path, seq_meta) tuples into per-subset BlockMappers and exposes the torch Dataset protocol."""
 
 import logging
 from collections import OrderedDict
 
 import torch
-from preframr_tokens import LEGACY_EVAL_SUBSET_NAME
-from preframr_tokens import Corpus
-from preframr_tokens import RegLogParser, remove_voice_reg
 
+from preframr.corpus import Corpus
 from preframr.train.block_mapper import BlockMapper
+
+LEGACY_EVAL_SUBSET_NAME = "val"
 
 
 def get_prompt(args, dataset, logger):
+    """First ``prompt_seq_len`` model ids of the selected block + its tail truth; BACC tokens are self-contained ids so a prompt is just a slice (the old register-preamble reconstruction is gone). Returns ``(irq, n, prompt, prompt_compare, seq_meta)``."""
     seq, seq_meta = dataset.getseq(args.start_seq, block_j=args.start_block)
-    start = 0
     logger.info(
-        "starting at seq %u block %u (%s), %u / %u, irq %u",
+        "starting at seq %u block %u (%s), %u tokens, irq %s",
         args.start_seq,
         args.start_block,
         seq_meta.df_file,
-        start,
         len(seq),
         seq_meta.irq,
     )
     n = args.max_seq_len - args.prompt_seq_len
     if n <= 0:
         raise ValueError("max seq length too short")
-    prompt = seq[start:][: args.prompt_seq_len].unsqueeze(0).long()
-    prompt_compare = seq[start:][: args.max_seq_len]
-    loader = RegLogParser()
-    preamble_df, _reg_widths = remove_voice_reg(
-        loader._state_df(  # pylint: disable=protected-access
-            dataset.tokenizer.decode(seq[:start].numpy()), dataset, seq_meta.irq
-        ),
-        dataset.reg_widths,
-    )
-    reg_start = {
-        r: preamble_df[preamble_df["reg"] == r]["val"].iat[-1]
-        for r in preamble_df["reg"].unique()
-        if r >= 0
-    }
-    from preframr_tokens import (  # pylint: disable=import-outside-toplevel
-        self_contained_prompt_df,
-    )
-
-    prompt_df_self_contained = self_contained_prompt_df(
-        loader, dataset, seq, seq_meta, start, args.prompt_seq_len, seq_meta.irq
-    )
-    return (
-        seq_meta.irq,
-        n,
-        prompt,
-        prompt_compare,
-        reg_start,
-        prompt_df_self_contained,
-    )
+    prompt = seq[: args.prompt_seq_len].unsqueeze(0).long()
+    prompt_compare = seq[: args.max_seq_len]
+    return seq_meta.irq, n, prompt, prompt_compare, seq_meta
 
 
 class RegDataset(torch.utils.data.Dataset):

@@ -4,13 +4,6 @@ import glob
 import os
 from pathlib import Path
 
-from preframr_audio.sidwav import sidq
-
-
-def describe_cycles(cycles):
-    """Format a cycle count as ``"<int> cycles <float> seconds"``."""
-    return f"{int(cycles)} cycles {cycles*sidq():.2f} seconds"
-
 
 def add_ext(path, p):
     """Return ``path`` with ``.{p}`` inserted before the suffix when

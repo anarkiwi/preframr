@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from preframr.train.block_mapper import BlockMapper
-from preframr_tokens.blocks import SeqMeta
+from preframr.corpus import SeqMeta
 
 
 class TestBlockMapper(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestBlockMapper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             empty_path = self._write_blocks(tmpdir, "e.blocks.npy", [])
             bm = BlockMapper(seq_len=4, mmap=False)
-            bm.add(empty_path, SeqMeta(irq=1, df_file="e.dump.parquet", i=0))
+            bm.add(empty_path, SeqMeta(irq=1, df_file="e.dump.parquet", subtune=0))
             bm.finalize()
             self.assertEqual(len(bm), 0)
 
@@ -32,8 +32,8 @@ class TestBlockMapper(unittest.TestCase):
             path_a = self._write_blocks(tmpdir, "a.blocks.npy", [[1, 2, 3, 4, 5]])
             path_b = self._write_blocks(tmpdir, "b.blocks.npy", [[6, 7, 8, 9, 10]])
             bm = BlockMapper(seq_len=4, mmap=False)
-            bm.add(path_a, SeqMeta(irq=1, df_file="a", i=0))
-            bm.add(path_b, SeqMeta(irq=1, df_file="b", i=0))
+            bm.add(path_a, SeqMeta(irq=1, df_file="a", subtune=0))
+            bm.add(path_b, SeqMeta(irq=1, df_file="b", subtune=0))
             bm.shuffle(seed=42)
             self.assertEqual(len(bm), 2)
 
@@ -45,8 +45,8 @@ class TestBlockMapper(unittest.TestCase):
             path_b = self._write_blocks(tmpdir, "b.blocks.npy", blocks_b)
 
             bm = BlockMapper(seq_len=4, mmap=False)
-            bm.add(path_a, SeqMeta(irq=1, df_file="a.dump.parquet", i=0))
-            bm.add(path_b, SeqMeta(irq=1, df_file="b.dump.parquet", i=0))
+            bm.add(path_a, SeqMeta(irq=1, df_file="a.dump.parquet", subtune=0))
+            bm.add(path_b, SeqMeta(irq=1, df_file="b.dump.parquet", subtune=0))
             bm.finalize()
 
             self.assertEqual(len(bm), 3)
@@ -62,7 +62,7 @@ class TestBlockMapper(unittest.TestCase):
             blocks = [[1, 2, 3, 4, 5], [10, 11, 12, 13, 14]]
             path = self._write_blocks(tmpdir, "a.blocks.npy", blocks)
             bm = BlockMapper(seq_len=4, mmap=False)
-            bm.add(path, SeqMeta(irq=1, df_file="a.dump.parquet", i=0))
+            bm.add(path, SeqMeta(irq=1, df_file="a.dump.parquet", subtune=0))
             bm.finalize()
             self.assertEqual(
                 bm.get_block(rotation_i=0, block_j=0).tolist(), [1, 2, 3, 4, 5]
@@ -75,7 +75,7 @@ class TestBlockMapper(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self._write_blocks(tmpdir, "a.blocks.npy", [[1, 2, 3, 4, 5]])
             bm = BlockMapper(seq_len=4, mmap=False)
-            bm.add(path, SeqMeta(irq=1, df_file="a.dump.parquet", i=0))
+            bm.add(path, SeqMeta(irq=1, df_file="a.dump.parquet", subtune=0))
             with self.assertRaises(ValueError):
                 _ = bm[0]
 

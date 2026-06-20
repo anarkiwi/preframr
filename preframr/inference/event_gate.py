@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Event-native generate+decode gate: load a checkpoint, greedily continue
-event-token prompts from ``.blocks.npy``, decode generated ids through
-``preframr_tokens.events.generate`` (strict grammar parser), report mean
-greedy token-accuracy + grammar-clean rate, exit non-zero below threshold.
-The event-model replacement for ``predict.py``'s old get_prompt/_state_df."""
+"""BACC generate+decode gate: load a checkpoint, continue token prompts from
+``.blocks.npy``, and report mean greedy token-accuracy + the fraction of
+generations that decode to a valid BACC program (``ids_to_program`` round-trip).
+Exit non-zero below threshold. The BACC replacement for the old event grammar
+gate."""
 
 import argparse
 import glob
@@ -15,12 +15,11 @@ import pyarrow
 
 pyarrow.PyExtensionType = pyarrow.ExtensionType
 import torch
+from preframr_tokens import VOCAB, ids_to_program
 
 from preframr.args import add_args
 from preframr.inference.predict import Predictor, load_model
 from preframr.utils import get_logger
-from preframr_tokens.events.dataset import unit_starts
-from preframr_tokens.events.generate import tokens_to_writes
 
 
 def add_gate_args(parser):
@@ -35,27 +34,10 @@ def add_gate_args(parser):
     return parser
 
 
-def _frame_cut(nonzero, prompt_seq_len):
-    """Largest whole-frame boundary at or before ``prompt_seq_len``. A prefix
-    parses iff it is a whole number of frames, so the longest prefix (capped at
-    ``prompt_seq_len``) that ``unit_starts`` accepts is the snap point. The block
-    is a seq_len window that may itself end mid-frame, so never parse the whole
-    row -- only the bounded prefix."""
-    hi = min(len(nonzero), prompt_seq_len)
-    while hi > 0:
-        try:
-            unit_starts(nonzero[:hi].tolist())
-            return hi
-        except (ValueError, IndexError):
-            hi -= 1
-    return prompt_seq_len
-
-
 def load_prompts(blocks_glob, n_prompts, prompt_seq_len, gen_tokens, logger):
-    """First qualifying block per file (deduped songs), up to ``n_prompts``. The
-    prompt is cut at the last grammar-unit (whole-frame) boundary at or before
-    ``prompt_seq_len``; a fixed atom cut lands mid-frame, so the prompt is not a
-    self-contained decodable stream and the audition renders silent."""
+    """First qualifying block per file, up to ``n_prompts``: the first
+    ``prompt_seq_len`` non-PAD ids as the prompt, the next ``gen_tokens`` as the
+    ground-truth continuation."""
     prompts = []
     for path in sorted(glob.glob(blocks_glob, recursive=True)):
         arr = np.load(path)
@@ -63,9 +45,10 @@ def load_prompts(blocks_glob, n_prompts, prompt_seq_len, gen_tokens, logger):
             nonzero = row[row > 0]
             if len(nonzero) < prompt_seq_len + 1:
                 continue
-            cut = _frame_cut(nonzero, prompt_seq_len)
-            prompt = nonzero[:cut].astype(np.int64)
-            truth = nonzero[cut : cut + gen_tokens].astype(np.int64)
+            prompt = nonzero[:prompt_seq_len].astype(np.int64)
+            truth = nonzero[prompt_seq_len : prompt_seq_len + gen_tokens].astype(
+                np.int64
+            )
             if len(truth):
                 prompts.append((path, prompt, truth))
                 break
@@ -75,32 +58,20 @@ def load_prompts(blocks_glob, n_prompts, prompt_seq_len, gen_tokens, logger):
     return prompts
 
 
-def decode_tolerant(tokenizer, ids, min_keep):
-    """Largest frame-aligned decodable prefix of ``ids`` that yields non-empty
-    writes. A fixed-length generation ends mid-frame, and stream boundaries are
-    sparse, so trim back to the last whole frame; ``stream.decode`` raises or
-    returns empty on a mid-frame cut, so skip both. Returns (writes, trimmed,
-    err); writes is None if nothing past ``min_keep`` decodes."""
-    last_err = ""
-    for trim in range(len(ids) - min_keep + 1):
-        cut = ids if trim == 0 else ids[:-trim]
-        try:
-            writes = tokens_to_writes(tokenizer, cut)
-        except Exception as exc:  # pylint: disable=broad-except
-            last_err = f"{type(exc).__name__}: {exc}"
-            continue
-        if writes:
-            return writes, trim, ""
-    return None, len(ids) - min_keep, last_err
+def decodes_to_program(ids):
+    """True iff ``ids`` (model-space) round-trips to a valid BACC program."""
+    prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= VOCAB]
+    try:
+        ids_to_program(prog_ids)
+        return True
+    except Exception:  # pylint: disable=broad-except
+        return False
 
 
 def run_gate(args, logger):
     dataset, model, device, _ = load_model(args, logger)
     model = model.to(device)
-    predictor = Predictor(
-        args, dataset, model, device, vocab_arrays=None, logger=logger
-    )
-    tokenizer = dataset.tokenizer
+    predictor = Predictor(args, dataset, model, device, logger=logger)
     prompts = load_prompts(
         args.blocks_glob, args.n_prompts, args.prompt_seq_len, args.gen_tokens, logger
     )
@@ -124,43 +95,17 @@ def run_gate(args, logger):
         overlap = min(len(gen), len(truth))
         acc = float((gen[:overlap] == truth[:overlap]).mean()) if overlap else 0.0
         full = np.concatenate([prompt_ids, gen[: len(truth)]]).tolist()
-        writes, trim, err = decode_tolerant(tokenizer, full, len(prompt_ids))
-        grammar_ok = writes is not None and len(writes) > 0
-        decoded_gen = max(len(full) - trim - len(prompt_ids), 0)
-        gen_frac = decoded_gen / max(len(gen[: len(truth)]), 1)
-        logger.info(
-            "prompt=%s greedy_acc=%.3f grammar_ok=%s decoded_gen_frac=%.3f trim=%u %s",
-            path,
-            acc,
-            grammar_ok,
-            gen_frac,
-            trim,
-            err,
-        )
-        per_prompt.append(
-            {
-                "path": path,
-                "acc": acc,
-                "grammar_ok": grammar_ok,
-                "decoded_gen_frac": gen_frac,
-                "trim": trim,
-                "err": err,
-            }
-        )
+        decodes = decodes_to_program(full)
+        logger.info("prompt=%s greedy_acc=%.3f decodes=%s", path, acc, decodes)
+        per_prompt.append({"path": path, "acc": acc, "decodes": decodes})
 
     mean_acc = sum(p["acc"] for p in per_prompt) / len(per_prompt)
-    fully_clean_rate = sum(
-        1 for p in per_prompt if p["decoded_gen_frac"] >= 0.999
-    ) / len(per_prompt)
-    mean_decoded_gen_frac = sum(p["decoded_gen_frac"] for p in per_prompt) / len(
-        per_prompt
-    )
-    passed = mean_acc >= args.min_acc and mean_decoded_gen_frac >= args.grammar_min
+    decode_rate = sum(1 for p in per_prompt if p["decodes"]) / len(per_prompt)
+    passed = mean_acc >= args.min_acc and decode_rate >= args.grammar_min
     result = {
         "passed": passed,
         "mean_greedy_acc": mean_acc,
-        "mean_decoded_gen_frac": mean_decoded_gen_frac,
-        "fully_clean_rate": fully_clean_rate,
+        "decode_rate": decode_rate,
         "n_prompts": len(per_prompt),
         "min_acc": args.min_acc,
         "grammar_min": args.grammar_min,
@@ -168,11 +113,10 @@ def run_gate(args, logger):
     }
     print("EVENT_GATE_RESULT " + json.dumps(result))
     logger.info(
-        "gate %s: mean_greedy_acc=%.3f mean_decoded_gen_frac=%.3f fully_clean_rate=%.3f",
+        "gate %s: mean_greedy_acc=%.3f decode_rate=%.3f",
         "PASS" if passed else "FAIL",
         mean_acc,
-        mean_decoded_gen_frac,
-        fully_clean_rate,
+        decode_rate,
     )
     return 0 if passed else 1
 

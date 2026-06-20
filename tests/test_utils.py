@@ -50,17 +50,15 @@ class TestAddArgs(unittest.TestCase):
         parser = add_args(argparse.ArgumentParser())
         args = parser.parse_args([])
         self.assertEqual(args.seq_len, 8192)
-        self.assertEqual(args.tkvocab, 4096)
         self.assertEqual(args.predictions, 1)
         self.assertEqual(args.cents, 50)
-        self.assertEqual(args.constrained_decode, False)
 
-    def test_constrained_decode_flag(self):
+    def test_removed_legacy_args_absent(self):
+        """The BACC pivot dropped the BPE + macro/tier/constrained-decode args."""
         parser = add_args(argparse.ArgumentParser())
-        args = parser.parse_args(["--constrained-decode"])
-        self.assertTrue(args.constrained_decode)
-        args = parser.parse_args(["--no-constrained-decode"])
-        self.assertFalse(args.constrained_decode)
+        args = parser.parse_args([])
+        for gone in ("tkvocab", "macro_flags", "constrained_decode", "token_csv"):
+            self.assertFalse(hasattr(args, gone), f"{gone} should be removed")
 
     def test_known_kv_args(self):
         parser = add_args(argparse.ArgumentParser())
