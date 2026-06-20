@@ -51,6 +51,19 @@ def _windows(ids, seq_len, stride):
     return blocks
 
 
+def _load_cached_blocks(blocks_path, seq_len):
+    """Return an existing ``.blocks.npy`` iff its width matches ``seq_len + 1`` (so a stale array built at a different seq_len is rebuilt, not silently reused), else None."""
+    if not os.path.exists(blocks_path):
+        return None
+    try:
+        arr = np.load(blocks_path, mmap_mode="r")
+    except (ValueError, OSError):
+        return None
+    if arr.ndim != 2 or arr.shape[1] != seq_len + 1 or arr.shape[0] == 0:
+        return None
+    return arr
+
+
 class Corpus:
     """Owns the BACC tokenizer + the dump-glob -> block-array orchestration."""
 
@@ -72,20 +85,29 @@ class Corpus:
         """No-op: the BACC alphabet is fixed, so there is nothing to pre-train; kept for signature compatibility with the old corpus (predict passes the checkpoint's tokens/tkmodel, both fixed/None here)."""
 
     def _build_blocks(self, dump):
-        """Recover + tokenize + window one tune; write ``<base>.blocks.npy``. Returns ``(blocks_path, seq_meta)`` or ``None`` if skipped (missing ``.sid``, no matching driver backend, or a parse failure)."""
+        """Recover + tokenize + window one tune; write ``<base>.blocks.npy``. Returns ``(blocks_path, seq_meta)`` or ``None`` if skipped (missing ``.sid``, no matching driver backend, or a parse failure). An existing ``.blocks.npy`` of the right width is reused, so a prior parse run (or a restored cache) skips the py65 recovery."""
         sid, subtune, base = _resolve_paths(dump)
+        cpf = cpf_from_meta(base)
+        seq_len = self.args.seq_len
+        blocks_path = base + BLOCKS_SUFFIX
+        cached = _load_cached_blocks(blocks_path, seq_len)
+        if cached is not None:
+            self.logger.info(
+                "%s: reuse %s (%u blocks)",
+                os.path.basename(dump),
+                os.path.basename(blocks_path),
+                cached.shape[0],
+            )
+            return blocks_path, SeqMeta(df_file=dump, irq=cpf, subtune=subtune)
         if not os.path.exists(sid):
             self.logger.info("skip %s: no sibling .sid (%s)", dump, sid)
             return None
-        cpf = cpf_from_meta(base)
-        blocks_path = base + BLOCKS_SUFFIX
         try:
             program = recover_program(sid, dump, cpf, subtune)
             ids = [i + 1 for i in program_to_ids(program)]
         except Exception as err:  # pylint: disable=broad-except
             self.logger.info("skip %s: %s", dump, err)
             return None
-        seq_len = self.args.seq_len
         stride = getattr(self.args, "block_stride", None) or seq_len
         blocks = _windows(ids, seq_len, stride)
         if not blocks:

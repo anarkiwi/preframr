@@ -11,6 +11,7 @@ import numpy as np
 from preframr.corpus import (
     BLOCKS_SUFFIX,
     Corpus,
+    _load_cached_blocks,
     _resolve_paths,
     _windows,
     parse_corpus,
@@ -64,6 +65,37 @@ class TestWindows(unittest.TestCase):
 
     def test_too_short_yields_nothing(self):
         self.assertEqual(_windows([1], seq_len=8, stride=8), [])
+
+
+class TestLoadCachedBlocks(unittest.TestCase):
+    def test_missing_returns_none(self):
+        self.assertIsNone(_load_cached_blocks("/nope/x.blocks.npy", 8))
+
+    def test_right_width_reused(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "t.blocks.npy")
+            np.save(p, np.zeros((3, 9), dtype=np.int16))
+            got = _load_cached_blocks(p, 8)
+            self.assertIsNotNone(got)
+            self.assertEqual(got.shape, (3, 9))
+
+    def test_wrong_width_rebuilt(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "t.blocks.npy")
+            np.save(p, np.zeros((3, 5), dtype=np.int16))
+            self.assertIsNone(_load_cached_blocks(p, 8))
+
+    def test_empty_returns_none(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "t.blocks.npy")
+            np.save(p, np.zeros((0, 9), dtype=np.int16))
+            self.assertIsNone(_load_cached_blocks(p, 8))
 
 
 class TestCorpusSkip(unittest.TestCase):
