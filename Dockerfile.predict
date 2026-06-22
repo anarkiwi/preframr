@@ -33,6 +33,5 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
 COPY preframr /preframr
 RUN mkdir -p /code && ln -s /preframr /code/preframr
 WORKDIR /code
-RUN python3 -m preframr_tokens.render_play --help \
-    && python3 -m preframr.inference.predict --help
+RUN python3 -m preframr.inference.predict --help
 WORKDIR /

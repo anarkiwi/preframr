@@ -39,4 +39,4 @@ RUN mkdir -p /code && ln -s /preframr /code/preframr && ln -s /tests /code/tests
 WORKDIR /code
 RUN ./run_tests.sh
 WORKDIR /
-RUN python3 -m preframr_tokens.render_play --help && python3 -m preframr.inference.predict --help && /preframr/train/trainer.py --help
+RUN python3 -m preframr.inference.predict --help && /preframr/train/trainer.py --help
