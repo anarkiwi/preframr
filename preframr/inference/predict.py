@@ -57,23 +57,25 @@ def _accuracy(predict_states, predicted_compare, n_vocab):
     return float(acc)
 
 
-def _render_truth(seq_meta, irq, wav, chip):
-    """Render the source tune (re-recovered from its dump) to ``wav``; a training block is a windowed slice of the program id stream and not itself a decodable program, so the always-available ground truth is the tune's own (.sid, .dump) pair."""
-    from preframr_tokens import (  # pylint: disable=import-outside-toplevel
-        recover_program,
-        render_program,
+def _render_truth(args, seq_meta, irq, wav, chip):
+    """Render the source tune (re-recovered sid-only) to ``wav``; a training block is a windowed slice of the program id stream and not itself a decodable program, so the always-available ground truth is the tune's own .sid recovered through the codec."""
+    from preframr_tokens.bacc.generic import (  # pylint: disable=import-outside-toplevel
+        recover_from_sid,
     )
 
-    from preframr.corpus import (
-        _resolve_paths,
-    )  # pylint: disable=import-outside-toplevel
     from preframr.inference.event_render import (  # pylint: disable=import-outside-toplevel
         render_state_to_wav,
     )
+    from preframr.songlengths import (  # pylint: disable=import-outside-toplevel
+        subtune_frames,
+    )
 
-    sid, subtune, _base = _resolve_paths(seq_meta.df_file)
-    program = recover_program(sid, seq_meta.df_file, irq, subtune)
-    return render_state_to_wav(render_program(program), irq, wav, chip)
+    sid = seq_meta.df_file
+    nframes = subtune_frames(sid, seq_meta.subtune, args.songlengths)
+    _program, _resid, dump = recover_from_sid(
+        sid, subtune=seq_meta.subtune, nframes=nframes
+    )
+    return render_state_to_wav(dump, irq, wav, chip)
 
 
 def generate_sequence(args, logger, dataset, predictor, p):
@@ -110,7 +112,7 @@ def generate_sequence(args, logger, dataset, predictor, p):
         logger.info("rendered generation -> %s (%u samples)", wav, samples)
     except Exception as err:  # pylint: disable=broad-except
         logger.error("generation not a decodable program (%s); rendering truth", err)
-        samples = _render_truth(seq_meta, irq, wav, _chip(args))
+        samples = _render_truth(args, seq_meta, irq, wav, _chip(args))
         logger.info("rendered ground-truth tune -> %s (%u samples)", wav, samples)
 
     if getattr(args, "predict_dump", None):
@@ -134,7 +136,7 @@ def _write_predict_dump(args, logger, full_ids, irq, p):
 
     try:
         prog_ids = [int(i) - 1 for i in full_ids if 1 <= int(i) <= VOCAB]
-        state = render_program(ids_to_program(prog_ids))
+        state = render_program(ids_to_program(prog_ids, driver="generic"))
     except Exception as err:  # pylint: disable=broad-except
         logger.error("predict-dump skipped (undecodable generation): %s", err)
         return

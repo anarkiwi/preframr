@@ -1,9 +1,10 @@
-"""BACC corpus builder: (.sid, .dump) pairing, windowing, and skip behaviour."""
+"""BACC corpus builder: manifest parsing, windowing, blocks paths, skip behaviour."""
 
 import argparse
 import logging
 import os
 import shutil
+import tempfile
 import unittest
 
 import numpy as np
@@ -11,19 +12,23 @@ import numpy as np
 from preframr.corpus import (
     BLOCKS_SUFFIX,
     Corpus,
+    _blocks_path,
     _load_cached_blocks,
-    _resolve_paths,
     _windows,
     parse_corpus,
+    parse_eval_manifests,
+    read_manifest,
 )
 from preframr.tokenizer import PAD_ID
 
 
-def _args(reglogs, **kw):
+def _args(manifest="", **kw):
     defaults = dict(
-        reglogs=reglogs,
-        reglog="",
-        eval_reglogs="",
+        manifest=manifest,
+        manifest_arg="",
+        eval_manifest="",
+        sid_root="",
+        songlengths="",
         seq_len=512,
         block_stride=None,
         max_files=0,
@@ -32,22 +37,32 @@ def _args(reglogs, **kw):
     return argparse.Namespace(**defaults)
 
 
-class TestResolvePaths(unittest.TestCase):
-    def test_subtune_is_zero_indexed(self):
-        sid, subtune, base = _resolve_paths("/a/Tune.1.dump.parquet")
-        self.assertEqual(sid, "/a/Tune.sid")
-        self.assertEqual(subtune, 0)
-        self.assertEqual(base, "/a/Tune.1")
+class TestReadManifest(unittest.TestCase):
+    def test_tab_and_default_subtune(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "m.list")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write("A/Tune.sid\t2\n# comment\n\nB/Other.sid\n")
+            self.assertEqual(
+                read_manifest(p), [("A/Tune.sid", 2), ("B/Other.sid", 1)]
+            )
 
-    def test_second_subtune(self):
-        sid, subtune, _ = _resolve_paths("/a/Tune.2.dump.parquet")
-        self.assertEqual(sid, "/a/Tune.sid")
-        self.assertEqual(subtune, 1)
 
-    def test_no_subtune_component(self):
-        sid, subtune, _ = _resolve_paths("/a/Tune.dump.parquet")
-        self.assertEqual(sid, "/a/Tune.sid")
-        self.assertEqual(subtune, 0)
+class TestParseEvalManifests(unittest.TestCase):
+    def test_named_subsets(self):
+        self.assertEqual(
+            parse_eval_manifests("eval-A=/a.list;eval-B-x=/b.list"),
+            [("eval-A", "/a.list"), ("eval-B-x", "/b.list")],
+        )
+
+    def test_empty(self):
+        self.assertEqual(parse_eval_manifests(""), [])
+
+
+class TestBlocksPath(unittest.TestCase):
+    def test_subtune_distinct(self):
+        self.assertEqual(_blocks_path("/a/Tune.sid", 1), "/a/Tune.1" + BLOCKS_SUFFIX)
+        self.assertEqual(_blocks_path("/a/Tune.sid", 2), "/a/Tune.2" + BLOCKS_SUFFIX)
 
 
 class TestWindows(unittest.TestCase):
@@ -58,8 +73,7 @@ class TestWindows(unittest.TestCase):
         self.assertEqual(blocks[0][-1], PAD_ID)
 
     def test_long_stream_multiple_windows(self):
-        ids = list(range(1, 30))
-        blocks = _windows(ids, seq_len=8, stride=8)
+        blocks = _windows(list(range(1, 30)), seq_len=8, stride=8)
         self.assertGreater(len(blocks), 1)
         self.assertTrue(all(len(b) == 9 for b in blocks))
 
@@ -72,8 +86,6 @@ class TestLoadCachedBlocks(unittest.TestCase):
         self.assertIsNone(_load_cached_blocks("/nope/x.blocks.npy", 8))
 
     def test_right_width_reused(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "t.blocks.npy")
             np.save(p, np.zeros((3, 9), dtype=np.int16))
@@ -82,16 +94,12 @@ class TestLoadCachedBlocks(unittest.TestCase):
             self.assertEqual(got.shape, (3, 9))
 
     def test_wrong_width_rebuilt(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "t.blocks.npy")
             np.save(p, np.zeros((3, 5), dtype=np.int16))
             self.assertIsNone(_load_cached_blocks(p, 8))
 
     def test_empty_returns_none(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "t.blocks.npy")
             np.save(p, np.zeros((0, 9), dtype=np.int16))
@@ -106,39 +114,51 @@ class TestCorpusSkip(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_dump_without_sid_is_skipped(self):
-        dump = os.path.join(self.tmp, "Orphan.1.dump.parquet")
-        with open(dump, "wb") as fh:
-            fh.write(b"not really a parquet")
-        corpus = Corpus(_args(os.path.join(self.tmp, "*dump.parquet")), logging)
+    def test_missing_sid_is_skipped(self):
+        man = os.path.join(self.tmp, "train.list")
+        with open(man, "w", encoding="utf-8") as fh:
+            fh.write("Gone/Orphan.sid\t1\n")
+        corpus = Corpus(_args(man, sid_root=self.tmp), logging)
         self.assertEqual(list(corpus.iter_block_seqs()), [])
 
     def test_n_vocab_is_fixed(self):
         corpus = Corpus(_args(""), logging)
-        self.assertEqual(corpus.n_vocab, 34)
+        self.assertEqual(corpus.n_vocab, 35)  # VOCAB 34 + PAD
 
 
-def test_parse_corpus_empty_glob_counts_zero(tmp_path):
-    pattern = os.path.join(str(tmp_path), "*dump.parquet")
-    assert parse_corpus(_args(pattern), logging) == 0
+def test_parse_corpus_empty_manifest_counts_zero(tmp_path):
+    man = tmp_path / "train.list"
+    man.write_text("", encoding="utf-8")
+    assert parse_corpus(_args(str(man)), logging) == 0
 
 
-def test_builds_blocks_from_pair(monty_pair, tmp_path):
-    sid, dump = monty_pair
-    shutil.copy(sid, os.path.join(str(tmp_path), "Monty_on_the_Run.sid"))
-    shutil.copy(dump, os.path.join(str(tmp_path), "Monty_on_the_Run.1.dump.parquet"))
-    corpus = Corpus(
-        _args(os.path.join(str(tmp_path), "*dump.parquet"), seq_len=1024), logging
-    )
+def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
+    """End-to-end manifest -> blocks with the codec mocked (the real sid-only
+    recovery is exercised by the codec repo's gate; here we pin the framework
+    plumbing: manifest read, +1 model-space shift, subtune-distinct blocks path)."""
+    import preframr.corpus as corpus_mod
+
+    sid_rel = "X/Tune.sid"
+    sid_path = tmp_path / "X" / "Tune.sid"
+    sid_path.parent.mkdir(parents=True)
+    sid_path.write_bytes(b"PSID-stub")
+    man = tmp_path / "train.list"
+    man.write_text(f"{sid_rel}\t1\n", encoding="utf-8")
+
+    monkeypatch.setattr(corpus_mod, "subtune_frames", lambda *a, **k: 100)
+    monkeypatch.setattr(corpus_mod, "recover_from_sid", lambda *a, **k: ("PROG", {}, None))
+    monkeypatch.setattr(corpus_mod, "program_to_ids", lambda prog: list(range(34)) * 40)
+
+    corpus = Corpus(_args(str(man), sid_root=str(tmp_path), seq_len=64), logging)
     got = list(corpus.iter_block_seqs())
     assert len(got) == 1
     kind, path, meta = got[0]
     assert kind == "train"
-    assert path.endswith(BLOCKS_SUFFIX)
+    assert path.endswith(".1" + BLOCKS_SUFFIX)
     arr = np.load(path)
-    assert arr.shape[1] == 1025
-    assert ((arr >= 0) & (arr <= 33)).all()
-    assert meta.subtune == 0
+    assert arr.shape[1] == 65
+    assert int(arr.min()) >= 0 and int(arr.max()) <= 34  # 0..33 shifted to 1..34, PAD=0
+    assert meta.subtune == 1
 
 
 if __name__ == "__main__":

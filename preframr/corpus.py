@@ -1,38 +1,40 @@
-"""BACC corpus builder: (.sid + .dump) pairs -> per-tune model-id block arrays. Replaces the deleted ``preframr_tokens.Corpus`` / ``parse_corpus``: each register ``.dump.parquet`` is paired with its sibling ``.sid`` (the codec recovers a program by running the playroutine white-box), only the Hubbard driver backends match, and tunes whose driver no backend recognises (or that fail to parse) are logged and skipped. Each kept tune is serialized to the fixed BACC alphabet, windowed into ``seq_len`` blocks (PAD-padded), and written next to the dump as ``<base>.blocks.npy``."""
+"""BACC corpus builder: a (.sid, subtune) manifest -> per-tune model-id block arrays.
 
-import glob
+The codec recovers a program directly from a ``.sid`` (the generic sidtrace path,
+``recover_from_sid``) -- no pre-rendered ``.dump.parquet``. Each manifest entry is
+``relpath<TAB>subtune`` (HVSC-relative ``.sid`` + 1-based subtune); the frame
+budget per subtune comes from the HVSC Songlengths. Tunes the codec cannot recover
+(or that fail) are logged and skipped. Each kept tune is serialized to the fixed
+BACC alphabet, windowed into ``seq_len`` blocks (PAD-padded), and written next to
+the ``.sid`` as ``<sid_base>.<subtune>.blocks.npy``."""
+
 import logging
 import os
-import re
 from dataclasses import dataclass
 
 import numpy as np
-from preframr_tokens import cpf_from_meta, program_to_ids, recover_program
+from preframr_tokens import CPF, program_to_ids
+from preframr_tokens.bacc.generic import recover_from_sid
 
+from preframr.songlengths import subtune_frames
 from preframr.tokenizer import PAD_ID, BaccTokenizer
 
-DUMP_SUFFIX = ".dump.parquet"
 BLOCKS_SUFFIX = ".blocks.npy"
 
 
 @dataclass
 class SeqMeta:
-    """Per-tune metadata the predict/logging path reads off a block set: source dump path, frame clock (cycles/frame, carried into render timing), and subtune index."""
+    """Per-tune metadata the predict/logging path reads off a block set: source .sid path, frame clock (cycles/frame, carried into render timing), and 1-based subtune index."""
 
     df_file: str
     irq: float
     subtune: int
 
 
-def _resolve_paths(dump):
-    """``<name>.<subtune>.dump.parquet`` -> (sid, subtune_index, base_prefix). The dump filename is 1-indexed per subtune while ``recover_program``'s subtune is 0-indexed; the ``.sid`` carries no subtune component; ``base`` (dump minus ``.dump.parquet``) is the meta-sidecar prefix + blocks-path stem."""
-    base = dump[: -len(DUMP_SUFFIX)] if dump.endswith(DUMP_SUFFIX) else dump
-    match = re.match(r"^(.*)\.(\d+)$", base)
-    if match:
-        name, sub = match.group(1), int(match.group(2))
-    else:
-        name, sub = base, 1
-    return name + ".sid", max(sub - 1, 0), base
+def _blocks_path(sid_path, subtune):
+    """``<sid_base>.<subtune>.blocks.npy`` next to the .sid (subtune-distinct)."""
+    base = sid_path[: -len(".sid")] if sid_path.endswith(".sid") else sid_path
+    return f"{base}.{subtune}{BLOCKS_SUFFIX}"
 
 
 def _windows(ids, seq_len, stride):
@@ -64,8 +66,35 @@ def _load_cached_blocks(blocks_path, seq_len):
     return arr
 
 
+def read_manifest(path):
+    """Parse a ``relpath<TAB>subtune`` manifest -> [(relpath, subtune)]. A bare
+    relpath (no tab) defaults to subtune 1; ``#`` comments + blanks ignored."""
+    out = []
+    with open(path, encoding="utf-8") as handle:
+        for raw in handle:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = line.split("\t") if "\t" in line else line.split()
+            subtune = int(parts[1]) if len(parts) > 1 else 1
+            out.append((parts[0], subtune))
+    return out
+
+
+def parse_eval_manifests(spec):
+    """``name=path;name=path`` -> [(name, path)] for named eval subsets."""
+    out = []
+    for chunk in (spec or "").split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        name, _, path = chunk.partition("=")
+        out.append((name.strip(), path.strip()))
+    return out
+
+
 class Corpus:
-    """Owns the BACC tokenizer + the dump-glob -> block-array orchestration."""
+    """Owns the BACC tokenizer + the manifest -> block-array orchestration."""
 
     def __init__(self, args, logger=logging):
         self.args = args
@@ -84,58 +113,68 @@ class Corpus:
     def preload(self, tokens=None, tkmodel=None):  # pylint: disable=unused-argument
         """No-op: the BACC alphabet is fixed, so there is nothing to pre-train; kept for signature compatibility with the old corpus (predict passes the checkpoint's tokens/tkmodel, both fixed/None here)."""
 
-    def _build_blocks(self, dump):
-        """Recover + tokenize + window one tune; write ``<base>.blocks.npy``. Returns ``(blocks_path, seq_meta)`` or ``None`` if skipped (missing ``.sid``, no matching driver backend, or a parse failure). An existing ``.blocks.npy`` of the right width is reused, so a prior parse run (or a restored cache) skips the py65 recovery."""
-        sid, subtune, base = _resolve_paths(dump)
-        cpf = cpf_from_meta(base)
+    def _sid_path(self, relpath):
+        root = getattr(self.args, "sid_root", "") or ""
+        return os.path.join(root, relpath) if root else relpath
+
+    def _build_blocks(self, relpath, subtune):
+        """Recover + tokenize + window one (sid, subtune); write the blocks array. Returns ``(blocks_path, seq_meta)`` or ``None`` if skipped (missing .sid, no Songlengths entry, no matching driver, or a parse failure). An existing ``.blocks.npy`` of the right width is reused, so a prior parse run (or a restored cache) skips the codec recovery."""
+        sid = self._sid_path(relpath)
         seq_len = self.args.seq_len
-        blocks_path = base + BLOCKS_SUFFIX
+        blocks_path = _blocks_path(sid, subtune)
         cached = _load_cached_blocks(blocks_path, seq_len)
         if cached is not None:
             self.logger.info(
-                "%s: reuse %s (%u blocks)",
-                os.path.basename(dump),
+                "%s.%u: reuse %s (%u blocks)",
+                os.path.basename(relpath),
+                subtune,
                 os.path.basename(blocks_path),
                 cached.shape[0],
             )
-            return blocks_path, SeqMeta(df_file=dump, irq=cpf, subtune=subtune)
+            return blocks_path, SeqMeta(df_file=sid, irq=CPF, subtune=subtune)
         if not os.path.exists(sid):
-            self.logger.info("skip %s: no sibling .sid (%s)", dump, sid)
+            self.logger.info("skip %s: no .sid", sid)
             return None
         try:
-            program = recover_program(sid, dump, cpf, subtune)
+            nframes = subtune_frames(sid, subtune, self.args.songlengths)
+            program, _resid, _dump = recover_from_sid(
+                sid, subtune=subtune, nframes=nframes
+            )
             ids = [i + 1 for i in program_to_ids(program)]
         except Exception as err:  # pylint: disable=broad-except
-            self.logger.info("skip %s: %s", dump, err)
+            self.logger.info("skip %s.%u: %s", relpath, subtune, err)
             return None
         stride = getattr(self.args, "block_stride", None) or seq_len
         blocks = _windows(ids, seq_len, stride)
         if not blocks:
-            self.logger.info("skip %s: too short (%u ids)", dump, len(ids))
+            self.logger.info(
+                "skip %s.%u: too short (%u ids)", relpath, subtune, len(ids)
+            )
             return None
         arr = np.asarray(blocks, dtype=np.int16)
         np.save(blocks_path, arr)
         self.logger.info(
-            "%s -> %s (%u ids, %u blocks of %u)",
-            os.path.basename(dump),
+            "%s.%u -> %s (%u ids, %u blocks of %u)",
+            os.path.basename(relpath),
+            subtune,
             os.path.basename(blocks_path),
             len(ids),
             arr.shape[0],
             arr.shape[1],
         )
-        return blocks_path, SeqMeta(df_file=dump, irq=cpf, subtune=subtune)
+        return blocks_path, SeqMeta(df_file=sid, irq=CPF, subtune=subtune)
 
-    def _iter(self, kind, pattern):
-        """Yield ``(kind, blocks_path, seq_meta)`` for each kept dump in glob."""
-        if not pattern:
+    def _iter(self, kind, manifest_path):
+        """Yield ``(kind, blocks_path, seq_meta)`` for each kept entry of a manifest."""
+        if not manifest_path or not os.path.exists(manifest_path):
             return
-        dumps = sorted(glob.glob(pattern, recursive=True))
+        entries = read_manifest(manifest_path)
         max_files = getattr(self.args, "max_files", 0)
         if max_files:
-            dumps = dumps[:max_files]
+            entries = entries[:max_files]
         kept = skipped = 0
-        for dump in dumps:
-            built = self._build_blocks(dump)
+        for relpath, subtune in entries:
+            built = self._build_blocks(relpath, subtune)
             if built is None:
                 skipped += 1
                 continue
@@ -144,16 +183,15 @@ class Corpus:
         self.logger.info("%s corpus: kept %u, skipped %u", kind, kept, skipped)
 
     def iter_block_seqs(self):
-        """Training (+ optional eval) block sets."""
-        yield from self._iter("train", self.args.reglogs)
-        eval_pat = getattr(self.args, "eval_reglogs", "")
-        if eval_pat:
-            yield from self._iter("val", eval_pat)
+        """Training (+ optional named eval) block sets."""
+        yield from self._iter("train", self.args.manifest)
+        for name, path in parse_eval_manifests(getattr(self.args, "eval_manifest", "")):
+            yield from self._iter(name, path)
 
     def iter_predict_block_seqs(self):
-        """Block sets for predict: the positional ``reglog`` else ``--reglogs``."""
-        pattern = getattr(self.args, "reglog", "") or self.args.reglogs
-        yield from self._iter("train", pattern)
+        """Block sets for predict: the positional ``manifest_arg`` else ``--manifest``."""
+        path = getattr(self.args, "manifest_arg", "") or self.args.manifest
+        yield from self._iter("train", path)
 
 
 def parse_corpus(args, logger):

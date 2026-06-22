@@ -5,27 +5,46 @@ from preframr.train.model import MODEL_GETTERS, MODEL_PRECISION
 
 def add_args(parser):
     parser.add_argument(
-        "reglog",
+        "manifest_arg",
         type=str,
         default="",
         nargs="?",
+        help="predict: a single manifest path (overrides --manifest).",
     )
     parser.add_argument(
-        "--reglogs",
+        "--manifest",
         type=str,
-        default="/scratch/preframr/training-dumps/**/*dump.parquet",
-        help="glob of register .dump.parquet files; each is paired with its "
-        "sibling .sid for BACC recovery (unmatched/undecodable tunes skipped).",
+        default="",
+        help="train manifest: lines of 'relpath<TAB>subtune' (.sid HVSC-relative + "
+        "1-based subtune), resolved under --sid-root and recovered sid-only via the "
+        "BACC codec (undecodable tunes skipped).",
     )
-    parser.add_argument("--eval-reglogs", type=str, default="")
+    parser.add_argument(
+        "--eval-manifest",
+        type=str,
+        default="",
+        help="named eval subsets 'name=path;name=path' (each becomes a val subset).",
+    )
+    parser.add_argument(
+        "--sid-root",
+        type=str,
+        default="/scratch/preframr/hvsc/C64Music",
+        help="root the manifest relpaths resolve against.",
+    )
+    parser.add_argument(
+        "--songlengths",
+        type=str,
+        default="/scratch/preframr/hvsc/C64Music/DOCUMENTS/Songlengths.md5",
+        help="HVSC Songlengths.md5 for per-subtune frame budgets.",
+    )
     parser.add_argument(
         "--model-state",
         type=str,
         default="",
     )
     parser.add_argument("--tb-logs", type=str, default="/scratch/preframr/tb_logs")
-    parser.add_argument("--seq-len", type=int, default=8192)
-    parser.add_argument("--max-seq-len", type=int, default=8192)
+    parser.add_argument("--seq-len", type=int, default=4096)
+    parser.add_argument("--max-seq-len", type=int, default=4096)
     parser.add_argument("--prompt-seq-len", type=int, default=2048)
     parser.add_argument("--block-stride", type=int, default=None)
     parser.add_argument("--max-files", type=int, default=2048)

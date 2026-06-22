@@ -62,7 +62,7 @@ def decodes_to_program(ids):
     """True iff ``ids`` (model-space) round-trips to a valid BACC program."""
     prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= VOCAB]
     try:
-        ids_to_program(prog_ids)
+        ids_to_program(prog_ids, driver="generic")
         return True
     except Exception:  # pylint: disable=broad-except
         return False

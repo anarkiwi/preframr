@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Thin CLI shim around preframr.corpus.parse_corpus: builds (and caches) each tune's BACC token block array from its (.sid + .dump) pair so a later train run reads ready-made ``.blocks.npy`` files."""
+"""Thin CLI shim around preframr.corpus.parse_corpus: builds (and caches) each tune's BACC token block array from a (.sid, subtune) manifest (sid-only codec recovery) so a later train run reads ready-made ``.blocks.npy`` files."""
 
 import argparse
 

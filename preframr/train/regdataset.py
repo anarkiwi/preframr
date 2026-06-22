@@ -166,7 +166,7 @@ def get_loader(args, dataset):
 
 def get_val_loader(args, dataset):
     """Return validation DataLoaders + the parallel subset-name list."""
-    if not getattr(args, "eval_reglogs", ""):
+    if not getattr(args, "eval_manifest", ""):
         return None, []
     loaders = []
     names = []

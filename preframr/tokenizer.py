@@ -38,4 +38,4 @@ class BaccTokenizer:
     def decode(self, ids):
         """Model-space id list -> BaccProgram; PAD and out-of-range ids are dropped before the shift-down, so a padded stream round-trips, while a truncated/invalid generated stream raises (``ids_to_program`` indexes past the end) for callers to handle."""
         prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= self.VOCAB]
-        return ids_to_program(prog_ids)
+        return ids_to_program(prog_ids, driver="generic")

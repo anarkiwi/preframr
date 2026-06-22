@@ -66,7 +66,7 @@ def render_ids_to_wav(ids, cpf=CPF, wav_path=None, chip_model="MOS8580"):
     from preframr_tokens import VOCAB  # pylint: disable=import-outside-toplevel
 
     prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= VOCAB]
-    program = ids_to_program(prog_ids)
+    program = ids_to_program(prog_ids, driver="generic")
     state = render_program(program)
     return render_state_to_wav(state, cpf, wav_path, chip_model)
 
