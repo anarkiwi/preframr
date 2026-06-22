@@ -22,7 +22,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downl
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/sources.list.d/oneAPI.list /etc/apt/sources.list.d/intel-graphics.list \
-    && apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils build-essential && apt-get -y dist-upgrade
+    && apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils git ca-certificates build-essential && apt-get -y dist-upgrade
 # REQ may carry a path component (e.g. jetson/predict-requirements.txt, kept in
 # its own dir so dependabot's pip discovery -- rooted at / and non-recursive --
 # never bumps the Jetson pins). Copy to a fixed name so the install path does

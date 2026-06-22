@@ -11,7 +11,7 @@ ARG SIDTRACE_REF="main"
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get -yq update && apt-get install --no-install-recommends -yq \
-    git ca-certificates build-essential autoconf automake libtool pkg-config
+    git ca-certificates build-essential autoconf automake libtool pkg-config xa65
 RUN git clone --recursive --branch ${SIDTRACE_REF} ${SIDTRACE_REPO} /sidtrace \
     && make -C /sidtrace
 RUN /sidtrace/build/sidtrace --help >/dev/null 2>&1 || test -x /sidtrace/build/sidtrace
@@ -26,7 +26,7 @@ ENV PATH="$PATH:/root/.local/bin"
 RUN rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils cc1541 xa65 build-essential && apt-get -y dist-upgrade
+    apt-get -yq update && apt-get install --no-install-recommends -yq python3-pip python3-dev libasound2-dev libasound2-plugins alsa-utils pulseaudio-utils cc1541 xa65 git ca-certificates build-essential && apt-get -y dist-upgrade
 COPY --from=sidtrace /sidtrace/build/sidtrace /usr/local/bin/sidtrace
 ENV SIDTRACE_BIN=/usr/local/bin/sidtrace
 COPY ${REQ} test-requirements.txt /root

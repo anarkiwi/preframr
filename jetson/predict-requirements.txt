@@ -14,4 +14,4 @@ torchao==0.17.0
 torchtune==0.6.1
 zstandard==0.25.0
 preframr-audio>=0.5.9
-preframr-tokens>=0.51.0
+preframr-tokens @ git+https://github.com/anarkiwi/preframr-tokens.git@main
