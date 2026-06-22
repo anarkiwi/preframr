@@ -18,7 +18,7 @@ black --check preframr tests && \
     pytest -svvv --cov=preframr --cov-report= /tests && \
     pylint -E preframr && \
     pylint --disable=all --enable=${PYLINT_CURATED} preframr && \
-    pylint -E /tests && \
-    pylint --disable=all --enable=${PYLINT_CURATED} /tests && \
+    pylint -E tests && \
+    pylint --disable=all --enable=${PYLINT_CURATED} tests && \
     pyright preframr && \
     coverage report --show-missing --fail-under=77
