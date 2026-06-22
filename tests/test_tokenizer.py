@@ -58,14 +58,14 @@ class TestBaccTokenizer(unittest.TestCase):
         tk = BaccTokenizer()
         prog = _synthetic_program()
         ids = tk.encode(prog)
-        prog2 = tk.decode(ids)
+        prog2 = tk.decode(ids, driver="hubbard_monty")
         self.assertEqual(tk.encode(prog2), ids)
 
     def test_decode_drops_pad_and_out_of_range(self):
         tk = BaccTokenizer()
         ids = tk.encode(_synthetic_program())
         padded = [PAD_ID] + ids + [PAD_ID, VOCAB + 5]
-        self.assertEqual(tk.encode(tk.decode(padded)), ids)
+        self.assertEqual(tk.encode(tk.decode(padded, driver="hubbard_monty")), ids)
 
 
 if __name__ == "__main__":

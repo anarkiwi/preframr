@@ -43,9 +43,7 @@ class TestReadManifest(unittest.TestCase):
             p = os.path.join(d, "m.list")
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write("A/Tune.sid\t2\n# comment\n\nB/Other.sid\n")
-            self.assertEqual(
-                read_manifest(p), [("A/Tune.sid", 2), ("B/Other.sid", 1)]
-            )
+            self.assertEqual(read_manifest(p), [("A/Tune.sid", 2), ("B/Other.sid", 1)])
 
 
 class TestParseEvalManifests(unittest.TestCase):
@@ -146,7 +144,9 @@ def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
     man.write_text(f"{sid_rel}\t1\n", encoding="utf-8")
 
     monkeypatch.setattr(corpus_mod, "subtune_frames", lambda *a, **k: 100)
-    monkeypatch.setattr(corpus_mod, "recover_from_sid", lambda *a, **k: ("PROG", {}, None))
+    monkeypatch.setattr(
+        corpus_mod, "recover_from_sid", lambda *a, **k: ("PROG", {}, None)
+    )
     monkeypatch.setattr(corpus_mod, "program_to_ids", lambda prog: list(range(34)) * 40)
 
     corpus = Corpus(_args(str(man), sid_root=str(tmp_path), seq_len=64), logging)

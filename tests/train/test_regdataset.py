@@ -19,9 +19,11 @@ from preframr.train.regdataset import (
 
 def _args(**kw):
     defaults = dict(
-        reglog="",
-        reglogs="",
-        eval_reglogs="",
+        manifest_arg="",
+        manifest="",
+        eval_manifest="",
+        sid_root="",
+        songlengths="",
         seq_len=8,
         block_stride=None,
         max_files=8,
@@ -36,8 +38,8 @@ def _args(**kw):
 class TestRegDataset(unittest.TestCase):
     def test_init_fixed_vocab(self):
         ds = RegDataset(_args(), logger=logging)
-        self.assertEqual(ds.n_vocab, 34)
-        self.assertEqual(ds.n_words, 34)
+        self.assertEqual(ds.n_vocab, 35)  # VOCAB 34 + PAD
+        self.assertEqual(ds.n_words, 35)
         self.assertEqual(ds.reg_widths, {})
         self.assertIsNotNone(ds.block_mapper)
         self.assertIsNotNone(ds.val_block_mapper)
@@ -92,7 +94,7 @@ class TestLoaders(unittest.TestCase):
         self.assertEqual(loader.batch_size, 2)
 
     def test_get_val_loader_none_without_eval(self):
-        loader, names = get_val_loader(_args(eval_reglogs=""), RegDataset(_args()))
+        loader, names = get_val_loader(_args(eval_manifest=""), RegDataset(_args()))
         self.assertIsNone(loader)
         self.assertEqual(names, [])
 

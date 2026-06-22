@@ -35,7 +35,7 @@ class BaccTokenizer:
         """BaccProgram -> model-space id list (program ids shifted up by one)."""
         return [i + 1 for i in program_to_ids(program)]
 
-    def decode(self, ids):
-        """Model-space id list -> BaccProgram; PAD and out-of-range ids are dropped before the shift-down, so a padded stream round-trips, while a truncated/invalid generated stream raises (``ids_to_program`` indexes past the end) for callers to handle."""
+    def decode(self, ids, driver="generic"):
+        """Model-space id list -> BaccProgram; PAD and out-of-range ids are dropped before the shift-down, so a padded stream round-trips, while a truncated/invalid generated stream raises (``ids_to_program`` indexes past the end) for callers to handle. ``driver`` defaults to ``generic`` -- the framework trains on sid-only generic-driver streams; pass the matching driver to round-trip a program serialized under a different backend."""
         prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= self.VOCAB]
-        return ids_to_program(prog_ids, driver="generic")
+        return ids_to_program(prog_ids, driver=driver)
