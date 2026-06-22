@@ -96,7 +96,7 @@ class TestRenderProgram(unittest.TestCase):
         n_prog = render_program_to_wav(prog, CPF, None)
         self.assertGreater(n_prog, 0)
         ids = BaccTokenizer().encode(prog)
-        n_ids = render_ids_to_wav(ids, CPF, None)
+        n_ids = render_ids_to_wav(ids, CPF, None, driver="hubbard_monty")
         self.assertEqual(n_ids, n_prog)
 
 

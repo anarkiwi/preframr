@@ -121,7 +121,7 @@ class TestCorpusSkip(unittest.TestCase):
 
     def test_n_vocab_is_fixed(self):
         corpus = Corpus(_args(""), logging)
-        self.assertEqual(corpus.n_vocab, 35)  # VOCAB 34 + PAD
+        self.assertEqual(corpus.n_vocab, 35)
 
 
 def test_parse_corpus_empty_manifest_counts_zero(tmp_path):
@@ -157,7 +157,7 @@ def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
     assert path.endswith(".1" + BLOCKS_SUFFIX)
     arr = np.load(path)
     assert arr.shape[1] == 65
-    assert int(arr.min()) >= 0 and int(arr.max()) <= 34  # 0..33 shifted to 1..34, PAD=0
+    assert int(arr.min()) >= 0 and int(arr.max()) <= 34
     assert meta.subtune == 1
 
 

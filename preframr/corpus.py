@@ -1,12 +1,4 @@
-"""BACC corpus builder: a (.sid, subtune) manifest -> per-tune model-id block arrays.
-
-The codec recovers a program directly from a ``.sid`` (the generic sidtrace path,
-``recover_from_sid``) -- no pre-rendered ``.dump.parquet``. Each manifest entry is
-``relpath<TAB>subtune`` (HVSC-relative ``.sid`` + 1-based subtune); the frame
-budget per subtune comes from the HVSC Songlengths. Tunes the codec cannot recover
-(or that fail) are logged and skipped. Each kept tune is serialized to the fixed
-BACC alphabet, windowed into ``seq_len`` blocks (PAD-padded), and written next to
-the ``.sid`` as ``<sid_base>.<subtune>.blocks.npy``."""
+"""BACC corpus builder: a (.sid, subtune) manifest -> per-tune model-id block arrays. The codec recovers each ``.sid`` sid-only (``recover_from_sid``, no pre-rendered dump); each manifest entry is ``relpath<TAB>subtune`` with the frame budget from the HVSC Songlengths, and every kept tune is serialized to the fixed BACC alphabet and windowed into ``seq_len`` blocks written next to the ``.sid`` as ``<sid_base>.<subtune>.blocks.npy`` (unrecoverable tunes are skipped)."""
 
 import logging
 import os

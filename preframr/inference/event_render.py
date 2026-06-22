@@ -61,12 +61,14 @@ def state_to_dump_df(state, cpf=CPF, chipno=0):
     return pd.DataFrame(rows, columns=["clock", "reg", "val", "chipno"])
 
 
-def render_ids_to_wav(ids, cpf=CPF, wav_path=None, chip_model="MOS8580"):
-    """Model-space id stream -> WAV: shift ids back to BACC program space (dropping PAD / out-of-range), recover the program, render to per-frame state, then to audio. Raises if the id stream is not a complete valid BACC program (``ids_to_program`` indexes past a truncated stream), so callers feeding generated output wrap this and fall back."""
+def render_ids_to_wav(
+    ids, cpf=CPF, wav_path=None, chip_model="MOS8580", driver="generic"
+):
+    """Model-space id stream -> WAV: shift ids back to BACC program space (dropping PAD / out-of-range), recover the program (``driver`` defaults to ``generic`` = the trained sid-only stream), render to per-frame state, then to audio. Raises if the id stream is not a complete valid BACC program (``ids_to_program`` indexes past a truncated stream), so callers feeding generated output wrap this and fall back."""
     from preframr_tokens import VOCAB  # pylint: disable=import-outside-toplevel
 
     prog_ids = [int(i) - 1 for i in ids if 1 <= int(i) <= VOCAB]
-    program = ids_to_program(prog_ids, driver="generic")
+    program = ids_to_program(prog_ids, driver=driver)
     state = render_program(program)
     return render_state_to_wav(state, cpf, wav_path, chip_model)
 

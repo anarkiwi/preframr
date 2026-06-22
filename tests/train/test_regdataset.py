@@ -38,7 +38,7 @@ def _args(**kw):
 class TestRegDataset(unittest.TestCase):
     def test_init_fixed_vocab(self):
         ds = RegDataset(_args(), logger=logging)
-        self.assertEqual(ds.n_vocab, 35)  # VOCAB 34 + PAD
+        self.assertEqual(ds.n_vocab, 35)
         self.assertEqual(ds.n_words, 35)
         self.assertEqual(ds.reg_widths, {})
         self.assertIsNotNone(ds.block_mapper)

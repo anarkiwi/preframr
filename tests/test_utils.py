@@ -49,7 +49,7 @@ class TestAddArgs(unittest.TestCase):
     def test_argparse_defaults(self):
         parser = add_args(argparse.ArgumentParser())
         args = parser.parse_args([])
-        self.assertEqual(args.seq_len, 8192)
+        self.assertEqual(args.seq_len, 4096)
         self.assertEqual(args.predictions, 1)
         self.assertEqual(args.cents, 50)
 
