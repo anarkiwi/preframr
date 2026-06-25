@@ -9,6 +9,8 @@ import unittest
 
 import numpy as np
 
+from preframr_tokens import VOCAB
+
 from preframr.corpus import (
     BLOCKS_SUFFIX,
     Corpus,
@@ -121,7 +123,7 @@ class TestCorpusSkip(unittest.TestCase):
 
     def test_n_vocab_is_fixed(self):
         corpus = Corpus(_args(""), logging)
-        self.assertEqual(corpus.n_vocab, 35)
+        self.assertEqual(corpus.n_vocab, VOCAB + 1)
 
 
 def test_parse_corpus_empty_manifest_counts_zero(tmp_path):
@@ -147,7 +149,9 @@ def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(
         corpus_mod, "recover_from_sid", lambda *a, **k: ("PROG", {}, None)
     )
-    monkeypatch.setattr(corpus_mod, "program_to_ids", lambda prog: list(range(34)) * 40)
+    monkeypatch.setattr(
+        corpus_mod, "program_to_ids", lambda prog: list(range(VOCAB)) * 40
+    )
 
     corpus = Corpus(_args(str(man), sid_root=str(tmp_path), seq_len=64), logging)
     got = list(corpus.iter_block_seqs())
@@ -157,7 +161,7 @@ def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
     assert path.endswith(".1" + BLOCKS_SUFFIX)
     arr = np.load(path)
     assert arr.shape[1] == 65
-    assert int(arr.min()) >= 0 and int(arr.max()) <= 34
+    assert int(arr.min()) >= 0 and int(arr.max()) <= VOCAB
     assert meta.subtune == 1
 
 

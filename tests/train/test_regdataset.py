@@ -6,6 +6,7 @@ import unittest
 
 import numpy as np
 import torch
+from preframr_tokens import VOCAB
 
 from preframr.corpus import SeqMeta
 from preframr.train.regdataset import (
@@ -38,8 +39,8 @@ def _args(**kw):
 class TestRegDataset(unittest.TestCase):
     def test_init_fixed_vocab(self):
         ds = RegDataset(_args(), logger=logging)
-        self.assertEqual(ds.n_vocab, 35)
-        self.assertEqual(ds.n_words, 35)
+        self.assertEqual(ds.n_vocab, VOCAB + 1)
+        self.assertEqual(ds.n_words, VOCAB + 1)
         self.assertEqual(ds.reg_widths, {})
         self.assertIsNotNone(ds.block_mapper)
         self.assertIsNotNone(ds.val_block_mapper)
