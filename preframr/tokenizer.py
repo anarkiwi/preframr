@@ -1,26 +1,31 @@
-"""Fixed BACC token alphabet adapter. The BACC codec emits a flat stream over the
-flat v2 typed alphabet (:mod:`preframr_tokens.bacc.flat_serialize`): contiguous id
-RANGES encode an atom's KIND (structural / NOTE_* / INSTR_REF_* / CMD_* / BYTE_*),
-no place value and no inline LZ. The model reserves id 0 = PAD (the ``y != 0`` loss
-mask and ``generate(pad_id=0)`` both assume it), so this adapter shifts program ids
-``0..VOCAB-1`` up by one into model space ``1..VOCAB`` and exposes the attributes the
-model wrapper + predict path read. The alphabet is fixed, so ``encode``/``decode``
-are pure round-trip wrappers."""
+"""Fixed BACC token alphabet adapter over the flat v2 typed alphabet (:mod:`preframr_tokens.bacc.flat_serialize`): contiguous id RANGES encode an atom's KIND (structural / NOTE_* / INSTR_REF_* / CMD_* / BYTE_*), with no place value and no inline LZ. The model reserves id 0 = PAD (the ``y != 0`` loss mask and ``generate(pad_id=0)`` both assume it), so this adapter shifts program ids ``0..VOCAB-1`` up by one into model space ``1..VOCAB`` and exposes the attributes the model wrapper + predict path read. The alphabet is fixed, so ``encode``/``decode`` are pure round-trip wrappers."""
 
 from preframr_tokens import VOCAB, ids_to_program, program_to_ids
 
 PAD_ID = 0
 
+_LABEL_SKIP = frozenset(
+    (
+        "VOCAB",
+        "PAD_ID",
+        "NREG",
+        "NOTE_BASE",
+        "NOTE_SPAN",
+        "NOTE_ZERO",
+        "NOTE_MIN",
+        "NOTE_MAX",
+        "INSTR_REF_BASE",
+        "INSTR_REF_SPAN",
+        "CMD_BASE",
+        "CMD_SPAN",
+        "BYTE_BASE",
+        "BYTE_SPAN",
+    )
+)
+
 
 def _flat_label(program_id):
-    """Human-readable label for a flat v2 *program-space* id (0..VOCAB-1).
-
-    The flat alphabet is typed by id range: the structural / control block carries
-    individually-named tokens (BOS, ROW, PATTERN_BEGIN, ...), and the value ranges
-    are NOTE_* (one id per A440 grid index + the REST/KEYOFF/KEYON/RAW markers),
-    INSTR_REF_* (one id per instrument ordinal), CMD_* (one id per command) and
-    BYTE_* (one id per 0..255 byte value). Labels are derived from the codec's own
-    range constants so they cannot drift from the alphabet."""
+    """Human-readable label for a flat v2 program-space id (0..VOCAB-1): the typed value ranges map to ``BYTE_n`` / ``CMD_n`` / ``INSTR_REF_n`` / ``NOTE_+n`` (signed A440 grid offset), and the structural block resolves to its named codec constant (BOS, ROW, ...); derived from :mod:`flat_serialize`'s own range constants so labels cannot drift from the alphabet."""
     from preframr_tokens.bacc import flat_serialize as f
 
     if f.BYTE_BASE <= program_id < f.BYTE_BASE + f.BYTE_SPAN:
@@ -30,31 +35,12 @@ def _flat_label(program_id):
     if f.INSTR_REF_BASE <= program_id < f.INSTR_REF_BASE + f.INSTR_REF_SPAN:
         return f"INSTR_REF_{program_id - f.INSTR_REF_BASE}"
     if f.NOTE_BASE <= program_id < f.NOTE_BASE + f.NOTE_SPAN:
-        # Pitched grid index relative to A440 (n=0=A4); the non-pitch markers
-        # (REST/KEYOFF/KEYON/RAW) live at fixed ids inside the structural block.
         return f"NOTE_{program_id - f.NOTE_ZERO:+d}"
-    # Structural / control block: recover the constant NAME for this id.
     for name in dir(f):
         if (
             name.isupper()
+            and name not in _LABEL_SKIP
             and getattr(f, name) == program_id
-            and name
-            not in (
-                "VOCAB",
-                "PAD_ID",
-                "NREG",
-                "NOTE_BASE",
-                "NOTE_SPAN",
-                "NOTE_ZERO",
-                "NOTE_MIN",
-                "NOTE_MAX",
-                "INSTR_REF_BASE",
-                "INSTR_REF_SPAN",
-                "CMD_BASE",
-                "CMD_SPAN",
-                "BYTE_BASE",
-                "BYTE_SPAN",
-            )
         ):
             return name
     return f"RESERVED_{program_id}"

@@ -20,19 +20,11 @@ _SEED_KEYS = (
 )
 
 
-# TODO(flat-v2): these round-trip tests build a v1-style ``hubbard_monty`` /
-# generic-driver ``BaccProgram`` (a flat ``NoteOn`` score). Under the flat v2 token
-# library the GoatTracker driver routes to the new flat alphabet, but the GENERIC
-# driver serializer is mid-port and now requires the new generic IR tables
-# (``genfits`` / ``note_table``) that this synthetic fixture does not build, so the
-# generic round-trip raises ``KeyError('genfits')`` (a pre-existing failure on
-# clean main, not introduced by the flat-v2 wiring). Re-point these at a real
-# GoatTracker flat round-trip (needs a ``pygoattracker`` Song fixture) or rebuild
-# the fixture once the generic backend's flat port lands. Skipped until then so the
-# suite reflects the framework wiring (which is alphabet-agnostic), not the
-# in-flight token-lib backend.
 _GENERIC_PORT_BLOCKED = (
-    "generic-driver serializer mid-port (needs genfits/note_table IR)"
+    "TODO(flat-v2): the generic/hubbard_monty serializer is mid-port (the backend was"
+    " removed; flat-v2 GoatTracker is the live path), so this v1-style NoteOn fixture"
+    " no longer round-trips. Re-point at a GoatTracker flat round-trip (pygoattracker"
+    " Song fixture) once the generic flat port lands."
 )
 
 

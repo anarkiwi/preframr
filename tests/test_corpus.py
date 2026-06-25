@@ -149,8 +149,6 @@ def test_builds_blocks_from_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(
         corpus_mod, "recover_from_sid", lambda *a, **k: ("PROG", {}, None)
     )
-    # A synthetic program-space id stream (0..VOCAB-1); corpus shifts each +1 into
-    # model space, so the saved block ids land in 1..VOCAB.
     monkeypatch.setattr(
         corpus_mod, "program_to_ids", lambda prog: list(range(VOCAB)) * 40
     )

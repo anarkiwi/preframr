@@ -14,6 +14,12 @@ from preframr.inference.event_render import (
 
 CPF = 19656
 
+_GENERIC_PORT_BLOCKED = (
+    "TODO(flat-v2): the generic/hubbard_monty backend was removed (flat-v2 GoatTracker"
+    " is the live path), so this v1-style NoteOn program no longer renders; re-point at"
+    " a GoatTracker flat fixture once the generic flat port lands."
+)
+
 _SEED_KEYS = (
     "notenum",
     "instrnr",
@@ -88,6 +94,7 @@ class TestRenderStateToWav(unittest.TestCase):
 
 
 class TestRenderProgram(unittest.TestCase):
+    @unittest.skip(_GENERIC_PORT_BLOCKED)
     def test_render_program_and_ids_to_wav(self):
         pytest.importorskip("pyresidfp")
         from preframr.tokenizer import BaccTokenizer
